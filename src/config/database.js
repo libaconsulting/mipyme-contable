@@ -1,7 +1,7 @@
-// Conexión a MySQL/MariaDB (Hostinger Business - hPanel > Bases de datos MySQL)
-// Nota técnica: usamos MySQL en vez de PostgreSQL porque es el motor nativo
-// del plan Business de Hostinger. Los UUID se guardan como CHAR(36); los
-// valores monetarios como DECIMAL(15,2), sin pérdida de precisión.
+// Conexión a PostgreSQL, provisto por Supabase a través de la integración
+// de Hostinger. Nota técnica: el modelo de datos no cambia en nada frente
+// a MySQL — UUID y DECIMAL son tipos nativos en ambos motores. Solo cambia
+// el dialecto de conexión, aquí y en package.json (pg en vez de mysql2).
 
 require('dotenv').config();
 const { Sequelize } = require('sequelize');
@@ -12,11 +12,13 @@ const sequelize = new Sequelize(
   process.env.DB_PASSWORD,
   {
     host: process.env.DB_HOST,
-    port: process.env.DB_PORT || 3306,
-    dialect: 'mysql',
+    port: process.env.DB_PORT || 5432,
+    dialect: 'postgres',
+    dialectOptions: {
+      ssl: { require: true, rejectUnauthorized: false }, // Supabase exige SSL
+    },
     logging: process.env.NODE_ENV === 'development' ? console.log : false,
     define: {
-      // Todas las tablas versionan created_at / updated_at automáticamente
       timestamps: true,
       underscored: true,
     },
