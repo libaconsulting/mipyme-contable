@@ -1,0 +1,32 @@
+{
+  "name": "mipyme-contable",
+  "version": "0.1.0",
+  "description": "Sistema contable para microempresas colombianas (NIIF Grupo 3)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "migrate": "npx sequelize-cli db:migrate",
+    "migrate:undo": "npx sequelize-cli db:migrate:undo",
+    "job:depreciacion": "node src/jobs/depreciacionMensual.js",
+    "job:vencimientoCotizaciones": "node src/jobs/vencimientoCotizaciones.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "sequelize": "^6.37.3",
+    "mysql2": "^3.10.0",
+    "dotenv": "^16.4.5",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "uuid": "^9.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.4",
+    "sequelize-cli": "^6.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
