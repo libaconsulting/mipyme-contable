@@ -4,6 +4,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 
 const sequelize = require('./config/database');
+require('./core/models'); // registra todos los modelos antes de sync()
 const routes = require('./routes');
 const webhooksFacturacion = require('./integrations/webhooks/proveedorTecnologicoWebhook');
 
@@ -25,8 +26,6 @@ async function iniciar() {
     await sequelize.authenticate();
     console.log('Conexión a la base de datos establecida.');
 
-    // En desarrollo, sincroniza el esquema. En producción usar migraciones
-    // (npm run migrate) en vez de sync({ alter: true }).
     if (process.env.NODE_ENV === 'development') {
       await sequelize.sync({ alter: true });
     }
