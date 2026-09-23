@@ -13,10 +13,13 @@ src/
 ├── core/                     # Núcleo contable — nunca depende de la infraestructura
 │   ├── models/                 Empresa, Tercero, PlanCuentas, Asiento,
 │   │                           Movimiento, PeriodoContable, ReglaContabilizacion,
-│   │                           ParametroTributario
+│   │                           ParametroTributario, Usuario, LogAuditoria
 │   └── services/
 │       ├── motorAsientos.js    Traduce eventos operativos en partida doble
-│       └── cierrePeriodo.js    Máquina de estados del cierre mensual
+│       ├── cierrePeriodo.js    Máquina de estados del cierre mensual
+│       ├── authService.js      Login y registro de usuarios
+│       ├── auditoria.js        Registro de acciones sensibles
+│       └── seedService.js      Datos base: empresa, periodo, cuentas, reglas
 ├── modules/                  # Módulos operativos (capa transaccional)
 │   ├── ventas/                 Completo — patrón de referencia
 │   ├── compras/                Completo — mismo patrón que ventas
@@ -28,8 +31,8 @@ src/
 │   ├── adapters/                Interfaz única por tipo de documento
 │   └── webhooks/                Recepción asíncrona de confirmaciones DIAN
 ├── jobs/                     # Disparados por Cron Jobs de hPanel
-├── middleware/                # Auth, manejo de errores (pendiente)
-└── routes/                   # Router raíz
+├── middleware/                # authenticate + authorize por rol
+└── routes/                   # Router raíz (auth, seed, ventas, compras)
 ```
 
 ## Principios de diseño (no romper esto)
@@ -78,13 +81,22 @@ Cuatro roles, controlados por `src/middleware/auth.js` (`authenticate` +
 `POST /api/auth/login` y `POST /api/auth/registro` son las únicas rutas
 públicas. Todas las demás requieren `Authorization: Bearer <token>`.
 
+## Datos base (seed)
+
+`POST /api/seed` (requiere sesión con rol `contador` o `dueño`) crea:
+una empresa de prueba, el periodo contable del mes en curso, un plan de
+cuentas mínimo, y las reglas de contabilización para los eventos que
+Ventas y Compras ya disparan. Seguro de correr más de una vez — no
+duplica nada. Sin esto, `motorAsientos` no tiene con qué contabilizar.
+
 ## Pendientes inmediatos
 
 - [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] Migraciones de Sequelize (`sequelize-cli`) para las tablas ya modeladas
-- [ ] Completar los módulos de inventarios, nómina, activos fijos y tesorería (protegidos con `authenticate`, igual que ventas y compras)
+- [ ] Completar los módulos de inventarios, nómina, activos fijos y tesorería (protegidos con `authenticate`, igual que ventas y compras) — y agregar sus reglas de contabilización a `seedService.js`
+- [ ] Soportar múltiples líneas (débito/crédito) por evento en `motorAsientos` — hoy una venta no discrimina el IVA en un renglón aparte
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
-- [ ] Seed de: al menos una `Empresa`, un `PeriodoContable` abierto, `PlanCuentas` y `ReglaContabilizacion` por defecto — sin esto, `motorAsientos` no tiene con qué contabilizar
+- [ ] CRUD real de cotizaciones y órdenes de compra (hoy solo existe la conversión a factura, no la creación)
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
 - [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
