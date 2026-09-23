@@ -36,9 +36,9 @@ const CUENTAS = [
   { codigo: '6135', nombre: 'Costo de ventas', naturaleza: 'debito', elementoNiif: 'costo' },
 ];
 
-// Reglas por defecto para los eventos que Ventas y Compras ya disparan
-// (ver la tabla de niveles de automatización que definimos). A medida
-// que se construyan Nómina, Activos Fijos y Tesorería, se agregan más
+// Reglas por defecto para los eventos que Ventas, Compras y Nómina ya
+// disparan (ver la tabla de niveles de automatización que definimos).
+// A medida que se construyan Activos Fijos y Tesorería, se agregan más
 // reglas aquí siguiendo el mismo patrón.
 //
 // NOTA: el motor de asientos hoy solo soporta un débito y un crédito
@@ -51,6 +51,8 @@ const REGLAS = [
   { eventoOrigen: 'factura_compra_con_orden', debito: '1435', credito: '2205', nivel: 'automatico' },
   { eventoOrigen: 'factura_compra_sin_orden', debito: '5195', credito: '2205', nivel: 'asistido' },
   { eventoOrigen: 'documento_soporte_compra', debito: '5195', credito: '2335', nivel: 'asistido' },
+  { eventoOrigen: 'nomina_devengado', debito: '5105', credito: '2505', nivel: 'automatico' },
+  { eventoOrigen: 'provision_prestaciones', debito: '5105', credito: '2610', nivel: 'automatico' },
 ];
 
 // Seguro de correr más de una vez: usa findOrCreate en cada paso, así

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const ventasService = require('../../modules/ventas/services/ventas.service');
 const comprasService = require('../../modules/compras/services/compras.service');
+const nominaService = require('../../modules/nomina/services/nomina.service');
 
 // El proveedor tecnológico llama esta URL cuando la DIAN valida (o rechaza)
 // el documento. No requiere procesos en segundo plano: es una petición
@@ -56,6 +57,22 @@ router.post('/documento-soporte', async (req, res) => {
   }
 });
 
-// TODO: /webhooks/nomina sigue el mismo patrón que /webhooks/facturacion
+// Confirmación de que la DIAN validó el documento soporte de nómina de
+// un empleado específico.
+//
+// POST /webhooks/nomina
+router.post('/nomina', async (req, res) => {
+  try {
+    const { nominaEmpleadoId, estado, cufe, xmlUrl } = req.body;
+
+    if (estado === 'aceptado') {
+      await nominaService.confirmarNominaEmitida(nominaEmpleadoId, { cufe, xmlUrl });
+    }
+
+    res.status(200).json({ recibido: true });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
 
 module.exports = router;
