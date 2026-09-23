@@ -1,7 +1,28 @@
 const { v4: uuidv4 } = require('uuid');
+const { Op } = require('sequelize');
 const Asiento = require('../models/Asiento');
 const Movimiento = require('../models/Movimiento');
 const ReglaContabilizacion = require('../models/ReglaContabilizacion');
+const PeriodoContable = require('../models/PeriodoContable');
+
+// Resuelve el periodo contable vigente de la empresa (abierto o en_cierre)
+// para que ningún módulo operativo tenga que averiguarlo por su cuenta.
+// Requiere que exista al menos un PeriodoContable creado de antemano —
+// sin eso, ningún evento se puede contabilizar (a propósito).
+async function obtenerPeriodoVigente(empresaId) {
+  const periodo = await PeriodoContable.findOne({
+    where: { empresaId, estado: { [Op.in]: ['abierto', 'en_cierre'] } },
+    order: [['fechaInicio', 'DESC']],
+  });
+
+  if (!periodo) {
+    throw new Error(
+      'No hay un periodo contable abierto para esta empresa. Crea uno antes de contabilizar.'
+    );
+  }
+
+  return periodo;
+}
 
 /**
  * Punto de entrada único que usan TODOS los módulos operativos
@@ -10,7 +31,7 @@ const ReglaContabilizacion = require('../models/ReglaContabilizacion');
  *
  * @param {Object} evento
  * @param {string} evento.empresaId
- * @param {string} evento.periodoContableId
+ * @param {string} [evento.periodoContableId] - si no se pasa, se resuelve solo
  * @param {string} evento.tipoEvento     - ej: 'factura_venta_credito'
  * @param {string} evento.origenModulo   - 'ventas' | 'compras' | 'nomina' | ...
  * @param {string} evento.origenId       - id del documento que originó el evento
@@ -35,10 +56,13 @@ async function contabilizarEvento(evento) {
     return { requiereRevision: true, regla };
   }
 
+  const periodoContableId =
+    evento.periodoContableId || (await obtenerPeriodoVigente(evento.empresaId)).id;
+
   const asiento = await Asiento.create({
     id: uuidv4(),
     empresaId: evento.empresaId,
-    periodoContableId: evento.periodoContableId,
+    periodoContableId,
     fecha: evento.fecha || new Date(),
     origenModulo: evento.origenModulo,
     origenId: evento.origenId,

@@ -57,7 +57,6 @@ async function confirmarFacturaAceptada(facturaId, datosProveedor) {
 
   await contabilizarEvento({
     empresaId: factura.empresaId,
-    periodoContableId: factura.periodoContableId,
     tipoEvento: 'factura_venta_credito', // o 'factura_venta_contado' según forma de pago
     origenModulo: 'ventas',
     origenId: factura.id,

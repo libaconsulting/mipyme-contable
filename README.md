@@ -19,7 +19,7 @@ src/
 │       └── cierrePeriodo.js    Máquina de estados del cierre mensual
 ├── modules/                  # Módulos operativos (capa transaccional)
 │   ├── ventas/                 Completo — patrón de referencia
-│   ├── compras/                Pendiente (ver README del módulo)
+│   ├── compras/                Completo — mismo patrón que ventas
 │   ├── inventarios/            Pendiente
 │   ├── nomina/                 Pendiente
 │   ├── activosFijos/           Pendiente
@@ -63,10 +63,28 @@ npm run dev
    - `node src/jobs/depreciacionMensual.js` — día 1 de cada mes
    - `node src/jobs/vencimientoCotizaciones.js` — diario
 
+## Roles y autenticación
+
+Cuatro roles, controlados por `src/middleware/auth.js` (`authenticate` +
+`authorize(...roles)`):
+
+| Rol | Puede |
+|---|---|
+| `dueño` | Operar el sistema, certificar el cierre mensual |
+| `contador` | Todo lo anterior + reabrir un periodo certificado |
+| `auxiliar` | Registrar operaciones del día a día (ventas, compras, nómina) |
+| `revisor` | Solo lectura (pendiente de aplicar en cada ruta) |
+
+`POST /api/auth/login` y `POST /api/auth/registro` son las únicas rutas
+públicas. Todas las demás requieren `Authorization: Bearer <token>`.
+
 ## Pendientes inmediatos
 
+- [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] Migraciones de Sequelize (`sequelize-cli`) para las tablas ya modeladas
-- [ ] Middleware de autenticación y roles (dueño / contador / auxiliar / revisor)
-- [ ] Completar los módulos de compras, inventarios, nómina, activos fijos y tesorería
-- [ ] Implementar el mapeo real en `facturacionAdapter.js` contra el proveedor contratado
-- [ ] Seed de plan de cuentas y reglas de contabilización por defecto
+- [ ] Completar los módulos de inventarios, nómina, activos fijos y tesorería (protegidos con `authenticate`, igual que ventas y compras)
+- [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
+- [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
+- [ ] Seed de: al menos una `Empresa`, un `PeriodoContable` abierto, `PlanCuentas` y `ReglaContabilizacion` por defecto — sin esto, `motorAsientos` no tiene con qué contabilizar
+- [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
+- [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
