@@ -45,9 +45,13 @@ src/
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
 compilación, servido directo por el mismo Express (`express.static`).
-Hoy es de **solo lectura** para la mayoría de módulos. El único
-formulario de creación es el de terceros — el resto se sigue creando
-por API (`curl` o Postman) hasta que se agreguen sus formularios.
+Cubre creación y las transiciones de estado principales de los seis
+módulos (formularios inline + botones de acción por fila según el
+estado del registro). Dos simplificaciones deliberadas por ahora:
+acciones que piden un solo dato adicional puntual (agregar empleado a
+un periodo, entradas/salidas/ajustes de inventario) usan `prompt()` del
+navegador en vez de un formulario modal propio; y no hay edición ni
+borrado de nada, solo creación y transiciones hacia adelante.
 
 ## Principios de diseño (no romper esto)
 
@@ -124,4 +128,4 @@ qué contabilizar.
 - [ ] Cuadre global de débitos vs. créditos del periodo como validación bloqueante del cierre (ver TODO en `cierrePeriodo.validarPeriodo`)
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
 - [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
-- [ ] Agregar formularios de creación al frontend para el resto de módulos (hoy solo terceros tiene formulario; el resto se crea por API)
+- [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general

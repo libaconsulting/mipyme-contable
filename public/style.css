@@ -199,9 +199,48 @@ button { font-family: var(--font-sans); cursor: pointer; }
   font-weight: 600;
   font-size: 15px;
   color: var(--ink-soft);
+  margin: 0;
+}
+
+.subseccion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin: 24px 0 10px;
 }
-.subseccion:first-of-type { margin-top: 0; }
+.subseccion-header:first-of-type { margin-top: 0; }
+
+.acciones-header {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.nota-panel {
+  color: var(--ink-soft);
+  font-size: 13px;
+  margin: -8px 0 16px;
+}
+
+.btn-chico {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.btn-accion {
+  background: none;
+  border: 1px solid var(--rule-strong);
+  color: var(--ink);
+  padding: 4px 10px;
+  font-size: 12px;
+  margin-right: 6px;
+  white-space: nowrap;
+}
+.btn-accion:hover { background: var(--paper); }
+.btn-accion.destructivo { border-color: var(--danger); color: var(--danger); }
+.btn-accion.destructivo:hover { background: #fbeae6; }
+
+td.acciones { white-space: nowrap; }
 
 .form-inline {
   display: flex;

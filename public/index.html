@@ -74,7 +74,17 @@
     </section>
 
     <section id="panel-cotizaciones" class="panel" hidden>
-      <header class="panel-header"><h2>Cotizaciones</h2></header>
+      <header class="panel-header">
+        <h2>Cotizaciones</h2>
+        <button class="btn-primario" id="btn-nueva-cotizacion">+ Nueva cotización</button>
+      </header>
+      <form id="form-cotizacion" class="form-inline" hidden>
+        <select id="cotizacion-tercero" required></select>
+        <input type="date" id="cotizacion-vencimiento" required title="Fecha de vencimiento">
+        <input type="number" id="cotizacion-total" placeholder="Total" required min="0">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-cotizacion">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-cotizaciones"><thead></thead><tbody></tbody></table>
       </div>
@@ -82,13 +92,29 @@
 
     <section id="panel-facturas-venta" class="panel" hidden>
       <header class="panel-header"><h2>Facturas de venta</h2></header>
+      <p class="nota-panel">Se generan al convertir una cotización aceptada — no se crean directo aquí.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-facturas-venta"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
     <section id="panel-ordenes" class="panel" hidden>
-      <header class="panel-header"><h2>Órdenes de compra</h2></header>
+      <header class="panel-header">
+        <h2>Órdenes de compra</h2>
+        <button class="btn-primario" id="btn-nueva-orden">+ Nueva orden</button>
+      </header>
+      <form id="form-orden" class="form-inline" hidden>
+        <select id="orden-tercero" required></select>
+        <select id="orden-tipo">
+          <option value="bienes">Bienes</option>
+          <option value="servicios">Servicios</option>
+        </select>
+        <input type="number" id="orden-subtotal" placeholder="Subtotal" required min="0">
+        <input type="number" id="orden-iva" placeholder="IVA" min="0" value="0">
+        <input type="number" id="orden-total" placeholder="Total" required min="0">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-orden">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-ordenes"><thead></thead><tbody></tbody></table>
       </div>
@@ -96,27 +122,63 @@
 
     <section id="panel-facturas-compra" class="panel" hidden>
       <header class="panel-header"><h2>Facturas de compra</h2></header>
+      <p class="nota-panel">Se generan al convertir una orden aprobada, o llegan por webhook del proveedor tecnológico.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-facturas-compra"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
     <section id="panel-nomina" class="panel" hidden>
-      <header class="panel-header"><h2>Nómina</h2></header>
+      <header class="panel-header">
+        <h2>Nómina</h2>
+        <button class="btn-primario" id="btn-nuevo-periodo">+ Nuevo periodo</button>
+      </header>
+      <form id="form-periodo" class="form-inline" hidden>
+        <input type="date" id="periodo-inicio" required title="Fecha de inicio">
+        <input type="date" id="periodo-fin" required title="Fecha de fin">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-periodo">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-nomina"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
     <section id="panel-inventarios" class="panel" hidden>
-      <header class="panel-header"><h2>Inventarios</h2></header>
+      <header class="panel-header">
+        <h2>Inventarios</h2>
+        <button class="btn-primario" id="btn-nuevo-producto">+ Nuevo producto</button>
+      </header>
+      <form id="form-producto" class="form-inline" hidden>
+        <input type="text" id="producto-nombre" placeholder="Nombre" required>
+        <select id="producto-tipo">
+          <option value="bien">Bien</option>
+          <option value="servicio">Servicio</option>
+        </select>
+        <input type="text" id="producto-unidad" placeholder="Unidad" value="unidad">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-producto">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-productos"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
     <section id="panel-activos-fijos" class="panel" hidden>
-      <header class="panel-header"><h2>Activos fijos</h2></header>
+      <header class="panel-header">
+        <h2>Activos fijos</h2>
+        <div class="acciones-header">
+          <button class="btn-secundario" id="btn-depreciar">Correr depreciación del mes</button>
+          <button class="btn-primario" id="btn-nuevo-activo">+ Nuevo activo</button>
+        </div>
+      </header>
+      <form id="form-activo" class="form-inline" hidden>
+        <input type="text" id="activo-nombre" placeholder="Nombre" required>
+        <input type="number" id="activo-costo" placeholder="Costo" required min="0">
+        <input type="number" id="activo-vida-util" placeholder="Vida útil (meses)" required min="1">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-activo">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-activos"><thead></thead><tbody></tbody></table>
       </div>
@@ -124,11 +186,37 @@
 
     <section id="panel-tesoreria" class="panel" hidden>
       <header class="panel-header"><h2>Tesorería</h2></header>
-      <h3 class="subseccion">Cuentas bancarias</h3>
+
+      <div class="subseccion-header">
+        <h3 class="subseccion">Cuentas bancarias</h3>
+        <button class="btn-primario btn-chico" id="btn-nueva-cuenta">+ Nueva cuenta</button>
+      </div>
+      <form id="form-cuenta" class="form-inline" hidden>
+        <input type="text" id="cuenta-banco" placeholder="Banco" required>
+        <input type="text" id="cuenta-numero" placeholder="Número" required>
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-cuenta">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-cuentas"><thead></thead><tbody></tbody></table>
       </div>
-      <h3 class="subseccion">Movimientos</h3>
+
+      <div class="subseccion-header">
+        <h3 class="subseccion">Movimientos</h3>
+        <button class="btn-primario btn-chico" id="btn-nuevo-movimiento">+ Nuevo movimiento</button>
+      </div>
+      <form id="form-movimiento" class="form-inline" hidden>
+        <select id="movimiento-cuenta" required></select>
+        <select id="movimiento-tipo">
+          <option value="ingreso">Ingreso</option>
+          <option value="egreso">Egreso</option>
+          <option value="comision">Comisión</option>
+        </select>
+        <input type="number" id="movimiento-valor" placeholder="Valor" required min="0">
+        <input type="text" id="movimiento-descripcion" placeholder="Descripción (opcional)">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-movimiento">Cancelar</button>
+      </form>
       <div class="tabla-envoltorio">
         <table id="tabla-movimientos-bancarios"><thead></thead><tbody></tbody></table>
       </div>
