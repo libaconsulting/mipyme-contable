@@ -127,12 +127,16 @@ async function cargarTodo() {
     mapaTerceros = Object.fromEntries(terceros.map((t) => [t.id, t.nombre]));
     renderTerceros(terceros);
 
-    const [cotizaciones, facturasVenta, ordenes, facturasCompra, periodos] = await Promise.all([
+    const [cotizaciones, facturasVenta, ordenes, facturasCompra, periodos, productos, activos, cuentas, movBancarios] = await Promise.all([
       api('/ventas/cotizaciones'),
       api('/ventas/facturas'),
       api('/compras/ordenes'),
       api('/compras/facturas'),
       api('/nomina/periodos'),
+      api('/inventarios/productos'),
+      api('/activos-fijos'),
+      api('/tesoreria/cuentas'),
+      api('/tesoreria/movimientos'),
     ]);
 
     renderCotizaciones(cotizaciones);
@@ -140,6 +144,10 @@ async function cargarTodo() {
     renderOrdenes(ordenes);
     renderFacturasCompra(facturasCompra);
     renderNomina(periodos);
+    renderProductos(productos);
+    renderActivos(activos);
+    renderCuentas(cuentas);
+    renderMovimientosBancarios(movBancarios);
   } catch (err) {
     console.error(err);
   }
@@ -220,6 +228,52 @@ function renderNomina(lista) {
     .map(
       (p) =>
         `<tr><td>${formatoFecha(p.fechaInicio)} — ${formatoFecha(p.fechaFin)}</td><td>${badge(p.estado)}</td></tr>`
+    )
+    .join('');
+}
+
+function renderProductos(lista) {
+  document.querySelector('#tabla-productos thead').innerHTML =
+    '<tr><th>Nombre</th><th>Tipo</th><th class="num">Cantidad disponible</th><th class="num">Costo promedio</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-productos', 4, 'Todavía no hay productos. Créalos por API mientras agregamos el formulario.');
+  document.querySelector('#tabla-productos tbody').innerHTML = lista
+    .map(
+      (p) =>
+        `<tr><td>${p.nombre}</td><td>${p.tipo}</td><td class="num">${Number(p.cantidadDisponible).toLocaleString('es-CO')}</td><td class="num">${formatoDinero(p.costoPromedio)}</td></tr>`
+    )
+    .join('');
+}
+
+function renderActivos(lista) {
+  document.querySelector('#tabla-activos thead').innerHTML =
+    '<tr><th>Nombre</th><th>Adquisición</th><th>Estado</th><th class="num">Costo</th><th class="num">Depreciado</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-activos', 5, 'Todavía no hay activos fijos registrados.');
+  document.querySelector('#tabla-activos tbody').innerHTML = lista
+    .map(
+      (a) =>
+        `<tr><td>${a.nombre}</td><td>${formatoFecha(a.fechaAdquisicion)}</td><td>${badge(a.estado)}</td><td class="num">${formatoDinero(a.costo)}</td><td class="num">${formatoDinero(a.valorDepreciadoAcumulado)}</td></tr>`
+    )
+    .join('');
+}
+
+function renderCuentas(lista) {
+  document.querySelector('#tabla-cuentas thead').innerHTML = '<tr><th>Banco</th><th>Número</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-cuentas', 2, 'Todavía no hay cuentas bancarias registradas.');
+  document.querySelector('#tabla-cuentas tbody').innerHTML = lista
+    .map((c) => `<tr><td>${c.banco}</td><td>${c.numero}</td></tr>`)
+    .join('');
+}
+
+function renderMovimientosBancarios(lista) {
+  document.querySelector('#tabla-movimientos-bancarios thead').innerHTML =
+    '<tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Conciliado</th><th class="num">Valor</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-movimientos-bancarios', 5, 'Todavía no hay movimientos bancarios registrados.');
+  document.querySelector('#tabla-movimientos-bancarios tbody').innerHTML = lista
+    .map(
+      (m) =>
+        `<tr><td>${formatoFecha(m.fecha)}</td><td>${m.tipo}</td><td>${m.descripcion || '—'}</td><td>${
+          m.conciliado ? badge('conciliado') : badge('pendiente')
+        }</td><td class="num">${formatoDinero(m.valor)}</td></tr>`
     )
     .join('');
 }

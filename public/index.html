@@ -38,6 +38,9 @@
       <button class="nav-item" data-tab="ordenes">Órdenes de compra</button>
       <button class="nav-item" data-tab="facturas-compra">Facturas de compra</button>
       <button class="nav-item" data-tab="nomina">Nómina</button>
+      <button class="nav-item" data-tab="inventarios">Inventarios</button>
+      <button class="nav-item" data-tab="activos-fijos">Activos fijos</button>
+      <button class="nav-item" data-tab="tesoreria">Tesorería</button>
     </nav>
     <div class="usuario-actual">
       <p id="usuario-nombre"></p>
@@ -102,6 +105,32 @@
       <header class="panel-header"><h2>Nómina</h2></header>
       <div class="tabla-envoltorio">
         <table id="tabla-nomina"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-inventarios" class="panel" hidden>
+      <header class="panel-header"><h2>Inventarios</h2></header>
+      <div class="tabla-envoltorio">
+        <table id="tabla-productos"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-activos-fijos" class="panel" hidden>
+      <header class="panel-header"><h2>Activos fijos</h2></header>
+      <div class="tabla-envoltorio">
+        <table id="tabla-activos"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-tesoreria" class="panel" hidden>
+      <header class="panel-header"><h2>Tesorería</h2></header>
+      <h3 class="subseccion">Cuentas bancarias</h3>
+      <div class="tabla-envoltorio">
+        <table id="tabla-cuentas"><thead></thead><tbody></tbody></table>
+      </div>
+      <h3 class="subseccion">Movimientos</h3>
+      <div class="tabla-envoltorio">
+        <table id="tabla-movimientos-bancarios"><thead></thead><tbody></tbody></table>
       </div>
     </section>
   </main>

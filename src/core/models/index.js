@@ -2,7 +2,7 @@
 // server.js importa este archivo antes de sincronizar la base de datos,
 // así que ningún modelo se queda afuera por no estar "require"ado en
 // alguna cadena de rutas activa. A medida que agreguemos modelos a los
-// módulos operativos (activos fijos, tesorería), se suman aquí también.
+// módulos operativos (compras, nómina, etc.), se suman aquí también.
 
 const Empresa = require('./Empresa');
 const Tercero = require('./Tercero');
@@ -24,6 +24,11 @@ const DocumentoSoporteAdquisicion = require('../../modules/compras/models/Docume
 const PeriodoNomina = require('../../modules/nomina/models/PeriodoNomina');
 const NominaEmpleado = require('../../modules/nomina/models/NominaEmpleado');
 const NovedadNomina = require('../../modules/nomina/models/NovedadNomina');
+const Producto = require('../../modules/inventarios/models/Producto');
+const MovimientoInventario = require('../../modules/inventarios/models/MovimientoInventario');
+const ActivoFijo = require('../../modules/activosFijos/models/ActivoFijo');
+const CuentaBancaria = require('../../modules/tesoreria/models/CuentaBancaria');
+const MovimientoBancario = require('../../modules/tesoreria/models/MovimientoBancario');
 
 module.exports = {
   Empresa,
@@ -44,4 +49,9 @@ module.exports = {
   PeriodoNomina,
   NominaEmpleado,
   NovedadNomina,
+  Producto,
+  MovimientoInventario,
+  ActivoFijo,
+  CuentaBancaria,
+  MovimientoBancario,
 };

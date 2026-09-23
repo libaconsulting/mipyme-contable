@@ -2,7 +2,7 @@
 
 Sistema contable para microempresas colombianas (NIIF Grupo 3), pensado
 para desplegarse en Hostinger (plan Business — Node.js administrado +
-MySQL/MariaDB).
+PostgreSQL en Supabase).
 
 ## Arquitectura
 
@@ -17,40 +17,44 @@ src/
 ├── core/                     # Núcleo contable — nunca depende de la infraestructura
 │   ├── models/                 Empresa, Tercero, PlanCuentas, Asiento,
 │   │                           Movimiento, PeriodoContable, ReglaContabilizacion,
-│   │                           ParametroTributario
+│   │                           ParametroTributario, Usuario, LogAuditoria
 │   └── services/
 │       ├── motorAsientos.js    Traduce eventos operativos en partida doble
-│       └── cierrePeriodo.js    Máquina de estados del cierre mensual
-├── modules/                  # Módulos operativos (capa transaccional)
-│   ├── ventas/                 Completo — patrón de referencia
-│   ├── compras/                Completo — mismo patrón que ventas
-│   ├── inventarios/            Pendiente
-│   ├── nomina/                 Completo — mismo patrón que ventas
-│   ├── activosFijos/           Pendiente
-│   └── tesoreria/              Pendiente
+│       ├── cierrePeriodo.js    Máquina de estados del cierre mensual
+│       ├── authService.js      Login y registro de usuarios
+│       ├── auditoria.js        Registro de acciones sensibles
+│       └── seedService.js      Datos base: empresa, periodo, cuentas, reglas
+├── modules/                  # Módulos operativos (capa transaccional) — TODOS completos
+│   ├── ventas/                 Cotización → factura, patrón de referencia
+│   ├── compras/                Factura recibida + documento soporte, orden de compra
+│   ├── nomina/                 Periodo → empleados → liquidar → documento soporte
+│   ├── inventarios/            Kardex simplificado: entradas, salidas, ajustes
+│   ├── activosFijos/           Registro, depreciación mensual (cron), baja
+│   └── tesoreria/               Cuentas bancarias, movimientos, conciliación
 ├── integrations/             # Capa adaptadora hacia proveedores acreditados
 │   ├── adapters/                Interfaz única por tipo de documento
 │   └── webhooks/                Recepción asíncrona de confirmaciones DIAN
 ├── jobs/                     # Disparados por Cron Jobs de hPanel
-├── middleware/                # Auth, manejo de errores (pendiente)
-└── routes/                   # Router raíz
+│   ├── depreciacionMensual.js  Implementado — recorre todas las empresas
+│   └── vencimientoCotizaciones.js
+├── middleware/                # authenticate + authorize por rol
+└── routes/                   # Router raíz (auth, seed, terceros, y los 6 módulos)
 ```
 
 ## Frontend
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
 compilación, servido directo por el mismo Express (`express.static`).
-Hoy es de **solo lectura** para la mayoría de módulos (tablas de
-cotizaciones, facturas, órdenes, nómina) — el único formulario de
-creación es el de terceros. El resto se sigue creando por API
-(`curl` o Postman) hasta que se agreguen sus formularios.
+Hoy es de **solo lectura** para la mayoría de módulos. El único
+formulario de creación es el de terceros — el resto se sigue creando
+por API (`curl` o Postman) hasta que se agreguen sus formularios.
 
 ## Principios de diseño (no romper esto)
 
-
 1. **Ningún módulo operativo escribe asientos directamente.** Todo pasa
    por `motorAsientos.contabilizarEvento()`, que consulta la tabla
-   `ReglaContabilizacion` de la empresa.
+   `ReglaContabilizacion` de la empresa y resuelve solo el periodo
+   contable vigente si no se le pasa explícito.
 2. **Cotizaciones y órdenes de compra/servicio no generan asiento.**
    Solo lo hacen cuando se convierten en factura.
 3. **Nunca hardcodear UVT, tarifas de retención, RST o ICA.** Viven en
@@ -60,19 +64,22 @@ creación es el de terceros. El resto se sigue creando por API
    proveedor no debe tocar ningún módulo operativo.
 5. **Un periodo `cerrado_certificado` es inmutable** salvo por el
    proceso formal de reapertura (rol Contador + justificación obligatoria).
+6. **Un movimiento bancario sin conciliar bloquea el cierre del periodo**
+   (ver `cierrePeriodo.validarPeriodo`).
 
 ## Puesta en marcha
 
 ```bash
-cp .env.example .env      # completar credenciales de MySQL y del proveedor tecnológico
+cp .env.example .env      # completar credenciales de la base de datos y del proveedor tecnológico
 npm install
 npm run dev
 ```
 
 ## Despliegue en Hostinger (plan Business)
 
-1. hPanel → Hosting de apps web → Node.js → conectar el repositorio de GitHub.
-2. hPanel → Bases de datos MySQL → crear la base y el usuario, y completar `.env`.
+1. hPanel → Sitios web → Apps Node.js → conectar el repositorio de GitHub.
+2. Base de datos: PostgreSQL vía Supabase (host, puerto, nombre, usuario y
+   contraseña como `DB_*` en las variables de entorno de la app).
 3. hPanel → Avanzado → Cron Jobs → programar:
    - `node src/jobs/depreciacionMensual.js` — día 1 de cada mes
    - `node src/jobs/vencimientoCotizaciones.js` — diario
@@ -96,22 +103,25 @@ públicas. Todas las demás requieren `Authorization: Bearer <token>`.
 
 `POST /api/seed` (requiere sesión con rol `contador` o `dueño`) crea:
 una empresa de prueba, el periodo contable del mes en curso, un plan de
-cuentas mínimo, y las reglas de contabilización para los eventos que
-Ventas y Compras ya disparan. Seguro de correr más de una vez — no
-duplica nada. Sin esto, `motorAsientos` no tiene con qué contabilizar.
+cuentas de 22 cuentas, y 13 reglas de contabilización — una por cada
+evento que disparan los seis módulos operativos. Seguro de correr más
+de una vez — no duplica nada. Sin esto, `motorAsientos` no tiene con
+qué contabilizar.
 
 ## Pendientes inmediatos
 
 - [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] Migraciones de Sequelize (`sequelize-cli`) para las tablas ya modeladas
-- [ ] Completar los módulos de inventarios, activos fijos y tesorería (protegidos con `authenticate`, igual que ventas, compras y nómina) — y agregar sus reglas de contabilización a `seedService.js`
 - [ ] Reemplazar `FACTOR_PRESTACIONES` (21.83% fijo) en `nomina.service.js` por el cálculo exacto de cesantías, intereses, prima y vacaciones según la normativa laboral vigente y el tipo de contrato
 - [ ] Integrar `NovedadNomina` con el cálculo del devengado (hoy es solo un registro informativo, no ajusta nada automáticamente)
-- [ ] Pago de nómina y de PILA dependen de Tesorería (todavía no construido) para conciliarse contra banco
+- [ ] Tesorería: cruzar movimientos de tipo ingreso/egreso contra la factura, orden o nómina específica que pagan (hoy solo "comisión" se contabiliza sola al conciliar; el resto solo queda marcado como conciliado, sin generar el asiento de pago)
+- [ ] Mapear cada `CuentaBancaria` a su propia subcuenta contable — hoy todas comparten el código 1110 Bancos
 - [ ] Soportar múltiples líneas (débito/crédito) por evento en `motorAsientos` — hoy una venta no discrimina el IVA en un renglón aparte
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
 - [ ] `GET/PATCH/DELETE` de terceros (hoy `terceros.routes.js` solo tiene crear y listar)
+- [ ] Vincular `MovimientoInventario` con los ítems reales de `FacturaVenta`/`FacturaCompra` — hoy las entradas y salidas se registran manualmente por API, no automático desde una venta
+- [ ] Cuadre global de débitos vs. créditos del periodo como validación bloqueante del cierre (ver TODO en `cierrePeriodo.validarPeriodo`)
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
 - [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
-- [ ] Agregar formularios de creación al frontend para cotizaciones, órdenes de compra y nómina (hoy solo terceros tiene formulario; el resto se crea por API)
+- [ ] Agregar formularios de creación al frontend para el resto de módulos (hoy solo terceros tiene formulario; el resto se crea por API)

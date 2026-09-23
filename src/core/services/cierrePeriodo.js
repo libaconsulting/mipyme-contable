@@ -3,6 +3,7 @@ const PeriodoContable = require('../models/PeriodoContable');
 const Asiento = require('../models/Asiento');
 const Movimiento = require('../models/Movimiento');
 const auditoria = require('./auditoria');
+const MovimientoBancario = require('../../modules/tesoreria/models/MovimientoBancario');
 
 /**
  * Máquina de estados del cierre mensual:
@@ -33,11 +34,21 @@ async function iniciarCierre(periodoContableId) {
 // nivel 3 (requiere criterio del contador).
 async function validarPeriodo(periodoContableId) {
   const pendientes = [];
+  const periodo = await PeriodoContable.findByPk(periodoContableId);
 
-  // TODO: implementar cada verificación real contra la base de datos:
-  // 1. Movimientos bancarios sin clasificar
-  // 2. Facturas/documentos soporte en borrador sin emitir
-  // 3. Cuadre global de débitos vs. créditos del periodo
+  const sinConciliar = await MovimientoBancario.count({
+    where: { empresaId: periodo.empresaId, conciliado: false },
+  });
+
+  if (sinConciliar > 0) {
+    pendientes.push(
+      `${sinConciliar} movimiento(s) bancario(s) sin conciliar. Ve a Tesorería y concílialos antes de cerrar.`
+    );
+  }
+
+  // TODO: siguen pendientes de implementar:
+  // - Facturas/documentos soporte en borrador sin emitir
+  // - Cuadre global de débitos vs. créditos del periodo (integridad)
   // La depreciación y la provisión de prestaciones NO bloquean:
   // se calculan automáticamente si no se han corrido (nivel 1).
 

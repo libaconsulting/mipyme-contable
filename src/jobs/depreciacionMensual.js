@@ -5,18 +5,24 @@
 // del contador, ver tabla de reglas de contabilización del módulo de
 // activos fijos.
 
-const { contabilizarEvento } = require('../core/services/motorAsientos');
-// const ActivoFijo = require('../modules/activosFijos/models/ActivoFijo');
+require('dotenv').config();
+require('../core/models'); // registra los modelos antes de consultar
+const Empresa = require('../core/models/Empresa');
+const activosFijosService = require('../modules/activosFijos/services/activosFijos.service');
 
 async function ejecutar() {
   console.log(`[${new Date().toISOString()}] Iniciando depreciación mensual...`);
 
-  // TODO:
-  // 1. Traer todos los ActivoFijo activos de todas las empresas
-  // 2. Calcular cuota mensual = costo / (vida_util_meses)
-  // 3. Por cada activo, llamar contabilizarEvento({ tipoEvento: 'depreciacion_mensual', ... })
+  const empresas = await Empresa.findAll();
+  let totalActivosDepreciados = 0;
 
-  console.log('Depreciación mensual completada.');
+  for (const empresa of empresas) {
+    const resultados = await activosFijosService.calcularDepreciacionMensual(empresa.id);
+    totalActivosDepreciados += resultados.length;
+    console.log(`  Empresa ${empresa.id}: ${resultados.length} activo(s) depreciado(s).`);
+  }
+
+  console.log(`Depreciación mensual completada. Total: ${totalActivosDepreciados} activo(s).`);
   process.exit(0);
 }
 

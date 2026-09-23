@@ -194,6 +194,15 @@ button { font-family: var(--font-sans); cursor: pointer; }
   margin: 0;
 }
 
+.subseccion {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink-soft);
+  margin: 24px 0 10px;
+}
+.subseccion:first-of-type { margin-top: 0; }
+
 .form-inline {
   display: flex;
   gap: 10px;
@@ -256,7 +265,7 @@ td.num, th.num {
   color: var(--ink-soft);
   text-transform: capitalize;
 }
-.badge.aceptada, .badge.aceptado, .badge.contabilizado, .badge.liquidada, .badge.aprobada { border-color: var(--accent); color: var(--accent); }
+.badge.aceptada, .badge.aceptado, .badge.contabilizado, .badge.liquidada, .badge.aprobada, .badge.conciliado { border-color: var(--accent); color: var(--accent); }
 .badge.rechazada, .badge.rechazado, .badge.objetada { border-color: var(--danger); color: var(--danger); }
 .badge.pendiente, .badge.borrador, .badge.enviada, .badge.enviado { border-color: var(--warn); color: var(--warn); }
 
