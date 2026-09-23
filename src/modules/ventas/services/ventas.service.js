@@ -4,6 +4,51 @@ const FacturaVenta = require('../models/FacturaVenta');
 const facturacionAdapter = require('../../../integrations/adapters/facturacionAdapter');
 const { contabilizarEvento } = require('../../../core/services/motorAsientos');
 
+// Crea una cotización nueva en estado "borrador".
+async function crearCotizacion(datos, usuario) {
+  const cotizacion = await Cotizacion.create({
+    id: uuidv4(),
+    empresaId: usuario.empresaId,
+    terceroId: datos.terceroId,
+    vendedorId: usuario.id,
+    fecha: datos.fecha || new Date(),
+    fechaVencimiento: datos.fechaVencimiento,
+    estado: 'borrador',
+    total: datos.total,
+  });
+  return cotizacion;
+}
+
+// borrador -> enviada
+async function enviarCotizacion(id) {
+  const cotizacion = await Cotizacion.findByPk(id);
+  if (cotizacion.estado !== 'borrador') {
+    throw new Error('Solo se puede enviar una cotización en estado "borrador".');
+  }
+  await cotizacion.update({ estado: 'enviada' });
+  return cotizacion;
+}
+
+// enviada -> aceptada
+async function aceptarCotizacion(id) {
+  const cotizacion = await Cotizacion.findByPk(id);
+  if (cotizacion.estado !== 'enviada') {
+    throw new Error('Solo se puede aceptar una cotización en estado "enviada".');
+  }
+  await cotizacion.update({ estado: 'aceptada' });
+  return cotizacion;
+}
+
+// enviada -> rechazada
+async function rechazarCotizacion(id) {
+  const cotizacion = await Cotizacion.findByPk(id);
+  if (cotizacion.estado !== 'enviada') {
+    throw new Error('Solo se puede rechazar una cotización en estado "enviada".');
+  }
+  await cotizacion.update({ estado: 'rechazada' });
+  return cotizacion;
+}
+
 // Copia los renglones de la cotización aceptada a una factura nueva,
 // deja el vínculo de trazabilidad y marca la cotización como facturada.
 async function convertirCotizacionEnFactura(cotizacionId, usuarioId) {
@@ -67,4 +112,11 @@ async function confirmarFacturaAceptada(facturaId, datosProveedor) {
   return factura;
 }
 
-module.exports = { convertirCotizacionEnFactura, confirmarFacturaAceptada };
+module.exports = {
+  crearCotizacion,
+  enviarCotizacion,
+  aceptarCotizacion,
+  rechazarCotizacion,
+  convertirCotizacionEnFactura,
+  confirmarFacturaAceptada,
+};

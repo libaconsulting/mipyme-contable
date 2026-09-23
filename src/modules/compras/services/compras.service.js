@@ -5,6 +5,33 @@ const DocumentoSoporteAdquisicion = require('../models/DocumentoSoporteAdquisici
 const documentoSoporteAdapter = require('../../../integrations/adapters/documentoSoporteAdapter');
 const { contabilizarEvento } = require('../../../core/services/motorAsientos');
 
+// Crea una orden de compra/servicio nueva en estado "borrador".
+async function crearOrden(datos, usuario) {
+  const orden = await OrdenCompra.create({
+    id: uuidv4(),
+    empresaId: usuario.empresaId,
+    terceroId: datos.terceroId,
+    tipo: datos.tipo || 'bienes',
+    fecha: datos.fecha || new Date(),
+    fechaRequerida: datos.fechaRequerida,
+    estado: 'borrador',
+    subtotal: datos.subtotal,
+    iva: datos.iva || 0,
+    total: datos.total,
+  });
+  return orden;
+}
+
+// borrador/emitida -> aprobada (aprobador interno, no el proveedor)
+async function aprobarOrden(id, usuario) {
+  const orden = await OrdenCompra.findByPk(id);
+  if (!['borrador', 'emitida'].includes(orden.estado)) {
+    throw new Error('Solo se puede aprobar una orden en estado "borrador" o "emitida".');
+  }
+  await orden.update({ estado: 'aprobada', aprobadorId: usuario.id });
+  return orden;
+}
+
 // Cierra manualmente una orden aprobada/recibida contra una factura que
 // el usuario ya tiene en mano. Con orden de compra de por medio, el
 // nivel de automatización es más alto (ver tabla de reglas del módulo).
@@ -134,6 +161,8 @@ async function confirmarDocumentoSoporteEmitido(documentoId, datosProveedor) {
 }
 
 module.exports = {
+  crearOrden,
+  aprobarOrden,
   convertirOrdenEnFactura,
   registrarFacturaRecibida,
   emitirDocumentoSoporte,

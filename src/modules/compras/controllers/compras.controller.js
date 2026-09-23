@@ -1,5 +1,23 @@
 const comprasService = require('../services/compras.service');
 
+async function crearOrden(req, res) {
+  try {
+    const orden = await comprasService.crearOrden(req.body, req.usuario);
+    res.status(201).json(orden);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
+async function aprobarOrden(req, res) {
+  try {
+    const orden = await comprasService.aprobarOrden(req.params.id, req.usuario);
+    res.json(orden);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
 async function convertirOrden(req, res) {
   try {
     const factura = await comprasService.convertirOrdenEnFactura(
@@ -21,4 +39,4 @@ async function emitirDocumentoSoporte(req, res) {
   }
 }
 
-module.exports = { convertirOrden, emitirDocumentoSoporte };
+module.exports = { crearOrden, aprobarOrden, convertirOrden, emitirDocumentoSoporte };
