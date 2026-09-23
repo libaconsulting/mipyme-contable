@@ -117,10 +117,18 @@ async function registrarNovedad(datos, usuario) {
   return novedad;
 }
 
+async function listarPeriodos(usuario) {
+  return PeriodoNomina.findAll({
+    where: { empresaId: usuario.empresaId },
+    order: [['fechaInicio', 'DESC']],
+  });
+}
+
 module.exports = {
   crearPeriodoNomina,
   agregarEmpleadoANomina,
   liquidarPeriodo,
   confirmarNominaEmitida,
   registrarNovedad,
+  listarPeriodos,
 };

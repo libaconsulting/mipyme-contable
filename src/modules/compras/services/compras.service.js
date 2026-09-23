@@ -32,6 +32,20 @@ async function aprobarOrden(id, usuario) {
   return orden;
 }
 
+async function listarOrdenes(usuario) {
+  return OrdenCompra.findAll({
+    where: { empresaId: usuario.empresaId },
+    order: [['fecha', 'DESC']],
+  });
+}
+
+async function listarFacturas(usuario) {
+  return FacturaCompra.findAll({
+    where: { empresaId: usuario.empresaId },
+    order: [['fecha', 'DESC']],
+  });
+}
+
 // Cierra manualmente una orden aprobada/recibida contra una factura que
 // el usuario ya tiene en mano. Con orden de compra de por medio, el
 // nivel de automatización es más alto (ver tabla de reglas del módulo).
@@ -163,6 +177,8 @@ async function confirmarDocumentoSoporteEmitido(documentoId, datosProveedor) {
 module.exports = {
   crearOrden,
   aprobarOrden,
+  listarOrdenes,
+  listarFacturas,
   convertirOrdenEnFactura,
   registrarFacturaRecibida,
   emitirDocumentoSoporte,

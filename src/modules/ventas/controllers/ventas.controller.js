@@ -48,10 +48,30 @@ async function convertirCotizacion(req, res) {
   }
 }
 
+async function listarCotizaciones(req, res) {
+  try {
+    const cotizaciones = await ventasService.listarCotizaciones(req.usuario);
+    res.json(cotizaciones);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
+async function listarFacturas(req, res) {
+  try {
+    const facturas = await ventasService.listarFacturas(req.usuario);
+    res.json(facturas);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
 module.exports = {
   crearCotizacion,
   enviarCotizacion,
   aceptarCotizacion,
   rechazarCotizacion,
   convertirCotizacion,
+  listarCotizaciones,
+  listarFacturas,
 };

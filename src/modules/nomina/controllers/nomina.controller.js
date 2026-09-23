@@ -40,4 +40,13 @@ async function crearNovedad(req, res) {
   }
 }
 
-module.exports = { crearPeriodo, agregarEmpleado, liquidar, crearNovedad };
+async function listarPeriodos(req, res) {
+  try {
+    const periodos = await nominaService.listarPeriodos(req.usuario);
+    res.json(periodos);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
+module.exports = { crearPeriodo, agregarEmpleado, liquidar, crearNovedad, listarPeriodos };

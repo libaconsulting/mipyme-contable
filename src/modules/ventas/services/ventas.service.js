@@ -49,6 +49,20 @@ async function rechazarCotizacion(id) {
   return cotizacion;
 }
 
+async function listarCotizaciones(usuario) {
+  return Cotizacion.findAll({
+    where: { empresaId: usuario.empresaId },
+    order: [['fecha', 'DESC']],
+  });
+}
+
+async function listarFacturas(usuario) {
+  return FacturaVenta.findAll({
+    where: { empresaId: usuario.empresaId },
+    order: [['fecha', 'DESC']],
+  });
+}
+
 // Copia los renglones de la cotización aceptada a una factura nueva,
 // deja el vínculo de trazabilidad y marca la cotización como facturada.
 async function convertirCotizacionEnFactura(cotizacionId, usuarioId) {
@@ -117,6 +131,8 @@ module.exports = {
   enviarCotizacion,
   aceptarCotizacion,
   rechazarCotizacion,
+  listarCotizaciones,
+  listarFacturas,
   convertirCotizacionEnFactura,
   confirmarFacturaAceptada,
 };

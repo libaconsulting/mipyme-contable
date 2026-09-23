@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const nominaController = require('../controllers/nomina.controller');
 
+// GET /api/nomina/periodos
+router.get('/periodos', nominaController.listarPeriodos);
+
 // POST /api/nomina/periodos
 router.post('/periodos', nominaController.crearPeriodo);
 

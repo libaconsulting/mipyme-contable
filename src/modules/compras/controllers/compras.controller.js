@@ -39,4 +39,29 @@ async function emitirDocumentoSoporte(req, res) {
   }
 }
 
-module.exports = { crearOrden, aprobarOrden, convertirOrden, emitirDocumentoSoporte };
+async function listarOrdenes(req, res) {
+  try {
+    const ordenes = await comprasService.listarOrdenes(req.usuario);
+    res.json(ordenes);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
+async function listarFacturas(req, res) {
+  try {
+    const facturas = await comprasService.listarFacturas(req.usuario);
+    res.json(facturas);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
+module.exports = {
+  crearOrden,
+  aprobarOrden,
+  convertirOrden,
+  emitirDocumentoSoporte,
+  listarOrdenes,
+  listarFacturas,
+};

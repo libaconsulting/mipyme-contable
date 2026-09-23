@@ -2,6 +2,12 @@ const express = require('express');
 const router = express.Router();
 const ventasController = require('../controllers/ventas.controller');
 
+// GET /api/ventas/cotizaciones
+router.get('/cotizaciones', ventasController.listarCotizaciones);
+
+// GET /api/ventas/facturas
+router.get('/facturas', ventasController.listarFacturas);
+
 // POST /api/ventas/cotizaciones
 router.post('/cotizaciones', ventasController.crearCotizacion);
 
