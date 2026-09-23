@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const PeriodoContable = require('../models/PeriodoContable');
 const Asiento = require('../models/Asiento');
 const Movimiento = require('../models/Movimiento');
+const auditoria = require('./auditoria');
 
 /**
  * Máquina de estados del cierre mensual:
@@ -64,8 +65,12 @@ async function generarAsientoDeCierre(periodoContableId) {
 }
 
 // Paso 2: cerrado_preliminar -> cerrado_certificado.
-// Solo lo puede ejecutar el representante legal o el contador.
-async function certificarCierre(periodoContableId, usuarioId) {
+// Solo lo puede ejecutar el rol "dueño" (representante legal) o "contador".
+async function certificarCierre(periodoContableId, usuario) {
+  if (!['dueño', 'contador'].includes(usuario.rol)) {
+    throw new Error('Solo el dueño o el contador pueden certificar el cierre.');
+  }
+
   const periodo = await PeriodoContable.findByPk(periodoContableId);
 
   if (periodo.estado !== 'cerrado_preliminar') {
@@ -74,17 +79,29 @@ async function certificarCierre(periodoContableId, usuarioId) {
 
   await periodo.update({
     estado: 'cerrado_certificado',
-    cerradoPor: usuarioId,
+    cerradoPor: usuario.id,
     fechaCertificacion: new Date(),
+  });
+
+  await auditoria.registrar({
+    empresaId: periodo.empresaId,
+    usuarioId: usuario.id,
+    accion: 'certificacion_periodo',
+    entidad: 'PeriodoContable',
+    entidadId: periodo.id,
   });
 
   return periodo;
 }
 
 // Excepción controlada: cerrado_certificado -> reabierto -> en_cierre.
-// Requiere justificación y rol "Contador"; se registra en LogAuditoria
-// (ver src/middleware/auth.js para el control de rol).
-async function reabrirPeriodo(periodoContableId, motivo, usuarioId) {
+// Requiere justificación y el rol "contador" exclusivamente — ni el
+// dueño ni el auxiliar pueden reabrir un periodo ya certificado.
+async function reabrirPeriodo(periodoContableId, motivo, usuario) {
+  if (usuario.rol !== 'contador') {
+    throw new Error('Solo el rol "contador" puede reabrir un periodo certificado.');
+  }
+
   if (!motivo || motivo.trim().length < 10) {
     throw new Error('La reapertura de un periodo certificado exige una justificación.');
   }
@@ -100,7 +117,14 @@ async function reabrirPeriodo(periodoContableId, motivo, usuarioId) {
     motivoReapertura: motivo,
   });
 
-  // TODO: registrar en LogAuditoria (usuarioId, acción='reapertura_periodo', motivo)
+  await auditoria.registrar({
+    empresaId: periodo.empresaId,
+    usuarioId: usuario.id,
+    accion: 'reapertura_periodo',
+    entidad: 'PeriodoContable',
+    entidadId: periodo.id,
+    detalle: motivo,
+  });
 
   return periodo;
 }
