@@ -1,3 +1,12 @@
+#!/bin/bash
+set -e
+
+if [ ! -f "package.json" ]; then
+  echo "ERROR: no se encontró package.json en esta carpeta."
+  exit 1
+fi
+
+cat > public/contable/style.css << 'SCRIPTEOF'
 :root {
   --paper: #F6F8F4;
   --surface: #FFFFFF;
@@ -448,3 +457,10 @@ td.num, th.num {
   .barra-lateral nav { flex-direction: row; flex-wrap: wrap; }
   .contenido { padding: 20px; }
 }
+SCRIPTEOF
+echo "OK  public/contable/style.css"
+
+echo "Listo. Corregido el bug de hidden."
+echo "  git add ."
+echo "  git commit -m \"Corregir bug de CSS donde el tablero quedaba visible antes de iniciar sesion\""
+echo "  git push"
