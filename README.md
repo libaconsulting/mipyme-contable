@@ -8,9 +8,12 @@ PostgreSQL en Supabase).
 
 ```
 public/                     # Frontend mínimo: HTML + JS plano, sin build step
-├── index.html                 Login + tablero con pestañas por módulo
-├── style.css                  Estética de libro contable (IBM Plex, reglas horizontales)
-└── app.js                     Login, consumo de la API, formulario de terceros
+├── index.html                 Página institucional de Libaniel Consulting (raíz del dominio)
+├── style.css                  Estilos del sitio institucional
+└── contable/                  El software contable en sí, en /contable
+    ├── index.html                Login + tablero con pestañas por módulo
+    ├── style.css                 Estética de libro contable (IBM Plex, reglas horizontales)
+    └── app.js                    Login, consumo de la API, formularios y acciones por rol
 src/
 ├── server.js                 # Punto de entrada — también sirve public/ como estáticos
 ├── config/                   # Conexión a base de datos, variables de entorno
@@ -45,9 +48,18 @@ src/
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
 compilación, servido directo por el mismo Express (`express.static`).
-Cubre creación y las transiciones de estado principales de los seis
-módulos (formularios inline + botones de acción por fila según el
-estado del registro). Dos simplificaciones deliberadas por ahora:
+
+La raíz del dominio (`/`) es la página institucional de **Libaniel
+Consulting**, pensada para ofrecer varios servicios de la firma — hoy
+solo el software contable es real, los otros dos son marcadores de
+posición con un `mailto:` genérico (`contacto@libanielconsulting.com`)
+hasta que se definan de verdad.
+
+El software contable en sí vive en **`/contable`** — mismo backend,
+solo un subdirectorio distinto en `public/`. Cubre creación y las
+transiciones de estado principales de los seis módulos (formularios
+inline + botones de acción por fila según el estado del registro). Dos
+simplificaciones deliberadas por ahora:
 acciones que piden un solo dato adicional puntual (agregar empleado a
 un periodo, entradas/salidas/ajustes de inventario) usan `prompt()` del
 navegador en vez de un formulario modal propio; y no hay edición ni
@@ -129,3 +141,5 @@ qué contabilizar.
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
 - [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
 - [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
+- [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
+- [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma

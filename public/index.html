@@ -3,227 +3,73 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Mipyme Contable</title>
+<title>Libaniel Consulting — Contabilidad y gestión fiscal</title>
+<meta name="description" content="Firma de contaduría pública colombiana especializada en microempresas. Software contable propio, consultoría tributaria y transformación digital.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 
-<div id="vista-login" class="pantalla-login">
-  <div class="tarjeta-login">
-    <h1 class="wordmark">Mipyme Contable</h1>
-    <p class="subtitulo">Sistema contable para microempresas — NIIF Grupo 3</p>
-    <form id="form-login">
-      <label>Correo
-        <input type="email" id="login-email" required autocomplete="username">
-      </label>
-      <label>Contraseña
-        <input type="password" id="login-password" required autocomplete="current-password">
-      </label>
-      <button type="submit" class="btn-primario">Entrar</button>
-      <p id="login-error" class="mensaje-error" hidden></p>
-    </form>
-  </div>
-</div>
+<header class="cabecera">
+  <span class="wordmark">Libaniel Consulting</span>
+  <a href="/contable" class="enlace-ingresar">Ingresar al software →</a>
+</header>
 
-<div id="vista-dashboard" class="app" hidden>
-  <aside class="barra-lateral">
-    <h1 class="wordmark">Mipyme Contable</h1>
-    <nav>
-      <button class="nav-item activo" data-tab="terceros">Terceros</button>
-      <button class="nav-item" data-tab="cotizaciones">Cotizaciones</button>
-      <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
-      <button class="nav-item" data-tab="ordenes">Órdenes de compra</button>
-      <button class="nav-item" data-tab="facturas-compra">Facturas de compra</button>
-      <button class="nav-item" data-tab="nomina">Nómina</button>
-      <button class="nav-item" data-tab="inventarios">Inventarios</button>
-      <button class="nav-item" data-tab="activos-fijos">Activos fijos</button>
-      <button class="nav-item" data-tab="tesoreria">Tesorería</button>
-    </nav>
-    <div class="usuario-actual">
-      <p id="usuario-nombre"></p>
-      <p id="usuario-rol" class="rol"></p>
-      <button id="btn-salir">Cerrar sesión</button>
+<section class="hero">
+  <div class="hero-contenido">
+    <h1>Contabilidad y gestión fiscal, con tecnología de verdad.</h1>
+    <p class="hero-texto">
+      Firma de contaduría pública colombiana especializada en microempresas
+      (NIIF Grupo 3). Combinamos conocimiento tributario real con
+      herramientas propias que automatizan el proceso contable de
+      principio a fin — no solo lo digitalizan.
+    </p>
+    <div class="hero-acciones">
+      <a href="/contable" class="btn-hero">Ingresar al software contable</a>
+      <a href="#servicios" class="enlace-secundario">Ver todos los servicios ↓</a>
     </div>
-  </aside>
+  </div>
+</section>
 
-  <main class="contenido">
-    <section id="panel-terceros" class="panel">
-      <header class="panel-header">
-        <h2>Terceros</h2>
-        <button class="btn-primario" id="btn-nuevo-tercero">+ Nuevo tercero</button>
-      </header>
-      <form id="form-tercero" class="form-inline" hidden>
-        <select id="tercero-tipo" required>
-          <option value="cliente">Cliente</option>
-          <option value="proveedor">Proveedor</option>
-          <option value="empleado">Empleado</option>
-          <option value="otro">Otro</option>
-        </select>
-        <input type="text" id="tercero-identificacion" placeholder="Identificación" required>
-        <input type="text" id="tercero-nombre" placeholder="Nombre" required>
-        <input type="email" id="tercero-email" placeholder="Correo (opcional)">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-tercero">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-terceros"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
+<section class="servicios" id="servicios">
+  <h2>Nuestros servicios</h2>
 
-    <section id="panel-cotizaciones" class="panel" hidden>
-      <header class="panel-header">
-        <h2>Cotizaciones</h2>
-        <button class="btn-primario" id="btn-nueva-cotizacion">+ Nueva cotización</button>
-      </header>
-      <form id="form-cotizacion" class="form-inline" hidden>
-        <select id="cotizacion-tercero" required></select>
-        <input type="date" id="cotizacion-vencimiento" required title="Fecha de vencimiento">
-        <input type="number" id="cotizacion-total" placeholder="Total" required min="0">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-cotizacion">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-cotizaciones"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
+  <div class="grid-servicios">
+    <article class="tarjeta-servicio">
+      <span class="numero-servicio">01</span>
+      <h3>Software Contable</h3>
+      <p>Sistema contable propio para microempresas bajo NIIF Grupo 3, con
+         motor de reglas de contabilización, cierre mensual y nómina
+         electrónica integrados de fábrica.</p>
+      <a href="/contable" class="btn-tarjeta">Ingresar</a>
+    </article>
 
-    <section id="panel-facturas-venta" class="panel" hidden>
-      <header class="panel-header"><h2>Facturas de venta</h2></header>
-      <p class="nota-panel">Se generan al convertir una cotización aceptada — no se crean directo aquí.</p>
-      <div class="tabla-envoltorio">
-        <table id="tabla-facturas-venta"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
+    <article class="tarjeta-servicio">
+      <span class="numero-servicio">02</span>
+      <h3>Consultoría Tributaria y Fiscal</h3>
+      <p>Acompañamiento personalizado en declaraciones, régimen tributario,
+         planeación fiscal y cumplimiento normativo para microempresas y
+         personas naturales.</p>
+      <a href="mailto:contacto@libanielconsulting.com" class="btn-tarjeta">Escríbenos</a>
+    </article>
 
-    <section id="panel-ordenes" class="panel" hidden>
-      <header class="panel-header">
-        <h2>Órdenes de compra</h2>
-        <button class="btn-primario" id="btn-nueva-orden">+ Nueva orden</button>
-      </header>
-      <form id="form-orden" class="form-inline" hidden>
-        <select id="orden-tercero" required></select>
-        <select id="orden-tipo">
-          <option value="bienes">Bienes</option>
-          <option value="servicios">Servicios</option>
-        </select>
-        <input type="number" id="orden-subtotal" placeholder="Subtotal" required min="0">
-        <input type="number" id="orden-iva" placeholder="IVA" min="0" value="0">
-        <input type="number" id="orden-total" placeholder="Total" required min="0">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-orden">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-ordenes"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
+    <article class="tarjeta-servicio">
+      <span class="numero-servicio">03</span>
+      <h3>Transformación Digital Contable</h3>
+      <p>Ayudamos a otras firmas y negocios a digitalizar sus procesos
+         contables — desde el diagnóstico hasta la implementación de
+         herramientas a la medida.</p>
+      <a href="mailto:contacto@libanielconsulting.com" class="btn-tarjeta">Escríbenos</a>
+    </article>
+  </div>
+</section>
 
-    <section id="panel-facturas-compra" class="panel" hidden>
-      <header class="panel-header"><h2>Facturas de compra</h2></header>
-      <p class="nota-panel">Se generan al convertir una orden aprobada, o llegan por webhook del proveedor tecnológico.</p>
-      <div class="tabla-envoltorio">
-        <table id="tabla-facturas-compra"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
+<footer class="pie">
+  <span class="wordmark">Libaniel Consulting</span>
+  <a href="mailto:contacto@libanielconsulting.com">contacto@libanielconsulting.com</a>
+</footer>
 
-    <section id="panel-nomina" class="panel" hidden>
-      <header class="panel-header">
-        <h2>Nómina</h2>
-        <button class="btn-primario" id="btn-nuevo-periodo">+ Nuevo periodo</button>
-      </header>
-      <form id="form-periodo" class="form-inline" hidden>
-        <input type="date" id="periodo-inicio" required title="Fecha de inicio">
-        <input type="date" id="periodo-fin" required title="Fecha de fin">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-periodo">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-nomina"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
-
-    <section id="panel-inventarios" class="panel" hidden>
-      <header class="panel-header">
-        <h2>Inventarios</h2>
-        <button class="btn-primario" id="btn-nuevo-producto">+ Nuevo producto</button>
-      </header>
-      <form id="form-producto" class="form-inline" hidden>
-        <input type="text" id="producto-nombre" placeholder="Nombre" required>
-        <select id="producto-tipo">
-          <option value="bien">Bien</option>
-          <option value="servicio">Servicio</option>
-        </select>
-        <input type="text" id="producto-unidad" placeholder="Unidad" value="unidad">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-producto">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-productos"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
-
-    <section id="panel-activos-fijos" class="panel" hidden>
-      <header class="panel-header">
-        <h2>Activos fijos</h2>
-        <div class="acciones-header">
-          <button class="btn-secundario" id="btn-depreciar">Correr depreciación del mes</button>
-          <button class="btn-primario" id="btn-nuevo-activo">+ Nuevo activo</button>
-        </div>
-      </header>
-      <form id="form-activo" class="form-inline" hidden>
-        <input type="text" id="activo-nombre" placeholder="Nombre" required>
-        <input type="number" id="activo-costo" placeholder="Costo" required min="0">
-        <input type="number" id="activo-vida-util" placeholder="Vida útil (meses)" required min="1">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-activo">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-activos"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
-
-    <section id="panel-tesoreria" class="panel" hidden>
-      <header class="panel-header"><h2>Tesorería</h2></header>
-
-      <div class="subseccion-header">
-        <h3 class="subseccion">Cuentas bancarias</h3>
-        <button class="btn-primario btn-chico" id="btn-nueva-cuenta">+ Nueva cuenta</button>
-      </div>
-      <form id="form-cuenta" class="form-inline" hidden>
-        <input type="text" id="cuenta-banco" placeholder="Banco" required>
-        <input type="text" id="cuenta-numero" placeholder="Número" required>
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-cuenta">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-cuentas"><thead></thead><tbody></tbody></table>
-      </div>
-
-      <div class="subseccion-header">
-        <h3 class="subseccion">Movimientos</h3>
-        <button class="btn-primario btn-chico" id="btn-nuevo-movimiento">+ Nuevo movimiento</button>
-      </div>
-      <form id="form-movimiento" class="form-inline" hidden>
-        <select id="movimiento-cuenta" required></select>
-        <select id="movimiento-tipo">
-          <option value="ingreso">Ingreso</option>
-          <option value="egreso">Egreso</option>
-          <option value="comision">Comisión</option>
-        </select>
-        <input type="number" id="movimiento-valor" placeholder="Valor" required min="0">
-        <input type="text" id="movimiento-descripcion" placeholder="Descripción (opcional)">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-movimiento">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-movimientos-bancarios"><thead></thead><tbody></tbody></table>
-      </div>
-    </section>
-  </main>
-</div>
-
-<script src="/app.js"></script>
 </body>
 </html>
