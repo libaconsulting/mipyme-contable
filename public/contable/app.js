@@ -340,21 +340,23 @@ function renderTerceros(lista) {
 // --- RENDER: COTIZACIONES (con acciones según estado) ---
 function renderCotizaciones(lista) {
   document.querySelector('#tabla-cotizaciones thead').innerHTML =
-    '<tr><th>No.</th><th>Fecha</th><th>Cliente</th><th>Estado</th><th class="num">Total</th><th>Acciones</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-cotizaciones', 6, 'Todavía no hay cotizaciones.');
+    '<tr><th>No.</th><th>Fecha</th><th>Vence</th><th>Cliente</th><th>Estado</th><th class="num">Total</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-cotizaciones', 7, 'Todavía no hay cotizaciones.');
   document.querySelector('#tabla-cotizaciones tbody').innerHTML = lista
     .map((c) => {
-      let acciones = '—';
-      if (c.estado === 'borrador') acciones = botonAccion('Enviar', { accion: 'enviar-cotizacion', id: c.id });
+      let acciones = botonAccion('Ver ítems', { accion: 'ver-items-cotizacion', id: c.id });
+      if (c.estado === 'borrador') acciones += botonAccion('Enviar', { accion: 'enviar-cotizacion', id: c.id });
       else if (c.estado === 'enviada')
-        acciones =
+        acciones +=
           botonAccion('Aceptar', { accion: 'aceptar-cotizacion', id: c.id }) +
           botonAccion('Rechazar', { accion: 'rechazar-cotizacion', id: c.id }, true);
-      else if (c.estado === 'aceptada') acciones = botonAccion('Convertir en factura', { accion: 'convertir-cotizacion', id: c.id });
+      else if (c.estado === 'aceptada') acciones += botonAccion('Convertir en factura', { accion: 'convertir-cotizacion', id: c.id });
 
-      return `<tr><td>${c.consecutivo || '—'}</td><td>${formatoFecha(c.fecha)}</td><td>${nombreTercero(
-        c.terceroId
-      )}</td><td>${badge(c.estado)}</td><td class="num">${formatoDinero(c.total)}</td><td class="acciones">${acciones}</td></tr>`;
+      return `<tr data-fila-cotizacion="${c.id}"><td>${c.consecutivo || '—'}</td><td>${formatoFecha(
+        c.fecha
+      )}</td><td>${formatoFecha(c.fechaVencimiento)}</td><td>${nombreTercero(c.terceroId)}</td><td>${badge(
+        c.estado
+      )}</td><td class="num">${formatoDinero(c.total)}</td><td class="acciones">${acciones}</td></tr>`;
     })
     .join('');
 }
@@ -571,20 +573,163 @@ conectarFormulario('form-tercero', async () => {
   document.querySelector('#form-tercero button[type="submit"]').textContent = 'Guardar';
 });
 
-conectarFormulario('form-cotizacion', () =>
-  api('/ventas/cotizaciones', {
+// --- ÍTEMS DINÁMICOS DE COTIZACIÓN ---
+const UNIDADES_MEDIDA = ['UND', 'KG', 'M', 'M2', 'M3', 'HR', 'DIA', 'MES', 'GLB', 'SERV', 'LT', 'GAL'];
+
+function crearFilaItemCotizacion() {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="item-concepto" placeholder="Concepto" required></td>
+    <td><input type="number" class="item-cantidad" placeholder="Cant." min="0" step="0.01" required></td>
+    <td><select class="item-um">${UNIDADES_MEDIDA.map((u) => `<option value="${u}">${u}</option>`).join('')}</select></td>
+    <td><input type="number" class="item-valor-unitario" placeholder="Valor unit." min="0" required></td>
+    <td><input type="number" class="item-iva" value="19" min="0" max="100"></td>
+    <td class="num item-total-texto">$0</td>
+    <td><button type="button" class="btn-accion destructivo btn-quitar-item">Quitar</button></td>
+  `;
+  tr.querySelectorAll('input').forEach((input) => input.addEventListener('input', recalcularTotalesCotizacion));
+  tr.querySelector('.btn-quitar-item').addEventListener('click', () => {
+    tr.remove();
+    recalcularTotalesCotizacion();
+  });
+  return tr;
+}
+
+document.getElementById('btn-agregar-item-cotizacion').addEventListener('click', () => {
+  document.getElementById('items-cotizacion-tbody').appendChild(crearFilaItemCotizacion());
+});
+
+function leerItemsCotizacion() {
+  const filas = document.querySelectorAll('#items-cotizacion-tbody tr');
+  return Array.from(filas).map((fila) => {
+    const cantidad = Number(fila.querySelector('.item-cantidad').value || 0);
+    const valorUnitario = Number(fila.querySelector('.item-valor-unitario').value || 0);
+    const ivaPorcentaje = Number(fila.querySelector('.item-iva').value || 0);
+    const valorTotal = cantidad * valorUnitario;
+    fila.querySelector('.item-total-texto').textContent = formatoDinero(valorTotal);
+    return {
+      concepto: fila.querySelector('.item-concepto').value,
+      cantidad,
+      unidadMedida: fila.querySelector('.item-um').value,
+      valorUnitario,
+      ivaPorcentaje,
+      valorTotal,
+    };
+  });
+}
+
+function recalcularTotalesCotizacion() {
+  const items = leerItemsCotizacion();
+  const subtotal = items.reduce((s, i) => s + i.valorTotal, 0);
+
+  const aplicaAiu = document.getElementById('cotizacion-aplica-aiu').checked;
+  let baseIva = subtotal;
+  if (aplicaAiu) {
+    const admin = subtotal * (Number(document.getElementById('cotizacion-aiu-administracion').value || 0) / 100);
+    const imprevistos = subtotal * (Number(document.getElementById('cotizacion-aiu-imprevistos').value || 0) / 100);
+    const utilidad = subtotal * (Number(document.getElementById('cotizacion-aiu-utilidad').value || 0) / 100);
+    baseIva = subtotal + admin + imprevistos + utilidad;
+  }
+  const iva = baseIva * 0.19;
+  const total = baseIva + iva;
+
+  document.getElementById('resumen-subtotal').textContent = formatoDinero(subtotal);
+  document.getElementById('resumen-iva').textContent = formatoDinero(iva);
+  document.getElementById('resumen-total').textContent = formatoDinero(total);
+}
+
+document.getElementById('cotizacion-aplica-aiu').addEventListener('change', (e) => {
+  document.getElementById('campos-aiu').hidden = !e.target.checked;
+  recalcularTotalesCotizacion();
+});
+document.querySelectorAll('#campos-aiu input').forEach((el) => el.addEventListener('input', recalcularTotalesCotizacion));
+
+function limpiarFormularioCotizacion() {
+  document.getElementById('items-cotizacion-tbody').innerHTML = '';
+  document.getElementById('campos-aiu').hidden = true;
+  document.getElementById('cotizacion-aplica-aiu').checked = false;
+  recalcularTotalesCotizacion();
+}
+
+// Empieza con un ítem en blanco listo para llenar, en vez de una tabla vacía.
+document.getElementById('btn-nueva-cotizacion').addEventListener('click', () => {
+  if (document.getElementById('items-cotizacion-tbody').children.length === 0) {
+    document.getElementById('items-cotizacion-tbody').appendChild(crearFilaItemCotizacion());
+  }
+});
+document.getElementById('btn-cancelar-cotizacion').addEventListener('click', limpiarFormularioCotizacion);
+
+conectarFormulario('form-cotizacion', async () => {
+  const items = leerItemsCotizacion();
+  if (items.length === 0 || items.some((i) => !i.concepto || i.cantidad <= 0)) {
+    throw new Error('Agrega al menos un ítem con concepto y cantidad mayor a cero.');
+  }
+
+  await api('/ventas/cotizaciones', {
     method: 'POST',
     body: JSON.stringify({
       terceroId: document.getElementById('cotizacion-tercero').value,
       fechaVencimiento: document.getElementById('cotizacion-vencimiento').value,
-      total: Number(document.getElementById('cotizacion-total').value),
       formaPago: document.getElementById('cotizacion-forma-pago').value || undefined,
       observaciones: document.getElementById('cotizacion-observaciones').value || undefined,
       contactoNombre: document.getElementById('cotizacion-contacto-nombre').value || undefined,
       contactoTelefono: document.getElementById('cotizacion-contacto-telefono').value || undefined,
+      aplicaAiu: document.getElementById('cotizacion-aplica-aiu').checked,
+      aiuAdministracion: Number(document.getElementById('cotizacion-aiu-administracion').value || 0),
+      aiuImprevistos: Number(document.getElementById('cotizacion-aiu-imprevistos').value || 0),
+      aiuUtilidad: Number(document.getElementById('cotizacion-aiu-utilidad').value || 0),
+      items,
     }),
-  })
-);
+  });
+
+  limpiarFormularioCotizacion();
+});
+
+// --- VER ÍTEMS de una cotización existente (fila expandible) ---
+async function verItemsCotizacion(id) {
+  const filaDetalleExistente = document.getElementById('detalle-cotizacion-' + id);
+  if (filaDetalleExistente) {
+    filaDetalleExistente.remove();
+    return;
+  }
+
+  try {
+    const cotizacion = await api(`/ventas/cotizaciones/${id}`);
+    const filaOriginal = document.querySelector(`tr[data-fila-cotizacion="${id}"]`);
+    if (!filaOriginal) return;
+
+    const itemsHtml = (cotizacion.items || [])
+      .map(
+        (it) =>
+          `<tr><td>${it.concepto}</td><td class="num">${Number(it.cantidad).toLocaleString('es-CO')} ${
+            it.unidadMedida
+          }</td><td class="num">${formatoDinero(it.valorUnitario)}</td><td class="num">${it.ivaPorcentaje}%</td><td class="num">${formatoDinero(
+            it.valorTotal
+          )}</td></tr>`
+      )
+      .join('');
+
+    const tr = document.createElement('tr');
+    tr.id = 'detalle-cotizacion-' + id;
+    tr.innerHTML = `<td colspan="7"><div class="detalle-items">
+      <table class="tabla-items-detalle">
+        <thead><tr><th>Concepto</th><th class="num">Cantidad</th><th class="num">Valor unit.</th><th class="num">IVA</th><th class="num">Total</th></tr></thead>
+        <tbody>${
+          itemsHtml ||
+          '<tr><td colspan="5" class="vacio">Esta cotización no tiene ítems registrados (se creó antes de esta función).</td></tr>'
+        }</tbody>
+      </table>
+      ${
+        cotizacion.aplicaAiu
+          ? `<p class="nota-aiu">AIU aplicado — Administración ${cotizacion.aiuAdministracion}% · Imprevistos ${cotizacion.aiuImprevistos}% · Utilidad ${cotizacion.aiuUtilidad}%</p>`
+          : ''
+      }
+    </div></td>`;
+    filaOriginal.after(tr);
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
 conectarFormulario('form-orden', () =>
   api('/compras/ordenes', {
@@ -672,6 +817,9 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
   switch (tipoAccion) {
     case 'editar-tercero':
       return abrirEdicionTercero(id);
+
+    case 'ver-items-cotizacion':
+      return verItemsCotizacion(id);
 
     case 'enviar-cotizacion':
       return accion(`/ventas/cotizaciones/${id}/enviar`, { method: 'PATCH' });

@@ -66,6 +66,16 @@ async function listarFacturas(req, res) {
   }
 }
 
+async function obtenerCotizacion(req, res) {
+  try {
+    const cotizacion = await ventasService.obtenerCotizacion(req.params.id, req.usuario);
+    if (!cotizacion) return res.status(404).json({ error: 'Cotización no encontrada.' });
+    res.json(cotizacion);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+}
+
 module.exports = {
   crearCotizacion,
   enviarCotizacion,
@@ -74,4 +84,5 @@ module.exports = {
   convertirCotizacion,
   listarCotizaciones,
   listarFacturas,
+  obtenerCotizacion,
 };

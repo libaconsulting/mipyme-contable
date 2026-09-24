@@ -8,6 +8,9 @@ router.get('/cotizaciones', ventasController.listarCotizaciones);
 // GET /api/ventas/facturas
 router.get('/facturas', ventasController.listarFacturas);
 
+// GET /api/ventas/cotizaciones/:id (detalle con ítems)
+router.get('/cotizaciones/:id', ventasController.obtenerCotizacion);
+
 // POST /api/ventas/cotizaciones
 router.post('/cotizaciones', ventasController.crearCotizacion);
 

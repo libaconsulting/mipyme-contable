@@ -208,18 +208,52 @@
         <h2>Cotizaciones</h2>
         <button class="btn-primario" id="btn-nueva-cotizacion">+ Nueva cotización</button>
       </header>
-      <form id="form-cotizacion" class="form-inline" hidden>
-        <select id="cotizacion-tercero" required></select>
-        <input type="date" id="cotizacion-vencimiento" required title="Fecha de vencimiento">
-        <input type="number" id="cotizacion-total" placeholder="Total" required min="0">
-        <input type="text" id="cotizacion-forma-pago" placeholder="Forma de pago (opcional)">
-        <input type="text" id="cotizacion-observaciones" placeholder="Observaciones (opcional)">
-        <input type="text" id="cotizacion-contacto-nombre" placeholder="Persona de contacto (opcional)">
-        <input type="text" id="cotizacion-contacto-telefono" placeholder="Teléfono de contacto (opcional)">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-cotizacion">Cancelar</button>
+      <form id="form-cotizacion" class="form-grande" hidden>
+        <div class="fila-campos">
+          <select id="cotizacion-tercero" required></select>
+          <label class="campo-etiquetado">
+            <span>Vigente hasta</span>
+            <input type="date" id="cotizacion-vencimiento" required>
+          </label>
+          <input type="text" id="cotizacion-forma-pago" placeholder="Forma de pago (opcional)">
+          <input type="text" id="cotizacion-observaciones" placeholder="Observaciones (opcional)">
+          <input type="text" id="cotizacion-contacto-nombre" placeholder="Persona de contacto (opcional)">
+          <input type="text" id="cotizacion-contacto-telefono" placeholder="Teléfono de contacto (opcional)">
+        </div>
+
+        <div class="bloque-items">
+          <div class="bloque-items-header">
+            <h4>Ítems cotizados</h4>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-item-cotizacion">+ Agregar ítem</button>
+          </div>
+          <table class="tabla-items">
+            <thead>
+              <tr><th>Concepto</th><th>Cantidad</th><th>UM</th><th class="num">Valor unitario</th><th class="num">IVA %</th><th class="num">Total</th><th></th></tr>
+            </thead>
+            <tbody id="items-cotizacion-tbody"></tbody>
+          </table>
+        </div>
+
+        <label class="check-aiu">
+          <input type="checkbox" id="cotizacion-aplica-aiu"> ¿Aplica AIU? (Administración, Imprevistos, Utilidad — contratos de obra/servicios)
+        </label>
+        <div class="fila-campos" id="campos-aiu" hidden>
+          <input type="number" id="cotizacion-aiu-administracion" placeholder="Administración %" min="0" max="100">
+          <input type="number" id="cotizacion-aiu-imprevistos" placeholder="Imprevistos %" min="0" max="100">
+          <input type="number" id="cotizacion-aiu-utilidad" placeholder="Utilidad %" min="0" max="100">
+        </div>
+
+        <div class="resumen-totales">
+          <span>Subtotal: <strong id="resumen-subtotal">$0</strong></span>
+          <span>IVA: <strong id="resumen-iva">$0</strong></span>
+          <span>Total: <strong id="resumen-total">$0</strong></span>
+        </div>
+
+        <div class="fila-botones">
+          <button type="submit" class="btn-primario">Guardar</button>
+          <button type="button" class="btn-secundario" id="btn-cancelar-cotizacion">Cancelar</button>
+        </div>
       </form>
-      <p class="nota-panel">Los ítems línea por línea (con IVA y AIU) llegan en el siguiente ajuste — por ahora el total se escribe a mano.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-cotizaciones"><thead></thead><tbody></tbody></table>
       </div>

@@ -382,6 +382,111 @@ td.acciones { white-space: nowrap; }
   white-space: nowrap;
 }
 
+/* Formularios más grandes (cotización, orden) con ítems dinámicos */
+.form-grande {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.fila-campos {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.fila-campos input, .fila-campos select {
+  padding: 8px 10px;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  background: var(--paper);
+}
+
+.campo-etiquetado {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+
+.bloque-items {
+  border-top: 1px solid var(--rule);
+  padding-top: 16px;
+  margin-bottom: 16px;
+}
+.bloque-items-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.bloque-items-header h4 {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.tabla-items { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tabla-items thead th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--ink-soft);
+  font-size: 11px;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.tabla-items td { padding: 4px 6px; }
+.tabla-items input, .tabla-items select {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--paper);
+}
+.tabla-items .num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+.tabla-items .item-total-texto { font-family: var(--font-mono); }
+
+.check-aiu {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-bottom: 12px;
+}
+
+.resumen-totales {
+  display: flex;
+  gap: 24px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--rule);
+  padding-top: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.resumen-totales strong { font-family: var(--font-mono); }
+
+.fila-botones { display: flex; gap: 10px; }
+
+.tabla-items-detalle { width: 100%; border-collapse: collapse; font-size: 13px; margin: 10px 0; }
+.tabla-items-detalle th {
+  text-align: left;
+  font-size: 11px;
+  color: var(--ink-soft);
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.tabla-items-detalle td { padding: 6px 10px; border-bottom: 1px solid var(--rule); }
+.tabla-items-detalle .num { text-align: right; font-family: var(--font-mono); }
+.detalle-items { background: var(--paper); padding: 14px 16px; }
+.nota-aiu { font-size: 12px; color: var(--ink-soft); margin: 8px 0 0; }
+
 /* TABLAS: estilo libro contable — solo reglas horizontales */
 .tabla-envoltorio {
   background: var(--surface);

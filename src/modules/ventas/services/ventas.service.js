@@ -189,6 +189,18 @@ async function confirmarFacturaAceptada(facturaId, datosProveedor) {
   return factura;
 }
 
+// Cotización con sus ítems — para "Ver ítems" en el frontend y, más
+// adelante, la plantilla imprimible.
+async function obtenerCotizacion(id, usuario) {
+  const cotizacion = await Cotizacion.findOne({
+    where: { id, empresaId: usuario.empresaId },
+  });
+  if (!cotizacion) return null;
+
+  const items = await CotizacionItem.findAll({ where: { cotizacionId: id } });
+  return { ...cotizacion.toJSON(), items };
+}
+
 module.exports = {
   crearCotizacion,
   enviarCotizacion,
@@ -196,6 +208,7 @@ module.exports = {
   rechazarCotizacion,
   listarCotizaciones,
   listarFacturas,
+  obtenerCotizacion,
   convertirCotizacionEnFactura,
   confirmarFacturaAceptada,
 };
