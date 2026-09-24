@@ -47,6 +47,20 @@ src/
 └── routes/                   # Router raíz (auth, seed, terceros, y los 6 módulos)
 ```
 
+## Aprovisionar una empresa nueva
+
+Desde la pantalla de login, "¿Primera vez? Crear empresa y usuario" abre
+un flujo de dos pasos: `POST /api/empresas` crea la empresa, luego
+`POST /api/auth/registro` crea su primer usuario (rol `contador` o
+`dueño` recomendado). Ambos endpoints quedan abiertos por ahora — ver
+el TODO en `src/routes/empresas.routes.js` antes de tener más de un
+puñado de empresas reales.
+
+Al iniciar sesión, el panel **Inicio** (pestaña por defecto, ya no
+Terceros) saluda por nombre, muestra la razón social de la empresa, y
+presenta los nueve módulos como tarjetas — clic en cualquiera navega
+directo a esa sección.
+
 ## Frontend
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de

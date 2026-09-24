@@ -12,7 +12,7 @@
 <body>
 
 <div id="vista-login" class="pantalla-login">
-  <div class="tarjeta-login">
+  <div class="tarjeta-login" id="tarjeta-login-principal">
     <h1 class="wordmark">Mipyme Contable</h1>
     <p class="subtitulo">Sistema contable para microempresas — NIIF Grupo 3</p>
     <form id="form-login">
@@ -25,6 +25,53 @@
       <button type="submit" class="btn-primario">Entrar</button>
       <p id="login-error" class="mensaje-error" hidden></p>
     </form>
+    <button type="button" id="btn-mostrar-onboarding" class="enlace-onboarding">¿Primera vez? Crear empresa y usuario →</button>
+  </div>
+
+  <div class="tarjeta-login tarjeta-onboarding" id="tarjeta-onboarding" hidden>
+    <h1 class="wordmark">Nueva empresa</h1>
+    <p class="subtitulo">Dos pasos: primero la empresa, luego su primer usuario.</p>
+
+    <form id="form-empresa-nueva">
+      <label>Razón social
+        <input type="text" id="empresa-razon-social" required>
+      </label>
+      <label>NIT
+        <input type="text" id="empresa-nit" required>
+      </label>
+      <label>Régimen tributario
+        <select id="empresa-regimen">
+          <option value="ordinario">Ordinario</option>
+          <option value="rst">Régimen Simple (RST)</option>
+        </select>
+      </label>
+      <button type="submit" class="btn-primario">Crear empresa</button>
+    </form>
+
+    <form id="form-usuario-nuevo" hidden>
+      <p id="empresa-creada-mensaje" class="mensaje-exito"></p>
+      <label>Nombre del usuario
+        <input type="text" id="usuario-nuevo-nombre" required>
+      </label>
+      <label>Correo
+        <input type="email" id="usuario-nuevo-email" required>
+      </label>
+      <label>Contraseña
+        <input type="password" id="usuario-nuevo-password" required>
+      </label>
+      <label>Rol
+        <select id="usuario-nuevo-rol">
+          <option value="contador">Contador</option>
+          <option value="dueño">Dueño</option>
+          <option value="auxiliar">Auxiliar</option>
+          <option value="revisor">Revisor</option>
+        </select>
+      </label>
+      <button type="submit" class="btn-primario">Crear usuario</button>
+    </form>
+
+    <p id="onboarding-resultado" class="mensaje-exito" hidden></p>
+    <button type="button" id="btn-volver-login" class="enlace-onboarding">← Volver a iniciar sesión</button>
   </div>
 </div>
 
@@ -32,7 +79,8 @@
   <aside class="barra-lateral">
     <h1 class="wordmark">Mipyme Contable</h1>
     <nav>
-      <button class="nav-item activo" data-tab="terceros">Terceros</button>
+      <button class="nav-item activo" data-tab="inicio">Inicio</button>
+      <button class="nav-item" data-tab="terceros">Terceros</button>
       <button class="nav-item" data-tab="cotizaciones">Cotizaciones</button>
       <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
       <button class="nav-item" data-tab="ordenes">Órdenes de adquisición</button>
@@ -51,7 +99,59 @@
   </aside>
 
   <main class="contenido">
-    <section id="panel-terceros" class="panel">
+    <section id="panel-inicio" class="panel">
+      <header class="panel-header"><h2>Inicio</h2></header>
+      <p class="bienvenida">Bienvenido, <span id="inicio-usuario-nombre"></span> — trabajando en <strong id="inicio-empresa-nombre">—</strong>.</p>
+      <div class="grid-modulos">
+        <button class="tarjeta-modulo" data-ir-a="terceros">
+          <span class="numero-modulo">01</span>
+          <h3>Terceros</h3>
+          <p>Clientes, proveedores y empleados</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="cotizaciones">
+          <span class="numero-modulo">02</span>
+          <h3>Cotizaciones</h3>
+          <p>Cotiza y da seguimiento a tus ventas</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="facturas-venta">
+          <span class="numero-modulo">03</span>
+          <h3>Facturas de venta</h3>
+          <p>Facturación electrónica</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="ordenes">
+          <span class="numero-modulo">04</span>
+          <h3>Órdenes de Adquisición</h3>
+          <p>Compras de bienes y servicios</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="facturas-compra">
+          <span class="numero-modulo">05</span>
+          <h3>Facturas de compra</h3>
+          <p>Facturas recibidas y documento soporte</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="nomina">
+          <span class="numero-modulo">06</span>
+          <h3>Nómina</h3>
+          <p>Liquidación de empleados</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="inventarios">
+          <span class="numero-modulo">07</span>
+          <h3>Inventarios</h3>
+          <p>Control de existencias</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="activos-fijos">
+          <span class="numero-modulo">08</span>
+          <h3>Activos fijos</h3>
+          <p>Depreciación y activos</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="tesoreria">
+          <span class="numero-modulo">09</span>
+          <h3>Tesorería</h3>
+          <p>Cuentas y movimientos bancarios</p>
+        </button>
+      </div>
+    </section>
+
+    <section id="panel-terceros" class="panel" hidden>
       <header class="panel-header">
         <h2>Terceros</h2>
         <button class="btn-primario" id="btn-nuevo-tercero">+ Nuevo tercero</button>

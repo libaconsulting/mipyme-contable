@@ -3,6 +3,7 @@ const router = express.Router();
 
 const authRoutes = require('./auth.routes');
 const seedRoutes = require('./seed.routes');
+const empresasRoutes = require('./empresas.routes');
 const tercerosRoutes = require('./terceros.routes');
 const ventasRoutes = require('../modules/ventas/routes/ventas.routes');
 const comprasRoutes = require('../modules/compras/routes/compras.routes');
@@ -14,6 +15,7 @@ const { authenticate } = require('../middleware/auth');
 
 router.use('/auth', authRoutes); // público: login y registro
 router.use('/seed', seedRoutes); // el propio router exige authenticate + authorize
+router.use('/empresas', empresasRoutes); // público por ahora, ver TODO en el archivo
 
 router.use('/terceros', authenticate, tercerosRoutes); // requiere sesión
 router.use('/ventas', authenticate, ventasRoutes); // requiere sesión

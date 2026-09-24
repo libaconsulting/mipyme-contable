@@ -85,6 +85,7 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
   const password = document.getElementById('login-password').value;
   const errorEl = document.getElementById('login-error');
   errorEl.hidden = true;
+  errorEl.style.color = '';
 
   try {
     const res = await fetch(API + '/auth/login', {
@@ -122,22 +123,120 @@ function cerrarSesion(mensaje) {
 
 document.getElementById('btn-salir').addEventListener('click', () => cerrarSesion());
 
+// --- ONBOARDING: crear empresa nueva y su primer usuario, sin sesión ---
+const tarjetaLoginPrincipal = document.getElementById('tarjeta-login-principal');
+const tarjetaOnboarding = document.getElementById('tarjeta-onboarding');
+let empresaNuevaId = null;
+
+document.getElementById('btn-mostrar-onboarding').addEventListener('click', () => {
+  tarjetaLoginPrincipal.hidden = true;
+  tarjetaOnboarding.hidden = false;
+});
+
+function volverALogin() {
+  tarjetaOnboarding.hidden = true;
+  tarjetaLoginPrincipal.hidden = false;
+  document.getElementById('form-empresa-nueva').hidden = false;
+  document.getElementById('form-usuario-nuevo').hidden = true;
+  document.getElementById('form-empresa-nueva').reset();
+  document.getElementById('form-usuario-nuevo').reset();
+  document.getElementById('onboarding-resultado').hidden = true;
+  empresaNuevaId = null;
+}
+
+document.getElementById('btn-volver-login').addEventListener('click', volverALogin);
+
+document.getElementById('form-empresa-nueva').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const res = await fetch(API + '/empresas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        razonSocial: document.getElementById('empresa-razon-social').value,
+        nit: document.getElementById('empresa-nit').value,
+        regimenTributario: document.getElementById('empresa-regimen').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo crear la empresa.');
+
+    empresaNuevaId = data.id;
+    document.getElementById('empresa-creada-mensaje').textContent =
+      `Empresa "${data.razonSocial}" creada. Ahora crea su primer usuario:`;
+    document.getElementById('form-empresa-nueva').hidden = true;
+    document.getElementById('form-usuario-nuevo').hidden = false;
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+document.getElementById('form-usuario-nuevo').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const res = await fetch(API + '/auth/registro', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        empresaId: empresaNuevaId,
+        nombre: document.getElementById('usuario-nuevo-nombre').value,
+        email: document.getElementById('usuario-nuevo-email').value,
+        password: document.getElementById('usuario-nuevo-password').value,
+        rol: document.getElementById('usuario-nuevo-rol').value,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'No se pudo crear el usuario.');
+
+    volverALogin();
+    document.getElementById('login-email').value = data.email;
+    const errorEl = document.getElementById('login-error');
+    errorEl.textContent = `Usuario "${data.email}" creado. Ya puedes iniciar sesión.`;
+    errorEl.style.color = 'var(--accent)';
+    errorEl.hidden = false;
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
 // --- DASHBOARD SHELL ---
 function mostrarDashboard() {
   vistaLogin.hidden = true;
   vistaDashboard.hidden = false;
   document.getElementById('usuario-nombre').textContent = usuario.nombre;
   document.getElementById('usuario-rol').textContent = usuario.rol;
+  document.getElementById('inicio-usuario-nombre').textContent = usuario.nombre;
   cargarTodo();
+  cargarNombreEmpresa();
+}
+
+async function cargarNombreEmpresa() {
+  if (!usuario.empresaId) return;
+  try {
+    const empresas = await api('/empresas');
+    const miEmpresa = empresas.find((e) => e.id === usuario.empresaId);
+    document.getElementById('inicio-empresa-nombre').textContent = miEmpresa ? miEmpresa.razonSocial : '—';
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+// Cambia de pestaña — la usan tanto el menú lateral como las tarjetas
+// del panel de Inicio, para no duplicar la lógica.
+function irATab(tab) {
+  document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('activo'));
+  document.querySelectorAll('.panel').forEach((p) => (p.hidden = true));
+  const navItem = document.querySelector(`.nav-item[data-tab="${tab}"]`);
+  if (navItem) navItem.classList.add('activo');
+  document.getElementById('panel-' + tab).hidden = false;
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach((b) => b.classList.remove('activo'));
-    document.querySelectorAll('.panel').forEach((p) => (p.hidden = true));
-    btn.classList.add('activo');
-    document.getElementById('panel-' + btn.dataset.tab).hidden = false;
-  });
+  btn.addEventListener('click', () => irATab(btn.dataset.tab));
+});
+
+document.querySelectorAll('.tarjeta-modulo').forEach((btn) => {
+  btn.addEventListener('click', () => irATab(btn.dataset.irA));
 });
 
 // --- TOGGLE DE FORMULARIOS "+ Nuevo..." ---

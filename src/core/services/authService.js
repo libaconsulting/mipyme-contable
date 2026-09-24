@@ -2,6 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const Usuario = require('../models/Usuario');
+const Empresa = require('../models/Empresa');
 
 async function iniciarSesion(email, password) {
   const usuario = await Usuario.findOne({ where: { email, activo: true } });
@@ -23,7 +24,13 @@ async function iniciarSesion(email, password) {
 
   return {
     token,
-    usuario: { id: usuario.id, nombre: usuario.nombre, email: usuario.email, rol: usuario.rol },
+    usuario: {
+      id: usuario.id,
+      nombre: usuario.nombre,
+      email: usuario.email,
+      rol: usuario.rol,
+      empresaId: usuario.empresaId,
+    },
   };
 }
 
@@ -33,6 +40,11 @@ async function iniciarSesion(email, password) {
 // authenticate + authorize('dueño', 'contador') — nunca debe quedar
 // abierta al público en un sistema con datos contables reales.
 async function registrarUsuario({ empresaId, nombre, email, password, rol }) {
+  const empresa = await Empresa.findByPk(empresaId);
+  if (!empresa) {
+    throw new Error('La empresa indicada no existe. Créala primero en "Nueva empresa".');
+  }
+
   const existente = await Usuario.findOne({ where: { email } });
   if (existente) {
     throw new Error('Ya existe un usuario con ese correo.');
