@@ -18,7 +18,9 @@ const LogAuditoria = require('./LogAuditoria');
 // Modelos de módulos operativos ya construidos
 const FacturaVenta = require('../../modules/ventas/models/FacturaVenta');
 const Cotizacion = require('../../modules/ventas/models/Cotizacion');
+const CotizacionItem = require('../../modules/ventas/models/CotizacionItem');
 const OrdenCompra = require('../../modules/compras/models/OrdenCompra');
+const OrdenCompraItem = require('../../modules/compras/models/OrdenCompraItem');
 const FacturaCompra = require('../../modules/compras/models/FacturaCompra');
 const DocumentoSoporteAdquisicion = require('../../modules/compras/models/DocumentoSoporteAdquisicion');
 const PeriodoNomina = require('../../modules/nomina/models/PeriodoNomina');
@@ -43,7 +45,9 @@ module.exports = {
   LogAuditoria,
   FacturaVenta,
   Cotizacion,
+  CotizacionItem,
   OrdenCompra,
+  OrdenCompraItem,
   FacturaCompra,
   DocumentoSoporteAdquisicion,
   PeriodoNomina,

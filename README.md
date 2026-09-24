@@ -18,7 +18,9 @@ src/
 ├── server.js                 # Punto de entrada — también sirve public/ como estáticos
 ├── config/                   # Conexión a base de datos, variables de entorno
 ├── core/                     # Núcleo contable — nunca depende de la infraestructura
-│   ├── models/                 Empresa, Tercero, PlanCuentas, Asiento,
+│   ├── models/                 Empresa, Tercero (persona natural/jurídica,
+│   │                           ubicación, régimen y responsabilidades DIAN,
+│   │                           cuenta bancaria), PlanCuentas, Asiento,
 │   │                           Movimiento, PeriodoContable, ReglaContabilizacion,
 │   │                           ParametroTributario, Usuario, LogAuditoria
 │   └── services/
@@ -26,7 +28,8 @@ src/
 │       ├── cierrePeriodo.js    Máquina de estados del cierre mensual
 │       ├── authService.js      Login y registro de usuarios
 │       ├── auditoria.js        Registro de acciones sensibles
-│       └── seedService.js      Datos base: empresa, periodo, cuentas, reglas
+│       ├── seedService.js      Datos base: empresa, periodo, cuentas, reglas
+│       └── consecutivos.js     Numeración legible tipo COT-2026-0001 / ODA-2026-0001
 ├── modules/                  # Módulos operativos (capa transaccional) — TODOS completos
 │   ├── ventas/                 Cotización → factura, patrón de referencia
 │   ├── compras/                Factura recibida + documento soporte, orden de compra
@@ -143,3 +146,9 @@ qué contabilizar.
 - [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
 - [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
 - [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma
+- [ ] **Fase 2 — ítems de cotización/orden en el frontend**: tabla dinámica para agregar renglones (concepto, cantidad, UM con lista desplegable, valor unitario, IVA) en vez del campo de total a mano; el backend ya soporta `items[]` en `POST /ventas/cotizaciones` y `POST /compras/ordenes`, ver `CotizacionItem`/`OrdenCompraItem`
+- [ ] **Fase 3 — plantilla imprimible/PDF** de cotización y orden de adquisición, replicando el formato real de la firma (membrete, datos del cliente/proveedor, ítems, AIU cuando aplique, firmas)
+- [ ] Validar con un caso real si el IVA de una cotización con AIU debe calcularse sobre (subtotal + AIU) como quedó programado, o de otra forma según el tipo de contrato — ver la nota en `crearCotizacion` (`ventas.service.js`)
+- [ ] `GET` de detalle con ítems para cotización y orden (hoy el listado no trae los renglones, solo la cabecera) — necesario para la Fase 2 y 3
+- [ ] Usar `Tercero.responsabilidadesFiscales` y `tipoPersona` para automatizar el cálculo de retención en la fuente (formulario 350) — hoy son solo datos capturados, no alimentan ningún cálculo todavía
+- [ ] Consecutivos (`generarConsecutivo`): reemplazar el conteo simple por una tabla de secuencias con bloqueo transaccional antes de tener varios usuarios creando documentos al mismo tiempo

@@ -1,21 +1,84 @@
 const { v4: uuidv4 } = require('uuid');
 const Cotizacion = require('../models/Cotizacion');
+const CotizacionItem = require('../models/CotizacionItem');
 const FacturaVenta = require('../models/FacturaVenta');
 const facturacionAdapter = require('../../../integrations/adapters/facturacionAdapter');
 const { contabilizarEvento } = require('../../../core/services/motorAsientos');
+const { generarConsecutivo } = require('../../../core/services/consecutivos');
 
-// Crea una cotización nueva en estado "borrador".
+// Crea una cotización nueva en estado "borrador". Si vienen "items"
+// (arreglo de { concepto, cantidad, unidadMedida, valorUnitario,
+// ivaPorcentaje }), se crean como CotizacionItem y el subtotal/IVA/total
+// se calculan solos — no se confía en un total mandado a mano.
+// Si no vienen items (el formulario todavía no los arma), se respeta el
+// "total" que mande el cliente, por compatibilidad hacia atrás.
 async function crearCotizacion(datos, usuario) {
+  const consecutivo = await generarConsecutivo(usuario.empresaId, 'COT', Cotizacion);
+
   const cotizacion = await Cotizacion.create({
     id: uuidv4(),
     empresaId: usuario.empresaId,
     terceroId: datos.terceroId,
     vendedorId: usuario.id,
+    consecutivo,
     fecha: datos.fecha || new Date(),
     fechaVencimiento: datos.fechaVencimiento,
+    formaPago: datos.formaPago,
+    observaciones: datos.observaciones,
+    contactoNombre: datos.contactoNombre,
+    contactoTelefono: datos.contactoTelefono,
+    aplicaAiu: !!datos.aplicaAiu,
+    aiuAdministracion: datos.aiuAdministracion,
+    aiuImprevistos: datos.aiuImprevistos,
+    aiuUtilidad: datos.aiuUtilidad,
     estado: 'borrador',
-    total: datos.total,
+    subtotal: 0,
+    iva: 0,
+    total: datos.total || 0,
   });
+
+  if (Array.isArray(datos.items) && datos.items.length > 0) {
+    let subtotal = 0;
+
+    for (const item of datos.items) {
+      const cantidad = Number(item.cantidad);
+      const valorUnitario = Number(item.valorUnitario);
+      const ivaPorcentaje = item.ivaPorcentaje ?? 19;
+      const valorTotal = cantidad * valorUnitario;
+      const ivaValor = valorTotal * (ivaPorcentaje / 100);
+
+      await CotizacionItem.create({
+        id: uuidv4(),
+        cotizacionId: cotizacion.id,
+        concepto: item.concepto,
+        cantidad,
+        unidadMedida: item.unidadMedida || 'UND',
+        valorUnitario,
+        ivaPorcentaje,
+        valorTotal,
+        ivaValor,
+      });
+
+      subtotal += valorTotal;
+    }
+
+    // Si aplica AIU, el IVA se recalcula sobre (subtotal + AIU), no
+    // sobre la suma de IVA por ítem — es la convención más común en
+    // contratos de obra/servicios en Colombia. Validar contra el tipo
+    // de contrato específico antes de confiar en esto a ciegas.
+    let baseIva = subtotal;
+    if (cotizacion.aplicaAiu) {
+      const admin = subtotal * (Number(datos.aiuAdministracion || 0) / 100);
+      const imprevistos = subtotal * (Number(datos.aiuImprevistos || 0) / 100);
+      const utilidad = subtotal * (Number(datos.aiuUtilidad || 0) / 100);
+      baseIva = subtotal + admin + imprevistos + utilidad;
+    }
+    const iva = baseIva * 0.19;
+    const total = baseIva + iva;
+
+    await cotizacion.update({ subtotal, iva, total });
+  }
+
   return cotizacion;
 }
 

@@ -24,7 +24,7 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
   },
   aprobadorId: { type: DataTypes.UUID },
   fecha: { type: DataTypes.DATEONLY, allowNull: false },
-  fechaRequerida: { type: DataTypes.DATEONLY },
+  fechaRequerida: { type: DataTypes.DATEONLY }, // fecha de cumplimiento
   estado: {
     type: DataTypes.ENUM(
       'borrador',
@@ -39,6 +39,13 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
     allowNull: false,
     defaultValue: 'borrador',
   },
+  consecutivo: { type: DataTypes.STRING(30), unique: true },
+  // Proyecto o unidad de negocio al que pertenece — es, en la práctica,
+  // el mismo concepto que centro de costo (todavía pendiente como
+  // catálogo propio, ver README).
+  proyecto: { type: DataTypes.STRING(150) },
+  lugarEntrega: { type: DataTypes.STRING(255) },
+  formaPago: { type: DataTypes.TEXT },
   subtotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
   iva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },

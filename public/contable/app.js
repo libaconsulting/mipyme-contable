@@ -215,12 +215,14 @@ function poblarSelectCuentas(cuentas) {
 // --- RENDER: TERCEROS ---
 function renderTerceros(lista) {
   document.querySelector('#tabla-terceros thead').innerHTML =
-    '<tr><th>Nombre</th><th>Tipo</th><th>Identificación</th><th>Correo</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-terceros', 4, 'Todavía no hay terceros. Crea el primero arriba.');
+    '<tr><th>Nombre</th><th>Tipo</th><th>Persona</th><th>Identificación</th><th>Celular</th><th>Correo</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-terceros', 6, 'Todavía no hay terceros. Crea el primero arriba.');
   document.querySelector('#tabla-terceros tbody').innerHTML = lista
     .map(
       (t) =>
-        `<tr><td>${t.nombre}</td><td>${t.tipo}</td><td>${t.identificacion}</td><td>${t.email || '—'}</td></tr>`
+        `<tr><td>${t.nombre}</td><td>${t.tipo}</td><td>${t.tipoPersona || '—'}</td><td>${
+          t.identificacion
+        }</td><td>${t.celular || '—'}</td><td>${t.email || '—'}</td></tr>`
     )
     .join('');
 }
@@ -228,8 +230,8 @@ function renderTerceros(lista) {
 // --- RENDER: COTIZACIONES (con acciones según estado) ---
 function renderCotizaciones(lista) {
   document.querySelector('#tabla-cotizaciones thead').innerHTML =
-    '<tr><th>Fecha</th><th>Cliente</th><th>Estado</th><th class="num">Total</th><th>Acciones</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-cotizaciones', 5, 'Todavía no hay cotizaciones.');
+    '<tr><th>No.</th><th>Fecha</th><th>Cliente</th><th>Estado</th><th class="num">Total</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-cotizaciones', 6, 'Todavía no hay cotizaciones.');
   document.querySelector('#tabla-cotizaciones tbody').innerHTML = lista
     .map((c) => {
       let acciones = '—';
@@ -240,9 +242,9 @@ function renderCotizaciones(lista) {
           botonAccion('Rechazar', { accion: 'rechazar-cotizacion', id: c.id }, true);
       else if (c.estado === 'aceptada') acciones = botonAccion('Convertir en factura', { accion: 'convertir-cotizacion', id: c.id });
 
-      return `<tr><td>${formatoFecha(c.fecha)}</td><td>${nombreTercero(c.terceroId)}</td><td>${badge(
-        c.estado
-      )}</td><td class="num">${formatoDinero(c.total)}</td><td class="acciones">${acciones}</td></tr>`;
+      return `<tr><td>${c.consecutivo || '—'}</td><td>${formatoFecha(c.fecha)}</td><td>${nombreTercero(
+        c.terceroId
+      )}</td><td>${badge(c.estado)}</td><td class="num">${formatoDinero(c.total)}</td><td class="acciones">${acciones}</td></tr>`;
     })
     .join('');
 }
@@ -261,11 +263,11 @@ function renderFacturasVenta(lista) {
     .join('');
 }
 
-// --- RENDER: ÓRDENES DE COMPRA ---
+// --- RENDER: ÓRDENES DE ADQUISICIÓN ---
 function renderOrdenes(lista) {
   document.querySelector('#tabla-ordenes thead').innerHTML =
-    '<tr><th>Fecha</th><th>Proveedor</th><th>Tipo</th><th>Estado</th><th class="num">Total</th><th>Acciones</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-ordenes', 6, 'Todavía no hay órdenes de compra.');
+    '<tr><th>No.</th><th>Fecha</th><th>Proveedor</th><th>Proyecto</th><th>Tipo</th><th>Estado</th><th class="num">Total</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-ordenes', 8, 'Todavía no hay órdenes de adquisición.');
   document.querySelector('#tabla-ordenes tbody').innerHTML = lista
     .map((o) => {
       let acciones = '—';
@@ -273,7 +275,9 @@ function renderOrdenes(lista) {
       else if (['aprobada', 'recibida_parcial', 'recibida_total'].includes(o.estado))
         acciones = botonAccion('Convertir en factura', { accion: 'convertir-orden', id: o.id });
 
-      return `<tr><td>${formatoFecha(o.fecha)}</td><td>${nombreTercero(o.terceroId)}</td><td>${o.tipo}</td><td>${badge(
+      return `<tr><td>${o.consecutivo || '—'}</td><td>${formatoFecha(o.fecha)}</td><td>${nombreTercero(
+        o.terceroId
+      )}</td><td>${o.proyecto || '—'}</td><td>${o.tipo}</td><td>${badge(
         o.estado
       )}</td><td class="num">${formatoDinero(o.total)}</td><td class="acciones">${acciones}</td></tr>`;
     })
@@ -387,17 +391,28 @@ function conectarFormulario(formId, alEnviar) {
   });
 }
 
-conectarFormulario('form-tercero', () =>
-  api('/terceros', {
+conectarFormulario('form-tercero', () => {
+  const responsabilidades = Array.from(document.querySelectorAll('.chk-responsabilidad:checked')).map((c) => c.value);
+  return api('/terceros', {
     method: 'POST',
     body: JSON.stringify({
       tipo: document.getElementById('tercero-tipo').value,
+      tipoPersona: document.getElementById('tercero-tipo-persona').value || undefined,
       identificacion: document.getElementById('tercero-identificacion').value,
       nombre: document.getElementById('tercero-nombre').value,
       email: document.getElementById('tercero-email').value || undefined,
+      celular: document.getElementById('tercero-celular').value || undefined,
+      direccion: document.getElementById('tercero-direccion').value || undefined,
+      departamento: document.getElementById('tercero-departamento').value || undefined,
+      municipio: document.getElementById('tercero-municipio').value || undefined,
+      regimenIva: document.getElementById('tercero-regimen-iva').value || undefined,
+      cuentaBancariaTipo: document.getElementById('tercero-cuenta-tipo').value || undefined,
+      cuentaBancariaBanco: document.getElementById('tercero-cuenta-banco').value || undefined,
+      cuentaBancariaNumero: document.getElementById('tercero-cuenta-numero').value || undefined,
+      responsabilidadesFiscales: responsabilidades.length > 0 ? responsabilidades : undefined,
     }),
-  })
-);
+  });
+});
 
 conectarFormulario('form-cotizacion', () =>
   api('/ventas/cotizaciones', {
@@ -406,6 +421,10 @@ conectarFormulario('form-cotizacion', () =>
       terceroId: document.getElementById('cotizacion-tercero').value,
       fechaVencimiento: document.getElementById('cotizacion-vencimiento').value,
       total: Number(document.getElementById('cotizacion-total').value),
+      formaPago: document.getElementById('cotizacion-forma-pago').value || undefined,
+      observaciones: document.getElementById('cotizacion-observaciones').value || undefined,
+      contactoNombre: document.getElementById('cotizacion-contacto-nombre').value || undefined,
+      contactoTelefono: document.getElementById('cotizacion-contacto-telefono').value || undefined,
     }),
   })
 );
@@ -416,6 +435,9 @@ conectarFormulario('form-orden', () =>
     body: JSON.stringify({
       terceroId: document.getElementById('orden-tercero').value,
       tipo: document.getElementById('orden-tipo').value,
+      proyecto: document.getElementById('orden-proyecto').value || undefined,
+      lugarEntrega: document.getElementById('orden-lugar-entrega').value || undefined,
+      formaPago: document.getElementById('orden-forma-pago').value || undefined,
       subtotal: Number(document.getElementById('orden-subtotal').value),
       iva: Number(document.getElementById('orden-iva').value || 0),
       total: Number(document.getElementById('orden-total').value),

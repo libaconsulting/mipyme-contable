@@ -35,7 +35,7 @@
       <button class="nav-item activo" data-tab="terceros">Terceros</button>
       <button class="nav-item" data-tab="cotizaciones">Cotizaciones</button>
       <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
-      <button class="nav-item" data-tab="ordenes">Órdenes de compra</button>
+      <button class="nav-item" data-tab="ordenes">Órdenes de adquisición</button>
       <button class="nav-item" data-tab="facturas-compra">Facturas de compra</button>
       <button class="nav-item" data-tab="nomina">Nómina</button>
       <button class="nav-item" data-tab="inventarios">Inventarios</button>
@@ -63,9 +63,38 @@
           <option value="empleado">Empleado</option>
           <option value="otro">Otro</option>
         </select>
+        <select id="tercero-tipo-persona">
+          <option value="">Tipo de persona...</option>
+          <option value="natural">Natural</option>
+          <option value="juridica">Jurídica</option>
+        </select>
         <input type="text" id="tercero-identificacion" placeholder="Identificación" required>
         <input type="text" id="tercero-nombre" placeholder="Nombre" required>
         <input type="email" id="tercero-email" placeholder="Correo (opcional)">
+        <input type="text" id="tercero-celular" placeholder="Celular (opcional)">
+        <input type="text" id="tercero-direccion" placeholder="Dirección (opcional)">
+        <input type="text" id="tercero-departamento" placeholder="Departamento (opcional)">
+        <input type="text" id="tercero-municipio" placeholder="Municipio (opcional)">
+        <select id="tercero-regimen-iva">
+          <option value="">Régimen de IVA...</option>
+          <option value="responsable">Responsable de IVA</option>
+          <option value="no_responsable">No responsable de IVA</option>
+        </select>
+        <select id="tercero-cuenta-tipo">
+          <option value="">Tipo de cuenta...</option>
+          <option value="ahorros">Ahorros</option>
+          <option value="corriente">Corriente</option>
+        </select>
+        <input type="text" id="tercero-cuenta-banco" placeholder="Banco (opcional)">
+        <input type="text" id="tercero-cuenta-numero" placeholder="No. cuenta (opcional)">
+        <fieldset class="fieldset-responsabilidades">
+          <legend>Responsabilidad fiscal (marca las que apliquen)</legend>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-13"> O-13 Gran contribuyente</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-15"> O-15 Autorretenedor</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-23"> O-23 Agente de retención IVA</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-47"> O-47 Régimen simple de tributación</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="R-99-PN"> R-99-PN No aplica - Otros</label>
+        </fieldset>
         <button type="submit" class="btn-primario">Guardar</button>
         <button type="button" class="btn-secundario" id="btn-cancelar-tercero">Cancelar</button>
       </form>
@@ -83,9 +112,14 @@
         <select id="cotizacion-tercero" required></select>
         <input type="date" id="cotizacion-vencimiento" required title="Fecha de vencimiento">
         <input type="number" id="cotizacion-total" placeholder="Total" required min="0">
+        <input type="text" id="cotizacion-forma-pago" placeholder="Forma de pago (opcional)">
+        <input type="text" id="cotizacion-observaciones" placeholder="Observaciones (opcional)">
+        <input type="text" id="cotizacion-contacto-nombre" placeholder="Persona de contacto (opcional)">
+        <input type="text" id="cotizacion-contacto-telefono" placeholder="Teléfono de contacto (opcional)">
         <button type="submit" class="btn-primario">Guardar</button>
         <button type="button" class="btn-secundario" id="btn-cancelar-cotizacion">Cancelar</button>
       </form>
+      <p class="nota-panel">Los ítems línea por línea (con IVA y AIU) llegan en el siguiente ajuste — por ahora el total se escribe a mano.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-cotizaciones"><thead></thead><tbody></tbody></table>
       </div>
@@ -101,7 +135,7 @@
 
     <section id="panel-ordenes" class="panel" hidden>
       <header class="panel-header">
-        <h2>Órdenes de compra</h2>
+        <h2>Órdenes de adquisición</h2>
         <button class="btn-primario" id="btn-nueva-orden">+ Nueva orden</button>
       </header>
       <form id="form-orden" class="form-inline" hidden>
@@ -110,12 +144,16 @@
           <option value="bienes">Bienes</option>
           <option value="servicios">Servicios</option>
         </select>
+        <input type="text" id="orden-proyecto" placeholder="Proyecto / unidad de negocio (opcional)">
+        <input type="text" id="orden-lugar-entrega" placeholder="Lugar de entrega (opcional)">
+        <input type="text" id="orden-forma-pago" placeholder="Forma de pago (opcional)">
         <input type="number" id="orden-subtotal" placeholder="Subtotal" required min="0">
         <input type="number" id="orden-iva" placeholder="IVA" min="0" value="0">
         <input type="number" id="orden-total" placeholder="Total" required min="0">
         <button type="submit" class="btn-primario">Guardar</button>
         <button type="button" class="btn-secundario" id="btn-cancelar-orden">Cancelar</button>
       </form>
+      <p class="nota-panel">Los ítems línea por línea llegan en el siguiente ajuste — por ahora subtotal/IVA/total se escriben a mano.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-ordenes"><thead></thead><tbody></tbody></table>
       </div>
