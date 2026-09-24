@@ -1,3 +1,12 @@
+#!/bin/bash
+set -e
+
+if [ ! -f "package.json" ]; then
+  echo "ERROR: no se encontró package.json en esta carpeta."
+  exit 1
+fi
+
+cat > public/contable/app.js << 'SCRIPTEOF'
 const API = '/api';
 
 let token = localStorage.getItem('token');
@@ -703,3 +712,10 @@ async function movimientoInventario(tipo, productoId, pideCosto, pideObservacion
 if (token && usuario) {
   mostrarDashboard();
 }
+SCRIPTEOF
+echo "OK  public/contable/app.js"
+
+echo "Listo. Los selectores de Cotizaciones y Ordenes ya muestran todos los terceros."
+echo "  git add ."
+echo "  git commit -m \"Quitar filtro por tipo en los selectores de terceros\""
+echo "  git push"
