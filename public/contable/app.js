@@ -156,6 +156,16 @@ document.getElementById('form-empresa-nueva').addEventListener('submit', async (
         razonSocial: document.getElementById('empresa-razon-social').value,
         nit: document.getElementById('empresa-nit').value,
         regimenTributario: document.getElementById('empresa-regimen').value,
+        responsableIva: document.getElementById('empresa-responsable-iva').checked,
+        email: document.getElementById('empresa-email').value || undefined,
+        telefono: document.getElementById('empresa-telefono').value || undefined,
+        direccion: document.getElementById('empresa-direccion').value || undefined,
+        departamento: document.getElementById('empresa-departamento').value || undefined,
+        municipio: document.getElementById('empresa-municipio').value || undefined,
+        representanteLegalNombre: document.getElementById('empresa-representante-nombre').value || undefined,
+        representanteLegalDocumento: document.getElementById('empresa-representante-documento').value || undefined,
+        actividadEconomicaCiiu: document.getElementById('empresa-ciiu').value || undefined,
+        matriculaMercantil: document.getElementById('empresa-matricula').value || undefined,
       }),
     });
     const data = await res.json();

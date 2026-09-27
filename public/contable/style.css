@@ -154,6 +154,17 @@ button { font-family: var(--font-sans); cursor: pointer; }
 }
 .tarjeta-onboarding .btn-primario { width: 100%; padding: 12px; margin-top: 4px; }
 
+.tarjeta-onboarding .check-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.tarjeta-onboarding .check-inline input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
 /* PANEL DE INICIO */
 .bienvenida {
   color: var(--ink-soft);

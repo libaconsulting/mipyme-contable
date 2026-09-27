@@ -50,11 +50,15 @@ src/
 ## Aprovisionar una empresa nueva
 
 Desde la pantalla de login, "¿Primera vez? Crear empresa y usuario" abre
-un flujo de dos pasos: `POST /api/empresas` crea la empresa, luego
-`POST /api/auth/registro` crea su primer usuario (rol `contador` o
-`dueño` recomendado). Ambos endpoints quedan abiertos por ahora — ver
-el TODO en `src/routes/empresas.routes.js` antes de tener más de un
-puñado de empresas reales.
+un flujo de dos pasos: `POST /api/empresas` crea la empresa (razón
+social, NIT, régimen tributario —ordinario, RST o especial—,
+responsable de IVA, correo, teléfono, dirección, departamento,
+municipio, representante legal y su documento, código CIIU y matrícula
+mercantil), luego `POST /api/auth/registro` crea su primer usuario (rol
+`contador` o `dueño` recomendado). `PATCH /api/empresas/:id` permite
+editar estos datos después. Los tres endpoints quedan abiertos por
+ahora — ver el TODO en `src/routes/empresas.routes.js` antes de tener
+más de un puñado de empresas reales.
 
 Al iniciar sesión, el panel **Inicio** (pestaña por defecto, ya no
 Terceros) saluda por nombre, muestra la razón social de la empresa, y
