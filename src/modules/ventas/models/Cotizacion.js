@@ -25,7 +25,7 @@ const Cotizacion = sequelize.define('Cotizacion', {
   total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
   formaPago: { type: DataTypes.TEXT },
   observaciones: { type: DataTypes.TEXT },
-  contactoNombre: { type: DataTypes.STRING(150) },
+  contactoNombre: { type: DataTypes.TEXT },
   contactoTelefono: { type: DataTypes.STRING(30) },
   // AIU: Administración, Imprevistos, Utilidad — habitual en contratos
   // de obra/servicios. Porcentajes sobre el subtotal; ver la nota de

@@ -1,3 +1,4 @@
+const { mensajeError } = require('../../../core/utils/mensajeError');
 const ventasService = require('../services/ventas.service');
 
 async function crearCotizacion(req, res) {
@@ -5,7 +6,7 @@ async function crearCotizacion(req, res) {
     const cotizacion = await ventasService.crearCotizacion(req.body, req.usuario);
     res.status(201).json(cotizacion);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -14,7 +15,7 @@ async function enviarCotizacion(req, res) {
     const cotizacion = await ventasService.enviarCotizacion(req.params.id);
     res.json(cotizacion);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -23,7 +24,7 @@ async function aceptarCotizacion(req, res) {
     const cotizacion = await ventasService.aceptarCotizacion(req.params.id);
     res.json(cotizacion);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -32,7 +33,7 @@ async function rechazarCotizacion(req, res) {
     const cotizacion = await ventasService.rechazarCotizacion(req.params.id);
     res.json(cotizacion);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -44,7 +45,7 @@ async function convertirCotizacion(req, res) {
     );
     res.status(201).json(factura);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -53,7 +54,7 @@ async function listarCotizaciones(req, res) {
     const cotizaciones = await ventasService.listarCotizaciones(req.usuario);
     res.json(cotizaciones);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -62,7 +63,7 @@ async function listarFacturas(req, res) {
     const facturas = await ventasService.listarFacturas(req.usuario);
     res.json(facturas);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 
@@ -72,7 +73,7 @@ async function obtenerCotizacion(req, res) {
     if (!cotizacion) return res.status(404).json({ error: 'Cotización no encontrada.' });
     res.json(cotizacion);
   } catch (error) {
-    res.status(400).json({ error: error.message });
+    res.status(400).json({ error: mensajeError(error) });
   }
 }
 

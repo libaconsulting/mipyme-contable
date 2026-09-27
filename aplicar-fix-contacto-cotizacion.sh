@@ -1,3 +1,174 @@
+#!/bin/bash
+set -e
+
+if [ ! -f "package.json" ]; then
+  echo "ERROR: no se encontró package.json en esta carpeta."
+  exit 1
+fi
+
+mkdir -p src/core/utils
+
+cat > src/core/utils/mensajeError.js << 'SCRIPTEOF'
+// Sequelize agrupa los errores de validación/base de datos bajo un
+// mensaje genérico ("Validation error", "Database error"...) y deja el
+// detalle real adentro (error.errors[] o error.original). Este helper
+// lo desenreda para que el usuario vea algo accionable, no un genérico.
+function mensajeError(error) {
+  if (error.name === 'SequelizeValidationError' && Array.isArray(error.errors) && error.errors.length > 0) {
+    return error.errors.map((e) => `${e.path}: ${e.message}`).join('; ');
+  }
+  if (error.name === 'SequelizeUniqueConstraintError' && Array.isArray(error.errors) && error.errors.length > 0) {
+    return error.errors.map((e) => `${e.path}: ya existe un registro con ese valor`).join('; ');
+  }
+  if (error.original && error.original.message) {
+    return error.original.message;
+  }
+  return error.message;
+}
+
+module.exports = { mensajeError };
+SCRIPTEOF
+echo "OK  src/core/utils/mensajeError.js"
+
+cat > src/modules/ventas/models/Cotizacion.js << 'SCRIPTEOF'
+const { DataTypes } = require('sequelize');
+const sequelize = require('../../../config/database');
+
+// Ciclo de vida: borrador -> enviada -> (aceptada | rechazada | expirada)
+// -> facturada. No genera asiento contable en ningún estado.
+const Cotizacion = sequelize.define('Cotizacion', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  empresaId: { type: DataTypes.UUID, allowNull: false },
+  terceroId: { type: DataTypes.UUID, allowNull: false },
+  vendedorId: { type: DataTypes.UUID },
+  fecha: { type: DataTypes.DATEONLY, allowNull: false },
+  fechaVencimiento: { type: DataTypes.DATEONLY, allowNull: false },
+  estado: {
+    type: DataTypes.ENUM('borrador', 'enviada', 'aceptada', 'rechazada', 'expirada', 'facturada'),
+    allowNull: false,
+    defaultValue: 'borrador',
+  },
+  consecutivo: { type: DataTypes.STRING(30), unique: true },
+  subtotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  iva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+  formaPago: { type: DataTypes.TEXT },
+  observaciones: { type: DataTypes.TEXT },
+  contactoNombre: { type: DataTypes.TEXT },
+  contactoTelefono: { type: DataTypes.STRING(30) },
+  // AIU: Administración, Imprevistos, Utilidad — habitual en contratos
+  // de obra/servicios. Porcentajes sobre el subtotal; ver la nota de
+  // cálculo en ventas.service.js (crearCotizacion).
+  aplicaAiu: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  aiuAdministracion: { type: DataTypes.DECIMAL(5, 2) },
+  aiuImprevistos: { type: DataTypes.DECIMAL(5, 2) },
+  aiuUtilidad: { type: DataTypes.DECIMAL(5, 2) },
+}, {
+  tableName: 'cotizaciones',
+});
+
+module.exports = Cotizacion;
+SCRIPTEOF
+echo "OK  src/modules/ventas/models/Cotizacion.js"
+
+cat > src/modules/ventas/controllers/ventas.controller.js << 'SCRIPTEOF'
+const { mensajeError } = require('../../../core/utils/mensajeError');
+const ventasService = require('../services/ventas.service');
+
+async function crearCotizacion(req, res) {
+  try {
+    const cotizacion = await ventasService.crearCotizacion(req.body, req.usuario);
+    res.status(201).json(cotizacion);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function enviarCotizacion(req, res) {
+  try {
+    const cotizacion = await ventasService.enviarCotizacion(req.params.id);
+    res.json(cotizacion);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function aceptarCotizacion(req, res) {
+  try {
+    const cotizacion = await ventasService.aceptarCotizacion(req.params.id);
+    res.json(cotizacion);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function rechazarCotizacion(req, res) {
+  try {
+    const cotizacion = await ventasService.rechazarCotizacion(req.params.id);
+    res.json(cotizacion);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function convertirCotizacion(req, res) {
+  try {
+    const factura = await ventasService.convertirCotizacionEnFactura(
+      req.params.cotizacionId,
+      req.usuario?.id
+    );
+    res.status(201).json(factura);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function listarCotizaciones(req, res) {
+  try {
+    const cotizaciones = await ventasService.listarCotizaciones(req.usuario);
+    res.json(cotizaciones);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function listarFacturas(req, res) {
+  try {
+    const facturas = await ventasService.listarFacturas(req.usuario);
+    res.json(facturas);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function obtenerCotizacion(req, res) {
+  try {
+    const cotizacion = await ventasService.obtenerCotizacion(req.params.id, req.usuario);
+    if (!cotizacion) return res.status(404).json({ error: 'Cotización no encontrada.' });
+    res.json(cotizacion);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+module.exports = {
+  crearCotizacion,
+  enviarCotizacion,
+  aceptarCotizacion,
+  rechazarCotizacion,
+  convertirCotizacion,
+  listarCotizaciones,
+  listarFacturas,
+  obtenerCotizacion,
+};
+SCRIPTEOF
+echo "OK  src/modules/ventas/controllers/ventas.controller.js"
+
+cat > README.md << 'SCRIPTEOF'
 # mipyme-contable
 
 Sistema contable para microempresas colombianas (NIIF Grupo 3), pensado
@@ -171,3 +342,11 @@ qué contabilizar.
 - [ ] `GET /compras/ordenes/:id` con ítems (el de cotizaciones ya existe: `GET /ventas/cotizaciones/:id`) — necesario para "Ver ítems" y la Fase 3 en Órdenes
 - [ ] Usar `Tercero.responsabilidadesFiscales` y `tipoPersona` para automatizar el cálculo de retención en la fuente (formulario 350) — hoy son solo datos capturados, no alimentan ningún cálculo todavía
 - [ ] Consecutivos (`generarConsecutivo`): reemplazar el conteo simple por una tabla de secuencias con bloqueo transaccional antes de tener varios usuarios creando documentos al mismo tiempo
+SCRIPTEOF
+echo "OK  README.md"
+
+echo ""
+echo "Listo. Campo contacto ampliado y mensajes de error mas claros."
+echo "  git add ."
+echo "  git commit -m \"Corregir limite de contactoNombre y mejorar mensajes de error en ventas\""
+echo "  git push"
