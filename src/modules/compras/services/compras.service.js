@@ -5,31 +5,31 @@ const FacturaCompra = require('../models/FacturaCompra');
 const DocumentoSoporteAdquisicion = require('../models/DocumentoSoporteAdquisicion');
 const documentoSoporteAdapter = require('../../../integrations/adapters/documentoSoporteAdapter');
 const { contabilizarEvento } = require('../../../core/services/motorAsientos');
-const { generarConsecutivo } = require('../../../core/services/consecutivos');
+const { crearConSecutivoUnico } = require('../../../core/services/consecutivos');
 
 // Crea una orden de adquisición (bienes o servicios) en "borrador". Si
 // vienen "items", se crean como OrdenCompraItem y subtotal/IVA/total se
 // calculan solos. Sin items, respeta el subtotal/iva/total a mano por
 // compatibilidad con el formulario actual.
 async function crearOrden(datos, usuario) {
-  const consecutivo = await generarConsecutivo(usuario.empresaId, 'ODA', OrdenCompra);
-
-  const orden = await OrdenCompra.create({
-    id: uuidv4(),
-    empresaId: usuario.empresaId,
-    terceroId: datos.terceroId,
-    tipo: datos.tipo || 'bienes',
-    consecutivo,
-    fecha: datos.fecha || new Date(),
-    fechaRequerida: datos.fechaRequerida,
-    proyecto: datos.proyecto,
-    lugarEntrega: datos.lugarEntrega,
-    formaPago: datos.formaPago,
-    estado: 'borrador',
-    subtotal: datos.subtotal || 0,
-    iva: datos.iva || 0,
-    total: datos.total || 0,
-  });
+  const orden = await crearConSecutivoUnico(OrdenCompra, usuario.empresaId, 'ODA', (consecutivo) =>
+    OrdenCompra.create({
+      id: uuidv4(),
+      empresaId: usuario.empresaId,
+      terceroId: datos.terceroId,
+      tipo: datos.tipo || 'bienes',
+      consecutivo,
+      fecha: datos.fecha || new Date(),
+      fechaRequerida: datos.fechaRequerida,
+      proyecto: datos.proyecto,
+      lugarEntrega: datos.lugarEntrega,
+      formaPago: datos.formaPago,
+      estado: 'borrador',
+      subtotal: datos.subtotal || 0,
+      iva: datos.iva || 0,
+      total: datos.total || 0,
+    })
+  );
 
   if (Array.isArray(datos.items) && datos.items.length > 0) {
     let subtotal = 0;
@@ -38,9 +38,10 @@ async function crearOrden(datos, usuario) {
     for (const item of datos.items) {
       const cantidad = Number(item.cantidad);
       const valorUnitario = Number(item.valorUnitario);
-      const ivaPorcentaje = item.ivaPorcentaje ?? 19;
+      const tipoImpuesto = item.tipoImpuesto || 'iva';
+      const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
       const valorTotal = cantidad * valorUnitario;
-      const ivaValor = valorTotal * (ivaPorcentaje / 100);
+      const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
 
       await OrdenCompraItem.create({
         id: uuidv4(),
@@ -49,13 +50,14 @@ async function crearOrden(datos, usuario) {
         cantidad,
         unidadMedida: item.unidadMedida || 'UND',
         valorUnitario,
-        ivaPorcentaje,
+        tipoImpuesto,
+        impuestoPorcentaje,
         valorTotal,
-        ivaValor,
+        impuestoValor,
       });
 
       subtotal += valorTotal;
-      iva += ivaValor;
+      iva += impuestoValor;
     }
 
     await orden.update({ subtotal, iva, total: subtotal + iva });

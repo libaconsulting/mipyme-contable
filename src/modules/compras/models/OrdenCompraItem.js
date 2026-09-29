@@ -2,7 +2,8 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('../../../config/database');
 
 // Mismo patrón que CotizacionItem — un renglón de una orden de
-// adquisición (compra de bienes o servicios).
+// adquisición (compra de bienes o servicios), con tipoImpuesto para
+// distinguir IVA de Impoconsumo.
 const OrdenCompraItem = sequelize.define('OrdenCompraItem', {
   id: {
     type: DataTypes.UUID,
@@ -14,9 +15,14 @@ const OrdenCompraItem = sequelize.define('OrdenCompraItem', {
   cantidad: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
   unidadMedida: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'UND' },
   valorUnitario: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
-  ivaPorcentaje: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 19 },
+  tipoImpuesto: {
+    type: DataTypes.ENUM('iva', 'impoconsumo', 'exento'),
+    allowNull: false,
+    defaultValue: 'iva',
+  },
+  impuestoPorcentaje: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 19 },
   valorTotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
-  ivaValor: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  impuestoValor: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
 }, {
   tableName: 'orden_compra_items',
 });

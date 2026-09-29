@@ -57,6 +57,12 @@ function formatoFecha(valor) {
   });
 }
 
+const ETIQUETAS_IMPUESTO = { iva: 'IVA', impoconsumo: 'Impoconsumo', exento: 'Exento' };
+function etiquetaImpuesto(tipoImpuesto, porcentaje) {
+  const etiqueta = ETIQUETAS_IMPUESTO[tipoImpuesto] || 'IVA';
+  return tipoImpuesto === 'exento' ? etiqueta : `${etiqueta} ${porcentaje}%`;
+}
+
 function nombreTercero(id) {
   return mapaTerceros[id] || id || '—';
 }
@@ -586,6 +592,19 @@ conectarFormulario('form-tercero', async () => {
 // --- ÍTEMS DINÁMICOS DE COTIZACIÓN ---
 const UNIDADES_MEDIDA = ['UND', 'KG', 'M', 'M2', 'M3', 'HR', 'DIA', 'MES', 'GLB', 'SERV', 'LT', 'GAL'];
 
+// value = "tipoImpuesto-porcentaje". "otro" deja el % en blanco para
+// que el usuario lo escriba a mano (ver el input que aparece al lado).
+const OPCIONES_IMPUESTO = [
+  { value: 'iva-19', texto: 'IVA 19%' },
+  { value: 'iva-5', texto: 'IVA 5%' },
+  { value: 'iva-0', texto: 'IVA 0%' },
+  { value: 'impoconsumo-4', texto: 'Impoconsumo 4%' },
+  { value: 'impoconsumo-8', texto: 'Impoconsumo 8%' },
+  { value: 'impoconsumo-16', texto: 'Impoconsumo 16%' },
+  { value: 'exento-0', texto: 'Exento' },
+  { value: 'otro-', texto: 'Otro (definir %)' },
+];
+
 function crearFilaItemCotizacion() {
   const tr = document.createElement('tr');
   tr.innerHTML = `
@@ -593,11 +612,19 @@ function crearFilaItemCotizacion() {
     <td><input type="number" class="item-cantidad" placeholder="Cant." min="0" step="0.01" required></td>
     <td><select class="item-um">${UNIDADES_MEDIDA.map((u) => `<option value="${u}">${u}</option>`).join('')}</select></td>
     <td><input type="number" class="item-valor-unitario" placeholder="Valor unit." min="0" required></td>
-    <td><input type="number" class="item-iva" value="19" min="0" max="100"></td>
+    <td>
+      <select class="item-tipo-impuesto">${OPCIONES_IMPUESTO.map((o) => `<option value="${o.value}">${o.texto}</option>`).join('')}</select>
+      <input type="number" class="item-impuesto-manual" min="0" max="100" placeholder="%" hidden>
+    </td>
     <td class="num item-total-texto">$0</td>
     <td><button type="button" class="btn-accion destructivo btn-quitar-item">Quitar</button></td>
   `;
   tr.querySelectorAll('input').forEach((input) => input.addEventListener('input', recalcularTotalesCotizacion));
+  tr.querySelector('.item-tipo-impuesto').addEventListener('change', (e) => {
+    const manual = tr.querySelector('.item-impuesto-manual');
+    manual.hidden = !e.target.value.startsWith('otro-');
+    recalcularTotalesCotizacion();
+  });
   tr.querySelector('.btn-quitar-item').addEventListener('click', () => {
     tr.remove();
     recalcularTotalesCotizacion();
@@ -609,12 +636,22 @@ document.getElementById('btn-agregar-item-cotizacion').addEventListener('click',
   document.getElementById('items-cotizacion-tbody').appendChild(crearFilaItemCotizacion());
 });
 
+function leerImpuestoFila(fila) {
+  const seleccion = fila.querySelector('.item-tipo-impuesto').value; // "tipo-porcentaje"
+  const [tipoImpuesto, porcentajeTexto] = seleccion.split('-');
+  if (tipoImpuesto === 'otro') {
+    const manual = Number(fila.querySelector('.item-impuesto-manual').value || 0);
+    return { tipoImpuesto: 'iva', impuestoPorcentaje: manual }; // "otro" se guarda como IVA con % manual
+  }
+  return { tipoImpuesto, impuestoPorcentaje: Number(porcentajeTexto) };
+}
+
 function leerItemsCotizacion() {
   const filas = document.querySelectorAll('#items-cotizacion-tbody tr');
   return Array.from(filas).map((fila) => {
     const cantidad = Number(fila.querySelector('.item-cantidad').value || 0);
     const valorUnitario = Number(fila.querySelector('.item-valor-unitario').value || 0);
-    const ivaPorcentaje = Number(fila.querySelector('.item-iva').value || 0);
+    const { tipoImpuesto, impuestoPorcentaje } = leerImpuestoFila(fila);
     const valorTotal = cantidad * valorUnitario;
     fila.querySelector('.item-total-texto').textContent = formatoDinero(valorTotal);
     return {
@@ -622,7 +659,8 @@ function leerItemsCotizacion() {
       cantidad,
       unidadMedida: fila.querySelector('.item-um').value,
       valorUnitario,
-      ivaPorcentaje,
+      tipoImpuesto,
+      impuestoPorcentaje,
       valorTotal,
     };
   });
@@ -713,9 +751,10 @@ async function verItemsCotizacion(id) {
         (it) =>
           `<tr><td>${it.concepto}</td><td class="num">${Number(it.cantidad).toLocaleString('es-CO')} ${
             it.unidadMedida
-          }</td><td class="num">${formatoDinero(it.valorUnitario)}</td><td class="num">${it.ivaPorcentaje}%</td><td class="num">${formatoDinero(
-            it.valorTotal
-          )}</td></tr>`
+          }</td><td class="num">${formatoDinero(it.valorUnitario)}</td><td class="num">${etiquetaImpuesto(
+            it.tipoImpuesto,
+            it.impuestoPorcentaje
+          )}</td><td class="num">${formatoDinero(it.valorTotal)}</td></tr>`
       )
       .join('');
 
@@ -723,7 +762,7 @@ async function verItemsCotizacion(id) {
     tr.id = 'detalle-cotizacion-' + id;
     tr.innerHTML = `<td colspan="7"><div class="detalle-items">
       <table class="tabla-items-detalle">
-        <thead><tr><th>Concepto</th><th class="num">Cantidad</th><th class="num">Valor unit.</th><th class="num">IVA</th><th class="num">Total</th></tr></thead>
+        <thead><tr><th>Concepto</th><th class="num">Cantidad</th><th class="num">Valor unit.</th><th class="num">Impuesto</th><th class="num">Total</th></tr></thead>
         <tbody>${
           itemsHtml ||
           '<tr><td colspan="5" class="vacio">Esta cotización no tiene ítems registrados (se creó antes de esta función).</td></tr>'

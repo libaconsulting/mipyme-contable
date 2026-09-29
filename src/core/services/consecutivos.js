@@ -3,11 +3,10 @@ const { Op } = require('sequelize');
 // Genera un consecutivo legible tipo "COT-2026-0001", contando cuántos
 // documentos de ese prefijo existen ya este año para la empresa.
 //
-// LIMITACIÓN CONOCIDA: no usa bloqueo transaccional, así que dos
-// creaciones en el mismo instante podrían, en teoría, generar el mismo
-// número. Para el volumen actual no es un riesgo real; si el volumen de
-// documentos crece, esto debería moverse a una tabla de secuencias con
-// bloqueo (SELECT ... FOR UPDATE) en vez de un conteo simple.
+// LIMITACIÓN CONOCIDA: no usa bloqueo transaccional (una tabla de
+// secuencias con SELECT ... FOR UPDATE sería la solución robusta si el
+// volumen de documentos crece mucho). Para compensarlo mientras tanto,
+// crearConSecutivoUnico() reintenta solo cuando choca — ver abajo.
 async function generarConsecutivo(empresaId, prefijo, Modelo) {
   const anio = new Date().getFullYear();
   const conteo = await Modelo.count({
@@ -20,4 +19,34 @@ async function generarConsecutivo(empresaId, prefijo, Modelo) {
   return `${prefijo}-${anio}-${numero}`;
 }
 
-module.exports = { generarConsecutivo };
+// Genera el consecutivo y crea el registro en un solo paso, reintentando
+// automáticamente si dos creaciones casi simultáneas chocan en el mismo
+// número (violación de la restricción única en "consecutivo"). Cubre el
+// caso real de un doble clic o un reintento inmediato tras un error.
+//
+// `crear(consecutivo)` debe ser la función que efectivamente inserta el
+// registro usando ese consecutivo — normalmente un `Modelo.create({...})`.
+async function crearConSecutivoUnico(Modelo, empresaId, prefijo, crear) {
+  const MAX_INTENTOS = 5;
+
+  for (let intento = 1; intento <= MAX_INTENTOS; intento++) {
+    const consecutivo = await generarConsecutivo(empresaId, prefijo, Modelo);
+
+    try {
+      return await crear(consecutivo);
+    } catch (error) {
+      const chocoPorConsecutivo =
+        error.name === 'SequelizeUniqueConstraintError' &&
+        Array.isArray(error.errors) &&
+        error.errors.some((e) => e.path === 'consecutivo');
+
+      if (!chocoPorConsecutivo || intento === MAX_INTENTOS) {
+        throw error;
+      }
+      // Alguien más se quedó con este número justo antes — se reintenta
+      // con el siguiente, sin que el usuario tenga que hacer nada.
+    }
+  }
+}
+
+module.exports = { generarConsecutivo, crearConSecutivoUnico };
