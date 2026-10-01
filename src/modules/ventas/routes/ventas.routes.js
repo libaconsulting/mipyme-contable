@@ -11,6 +11,9 @@ router.get('/facturas', ventasController.listarFacturas);
 // GET /api/ventas/cotizaciones/:id (detalle con ítems)
 router.get('/cotizaciones/:id', ventasController.obtenerCotizacion);
 
+// PATCH /api/ventas/cotizaciones/:id (editar — solo en borrador)
+router.patch('/cotizaciones/:id', ventasController.actualizarCotizacion);
+
 // POST /api/ventas/cotizaciones
 router.post('/cotizaciones', ventasController.crearCotizacion);
 

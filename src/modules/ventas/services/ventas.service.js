@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const sequelize = require('../../../config/database');
 const Cotizacion = require('../models/Cotizacion');
 const CotizacionItem = require('../models/CotizacionItem');
 const FacturaVenta = require('../models/FacturaVenta');
@@ -214,6 +215,92 @@ async function obtenerCotizacion(id, usuario) {
   return { ...cotizacion.toJSON(), items };
 }
 
+// Edita una cotización — solo mientras sigue en "borrador". Una vez
+// enviada, aceptada o facturada, el cliente ya vio esos números; dejar
+// que se editen por detrás generaría inconsistencias.
+//
+// Reemplaza TODOS los ítems con los que vengan en el body (se borran
+// los viejos y se crean los nuevos) en vez de intentar diferenciar
+// cuáles cambiaron — más simple y confiable para una tabla que solo
+// tiene unos pocos renglones. Todo dentro de una transacción: o se
+// actualiza completo, o no se actualiza nada.
+async function actualizarCotizacion(id, datos, usuario) {
+  const cotizacion = await Cotizacion.findOne({ where: { id, empresaId: usuario.empresaId } });
+  if (!cotizacion) return null;
+
+  if (cotizacion.estado !== 'borrador') {
+    throw new Error('Solo se puede editar una cotización en estado "borrador".');
+  }
+
+  return sequelize.transaction(async (transaction) => {
+    await cotizacion.update(
+      {
+        terceroId: datos.terceroId,
+        fechaVencimiento: datos.fechaVencimiento,
+        formaPago: datos.formaPago,
+        observaciones: datos.observaciones,
+        contactoNombre: datos.contactoNombre,
+        contactoTelefono: datos.contactoTelefono,
+        aplicaAiu: !!datos.aplicaAiu,
+        aiuAdministracion: datos.aiuAdministracion,
+        aiuImprevistos: datos.aiuImprevistos,
+        aiuUtilidad: datos.aiuUtilidad,
+      },
+      { transaction }
+    );
+
+    await CotizacionItem.destroy({ where: { cotizacionId: id }, transaction });
+
+    let subtotal = 0;
+    let impuestoTotal = 0;
+
+    for (const item of datos.items || []) {
+      const cantidad = Number(item.cantidad);
+      const valorUnitario = Number(item.valorUnitario);
+      const tipoImpuesto = item.tipoImpuesto || 'iva';
+      const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
+      const valorTotal = cantidad * valorUnitario;
+      const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
+
+      await CotizacionItem.create(
+        {
+          id: uuidv4(),
+          cotizacionId: id,
+          concepto: item.concepto,
+          cantidad,
+          unidadMedida: item.unidadMedida || 'UND',
+          valorUnitario,
+          tipoImpuesto,
+          impuestoPorcentaje,
+          valorTotal,
+          impuestoValor,
+        },
+        { transaction }
+      );
+
+      subtotal += valorTotal;
+      impuestoTotal += impuestoValor;
+    }
+
+    // Misma convención (y misma reserva) que en crearCotizacion: con
+    // AIU, el impuesto se recalcula al 19% sobre (subtotal + AIU).
+    let baseImpuesto = subtotal;
+    let impuesto = impuestoTotal;
+    if (cotizacion.aplicaAiu) {
+      const admin = subtotal * (Number(datos.aiuAdministracion || 0) / 100);
+      const imprevistos = subtotal * (Number(datos.aiuImprevistos || 0) / 100);
+      const utilidad = subtotal * (Number(datos.aiuUtilidad || 0) / 100);
+      baseImpuesto = subtotal + admin + imprevistos + utilidad;
+      impuesto = baseImpuesto * 0.19;
+    }
+    const total = baseImpuesto + impuesto;
+
+    await cotizacion.update({ subtotal, iva: impuesto, total }, { transaction });
+
+    return cotizacion;
+  });
+}
+
 module.exports = {
   crearCotizacion,
   enviarCotizacion,
@@ -222,6 +309,7 @@ module.exports = {
   listarCotizaciones,
   listarFacturas,
   obtenerCotizacion,
+  actualizarCotizacion,
   convertirCotizacionEnFactura,
   confirmarFacturaAceptada,
 };
