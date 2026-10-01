@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cotización</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1C2A24;
+    --ink-soft: #56655C;
+    --rule: #CBD6CE;
+    --rule-strong: #9FAFA4;
+    --accent: #2F6B4F;
+    --font-serif: 'IBM Plex Serif', Georgia, serif;
+    --font-sans: 'IBM Plex Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'IBM Plex Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--font-sans);
+    color: var(--ink);
+    background: #E9EEE9;
+  }
+  .barra-acciones {
+    position: sticky;
+    top: 0;
+    background: #1F4D38;
+    padding: 14px 24px;
+    display: flex;
+    gap: 14px;
+    align-items: center;
+    z-index: 10;
+  }
+  .barra-acciones a, .barra-acciones button {
+    font-family: var(--font-sans);
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .barra-acciones a { color: #D7E3DC; text-decoration: none; }
+  .barra-acciones button {
+    background: #fff;
+    color: #1F4D38;
+    border: none;
+    padding: 8px 18px;
+    font-weight: 600;
+  }
+  .hoja {
+    max-width: 780px;
+    margin: 24px auto 60px;
+    background: #fff;
+    padding: 48px 56px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.08);
+  }
+  .encabezado {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 3px solid var(--accent);
+    padding-bottom: 20px;
+    margin-bottom: 24px;
+  }
+  .empresa-nombre {
+    font-family: var(--font-serif);
+    font-weight: 700;
+    font-size: 20px;
+    margin: 0 0 6px;
+  }
+  .empresa-datos { font-size: 12px; color: var(--ink-soft); line-height: 1.6; }
+  .titulo-documento { text-align: right; }
+  .titulo-documento h1 {
+    font-family: var(--font-serif);
+    font-weight: 600;
+    font-size: 22px;
+    margin: 0 0 4px;
+    color: var(--accent);
+  }
+  .titulo-documento .consecutivo { font-family: var(--font-mono); font-size: 15px; }
+  .titulo-documento .fechas { font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
+
+  .bloque-cliente {
+    background: #F6F8F4;
+    padding: 16px 20px;
+    margin-bottom: 24px;
+  }
+  .bloque-cliente h3 {
+    font-family: var(--font-serif);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+  }
+  .bloque-cliente p { margin: 2px 0; font-size: 13px; }
+
+  table.items { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+  table.items th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--ink-soft);
+    border-bottom: 2px solid var(--rule-strong);
+    padding: 8px 6px;
+  }
+  table.items td { padding: 8px 6px; border-bottom: 1px solid var(--rule); font-size: 13px; }
+  table.items .num { text-align: right; font-family: var(--font-mono); white-space: nowrap; }
+
+  .totales { display: flex; justify-content: flex-end; margin-bottom: 28px; }
+  .totales table { border-collapse: collapse; min-width: 320px; }
+  .totales td { padding: 5px 8px; font-size: 13px; }
+  .totales td.num { text-align: right; font-family: var(--font-mono); }
+  .totales tr.total-final td { border-top: 2px solid var(--accent); font-weight: 600; font-size: 15px; padding-top: 10px; }
+
+  .info-adicional { font-size: 13px; margin-bottom: 8px; }
+  .info-adicional strong { color: var(--ink-soft); font-weight: 500; }
+
+  .pie-firma {
+    margin-top: 48px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+    font-size: 12px;
+    color: var(--ink-soft);
+  }
+
+  .vacio { text-align: center; padding: 40px; color: var(--ink-soft); font-family: var(--font-sans); }
+
+  @media print {
+    body { background: #fff; }
+    .barra-acciones { display: none; }
+    .hoja { box-shadow: none; margin: 0; max-width: none; padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="barra-acciones">
+  <a href="/contable">← Volver al software</a>
+  <button id="btn-imprimir" style="margin-left:auto;">Imprimir / Guardar como PDF</button>
+</div>
+
+<div id="contenido">
+  <p class="vacio">Cargando...</p>
+</div>
+
+<script>
+const API = '/api';
+const token = localStorage.getItem('token');
+const usuario = JSON.parse(localStorage.getItem('usuario') || 'null');
+const params = new URLSearchParams(window.location.search);
+const cotizacionId = params.get('id');
+
+function formatoDinero(valor) {
+  return Number(valor || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
+}
+function formatoFecha(valor) {
+  if (!valor) return '—';
+  return new Date(valor).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
+}
+const ETIQUETAS_IMPUESTO = { iva: 'IVA', impoconsumo: 'Impoconsumo', exento: 'Exento' };
+function etiquetaImpuesto(tipo, porcentaje) {
+  const etiqueta = ETIQUETAS_IMPUESTO[tipo] || 'IVA';
+  return tipo === 'exento' ? etiqueta : `${etiqueta} ${porcentaje}%`;
+}
+
+async function api(path) {
+  const res = await fetch(API + path, { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'Error al cargar los datos.');
+  return res.json();
+}
+
+function mostrarError(mensaje) {
+  document.getElementById('contenido').innerHTML = `<p class="vacio">${mensaje}</p>`;
+}
+
+async function cargar() {
+  if (!token || !usuario) return mostrarError('Debes iniciar sesión primero. <a href="/contable">Ir al login</a>');
+  if (!cotizacionId) return mostrarError('Falta indicar qué cotización mostrar.');
+
+  try {
+    const [cotizacion, empresas, terceros] = await Promise.all([
+      api(`/ventas/cotizaciones/${cotizacionId}`),
+      api('/empresas'),
+      api('/terceros'),
+    ]);
+
+    const empresa = empresas.find((e) => e.id === usuario.empresaId) || {};
+    const cliente = terceros.find((t) => t.id === cotizacion.terceroId) || {};
+    const items = cotizacion.items || [];
+
+    const subtotal = Number(cotizacion.subtotal || 0);
+    let filasAiu = '';
+    if (cotizacion.aplicaAiu) {
+      const admin = subtotal * (Number(cotizacion.aiuAdministracion || 0) / 100);
+      const imprevistos = subtotal * (Number(cotizacion.aiuImprevistos || 0) / 100);
+      const utilidad = subtotal * (Number(cotizacion.aiuUtilidad || 0) / 100);
+      filasAiu = `
+        <tr><td>Administración (${cotizacion.aiuAdministracion}%)</td><td class="num">${formatoDinero(admin)}</td></tr>
+        <tr><td>Imprevistos (${cotizacion.aiuImprevistos}%)</td><td class="num">${formatoDinero(imprevistos)}</td></tr>
+        <tr><td>Utilidad (${cotizacion.aiuUtilidad}%)</td><td class="num">${formatoDinero(utilidad)}</td></tr>
+      `;
+    }
+
+    document.getElementById('contenido').innerHTML = `
+      <div class="hoja">
+        <div class="encabezado">
+          <div>
+            <p class="empresa-nombre">${empresa.razonSocial || '—'}</p>
+            <div class="empresa-datos">
+              NIT ${empresa.nit || '—'}<br>
+              ${empresa.direccion || ''} ${empresa.municipio ? '· ' + empresa.municipio : ''} ${empresa.departamento ? ', ' + empresa.departamento : ''}<br>
+              ${empresa.telefono || ''} ${empresa.email ? '· ' + empresa.email : ''}
+            </div>
+          </div>
+          <div class="titulo-documento">
+            <h1>Cotización</h1>
+            <div class="consecutivo">${cotizacion.consecutivo || '—'}</div>
+            <div class="fechas">
+              Fecha: ${formatoFecha(cotizacion.fecha)}<br>
+              Válida hasta: ${formatoFecha(cotizacion.fechaVencimiento)}
+            </div>
+          </div>
+        </div>
+
+        <div class="bloque-cliente">
+          <h3>Cliente</h3>
+          <p><strong>${cliente.nombre || '—'}</strong>${cliente.identificacion ? ' · ' + cliente.identificacion : ''}</p>
+          <p>${cliente.direccion || ''}</p>
+          <p>${cliente.celular || ''} ${cliente.email ? '· ' + cliente.email : ''}</p>
+        </div>
+
+        <table class="items">
+          <thead>
+            <tr><th>Concepto</th><th>Cant.</th><th>UM</th><th class="num">Valor unitario</th><th>Impuesto</th><th class="num">Total</th></tr>
+          </thead>
+          <tbody>
+            ${
+              items.length > 0
+                ? items.map((it) => `
+                  <tr>
+                    <td>${it.concepto}</td>
+                    <td>${Number(it.cantidad).toLocaleString('es-CO')}</td>
+                    <td>${it.unidadMedida}</td>
+                    <td class="num">${formatoDinero(it.valorUnitario)}</td>
+                    <td>${etiquetaImpuesto(it.tipoImpuesto, it.impuestoPorcentaje)}</td>
+                    <td class="num">${formatoDinero(it.valorTotal)}</td>
+                  </tr>`).join('')
+                : '<tr><td colspan="6" style="text-align:center; color:#888;">Esta cotización no tiene ítems registrados.</td></tr>'
+            }
+          </tbody>
+        </table>
+
+        <div class="totales">
+          <table>
+            <tr><td>Subtotal</td><td class="num">${formatoDinero(cotizacion.subtotal)}</td></tr>
+            ${filasAiu}
+            <tr><td>IVA</td><td class="num">${formatoDinero(cotizacion.iva)}</td></tr>
+            <tr class="total-final"><td>Total</td><td class="num">${formatoDinero(cotizacion.total)}</td></tr>
+          </table>
+        </div>
+
+        ${cotizacion.formaPago ? `<p class="info-adicional"><strong>Forma de pago:</strong> ${cotizacion.formaPago}</p>` : ''}
+        ${cotizacion.observaciones ? `<p class="info-adicional"><strong>Observaciones:</strong> ${cotizacion.observaciones}</p>` : ''}
+        ${cotizacion.contactoNombre ? `<p class="info-adicional"><strong>Contacto:</strong> ${cotizacion.contactoNombre} ${cotizacion.contactoTelefono ? '— ' + cotizacion.contactoTelefono : ''}</p>` : ''}
+
+        <div class="pie-firma">
+          ${empresa.representanteLegalNombre ? `${empresa.representanteLegalNombre}${empresa.representanteLegalDocumento ? ' · C.C. ' + empresa.representanteLegalDocumento : ''}<br>` : ''}
+          Cotización generada por ${empresa.razonSocial || 'el sistema'} — válida hasta la fecha indicada arriba.
+        </div>
+      </div>
+    `;
+  } catch (err) {
+    mostrarError(err.message);
+  }
+}
+
+document.getElementById('btn-imprimir').addEventListener('click', () => window.print());
+cargar();
+</script>
+</body>
+</html>

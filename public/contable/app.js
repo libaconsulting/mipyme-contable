@@ -360,7 +360,9 @@ function renderCotizaciones(lista) {
   if (lista.length === 0) return tablaVacia('tabla-cotizaciones', 7, 'Todavía no hay cotizaciones.');
   document.querySelector('#tabla-cotizaciones tbody').innerHTML = lista
     .map((c) => {
-      let acciones = botonAccion('Ver ítems', { accion: 'ver-items-cotizacion', id: c.id });
+      let acciones =
+        botonAccion('Ver ítems', { accion: 'ver-items-cotizacion', id: c.id }) +
+        botonAccion('Ver PDF', { accion: 'ver-pdf-cotizacion', id: c.id });
       if (c.estado === 'borrador')
         acciones +=
           botonAccion('Editar', { accion: 'editar-cotizacion', id: c.id }) +
@@ -705,6 +707,10 @@ function recalcularTotalesCotizacion() {
     const imprevistos = subtotal * (Number(document.getElementById('cotizacion-aiu-imprevistos').value || 0) / 100);
     const utilidad = subtotal * (Number(document.getElementById('cotizacion-aiu-utilidad').value || 0) / 100);
     baseIva = subtotal + admin + imprevistos + utilidad;
+
+    document.getElementById('valor-aiu-administracion').textContent = formatoDinero(admin);
+    document.getElementById('valor-aiu-imprevistos').textContent = formatoDinero(imprevistos);
+    document.getElementById('valor-aiu-utilidad').textContent = formatoDinero(utilidad);
   }
   const iva = baseIva * 0.19;
   const total = baseIva + iva;
@@ -948,11 +954,21 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
     case 'ver-items-cotizacion':
       return verItemsCotizacion(id);
 
+    case 'ver-pdf-cotizacion':
+      window.open(`/contable/cotizacion-imprimir.html?id=${id}`, '_blank');
+      return;
+
     case 'editar-cotizacion':
       return abrirEdicionCotizacion(id);
 
     case 'enviar-cotizacion':
-      return accion(`/ventas/cotizaciones/${id}/enviar`, { method: 'PATCH' });
+      if (
+        confirm(
+          'Esto solo marca la cotización como "enviada" en el sistema — no manda ningún correo ni mensaje por sí solo.\n\nPara hacérsela llegar al cliente de verdad, usa "Ver PDF" y compártela tú mismo (correo, WhatsApp, etc.).\n\n¿Marcar como enviada?'
+        )
+      )
+        return accion(`/ventas/cotizaciones/${id}/enviar`, { method: 'PATCH' });
+      return;
     case 'aceptar-cotizacion':
       return accion(`/ventas/cotizaciones/${id}/aceptar`, { method: 'PATCH' });
     case 'rechazar-cotizacion':

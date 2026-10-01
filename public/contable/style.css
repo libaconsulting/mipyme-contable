@@ -472,6 +472,19 @@ td.acciones { white-space: nowrap; }
   margin-bottom: 12px;
 }
 
+.campo-aiu {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-soft);
+}
+.campo-aiu .valor-aiu {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+}
+
 .resumen-totales {
   display: flex;
   gap: 24px;
