@@ -39,7 +39,7 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
     allowNull: false,
     defaultValue: 'borrador',
   },
-  consecutivo: { type: DataTypes.STRING(30), unique: true },
+  consecutivo: { type: DataTypes.STRING(30) },
   // Proyecto o unidad de negocio al que pertenece — es, en la práctica,
   // el mismo concepto que centro de costo (todavía pendiente como
   // catálogo propio, ver README).
@@ -51,6 +51,7 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
   total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
 }, {
   tableName: 'ordenes_compra',
+  indexes: [{ unique: true, fields: ['empresa_id', 'consecutivo'] }],
 });
 
 module.exports = OrdenCompra;

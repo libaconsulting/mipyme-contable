@@ -12,58 +12,64 @@ const { crearConSecutivoUnico } = require('../../../core/services/consecutivos')
 // calculan solos. Sin items, respeta el subtotal/iva/total a mano por
 // compatibilidad con el formulario actual.
 async function crearOrden(datos, usuario) {
-  const orden = await crearConSecutivoUnico(OrdenCompra, usuario.empresaId, 'ODA', (consecutivo) =>
-    OrdenCompra.create({
-      id: uuidv4(),
-      empresaId: usuario.empresaId,
-      terceroId: datos.terceroId,
-      tipo: datos.tipo || 'bienes',
-      consecutivo,
-      fecha: datos.fecha || new Date(),
-      fechaRequerida: datos.fechaRequerida,
-      proyecto: datos.proyecto,
-      lugarEntrega: datos.lugarEntrega,
-      formaPago: datos.formaPago,
-      estado: 'borrador',
-      subtotal: datos.subtotal || 0,
-      iva: datos.iva || 0,
-      total: datos.total || 0,
-    })
-  );
-
-  if (Array.isArray(datos.items) && datos.items.length > 0) {
-    let subtotal = 0;
-    let iva = 0;
-
-    for (const item of datos.items) {
-      const cantidad = Number(item.cantidad);
-      const valorUnitario = Number(item.valorUnitario);
-      const tipoImpuesto = item.tipoImpuesto || 'iva';
-      const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
-      const valorTotal = cantidad * valorUnitario;
-      const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
-
-      await OrdenCompraItem.create({
+  return crearConSecutivoUnico(OrdenCompra, usuario.empresaId, 'ODA', async (consecutivo, transaction) => {
+    const orden = await OrdenCompra.create(
+      {
         id: uuidv4(),
-        ordenCompraId: orden.id,
-        concepto: item.concepto,
-        cantidad,
-        unidadMedida: item.unidadMedida || 'UND',
-        valorUnitario,
-        tipoImpuesto,
-        impuestoPorcentaje,
-        valorTotal,
-        impuestoValor,
-      });
+        empresaId: usuario.empresaId,
+        terceroId: datos.terceroId,
+        tipo: datos.tipo || 'bienes',
+        consecutivo,
+        fecha: datos.fecha || new Date(),
+        fechaRequerida: datos.fechaRequerida,
+        proyecto: datos.proyecto,
+        lugarEntrega: datos.lugarEntrega,
+        formaPago: datos.formaPago,
+        estado: 'borrador',
+        subtotal: datos.subtotal || 0,
+        iva: datos.iva || 0,
+        total: datos.total || 0,
+      },
+      { transaction }
+    );
 
-      subtotal += valorTotal;
-      iva += impuestoValor;
+    if (Array.isArray(datos.items) && datos.items.length > 0) {
+      let subtotal = 0;
+      let iva = 0;
+
+      for (const item of datos.items) {
+        const cantidad = Number(item.cantidad);
+        const valorUnitario = Number(item.valorUnitario);
+        const tipoImpuesto = item.tipoImpuesto || 'iva';
+        const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
+        const valorTotal = cantidad * valorUnitario;
+        const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
+
+        await OrdenCompraItem.create(
+          {
+            id: uuidv4(),
+            ordenCompraId: orden.id,
+            concepto: item.concepto,
+            cantidad,
+            unidadMedida: item.unidadMedida || 'UND',
+            valorUnitario,
+            tipoImpuesto,
+            impuestoPorcentaje,
+            valorTotal,
+            impuestoValor,
+          },
+          { transaction }
+        );
+
+        subtotal += valorTotal;
+        iva += impuestoValor;
+      }
+
+      await orden.update({ subtotal, iva, total: subtotal + iva }, { transaction });
     }
 
-    await orden.update({ subtotal, iva, total: subtotal + iva });
-  }
-
-  return orden;
+    return orden;
+  });
 }
 
 // borrador/emitida -> aprobada (aprobador interno, no el proveedor)

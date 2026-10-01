@@ -13,80 +13,86 @@ const { crearConSecutivoUnico } = require('../../../core/services/consecutivos')
 // total mandado a mano. Si no vienen items (compatibilidad hacia
 // atrás), se respeta el "total" que mande el cliente.
 async function crearCotizacion(datos, usuario) {
-  const cotizacion = await crearConSecutivoUnico(Cotizacion, usuario.empresaId, 'COT', (consecutivo) =>
-    Cotizacion.create({
-      id: uuidv4(),
-      empresaId: usuario.empresaId,
-      terceroId: datos.terceroId,
-      vendedorId: usuario.id,
-      consecutivo,
-      fecha: datos.fecha || new Date(),
-      fechaVencimiento: datos.fechaVencimiento,
-      formaPago: datos.formaPago,
-      observaciones: datos.observaciones,
-      contactoNombre: datos.contactoNombre,
-      contactoTelefono: datos.contactoTelefono,
-      aplicaAiu: !!datos.aplicaAiu,
-      aiuAdministracion: datos.aiuAdministracion,
-      aiuImprevistos: datos.aiuImprevistos,
-      aiuUtilidad: datos.aiuUtilidad,
-      estado: 'borrador',
-      subtotal: 0,
-      iva: 0,
-      total: datos.total || 0,
-    })
-  );
-
-  if (Array.isArray(datos.items) && datos.items.length > 0) {
-    let subtotal = 0;
-    let impuestoTotal = 0;
-
-    for (const item of datos.items) {
-      const cantidad = Number(item.cantidad);
-      const valorUnitario = Number(item.valorUnitario);
-      const tipoImpuesto = item.tipoImpuesto || 'iva';
-      const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
-      const valorTotal = cantidad * valorUnitario;
-      const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
-
-      await CotizacionItem.create({
+  return crearConSecutivoUnico(Cotizacion, usuario.empresaId, 'COT', async (consecutivo, transaction) => {
+    const cotizacion = await Cotizacion.create(
+      {
         id: uuidv4(),
-        cotizacionId: cotizacion.id,
-        concepto: item.concepto,
-        cantidad,
-        unidadMedida: item.unidadMedida || 'UND',
-        valorUnitario,
-        tipoImpuesto,
-        impuestoPorcentaje,
-        valorTotal,
-        impuestoValor,
-      });
+        empresaId: usuario.empresaId,
+        terceroId: datos.terceroId,
+        vendedorId: usuario.id,
+        consecutivo,
+        fecha: datos.fecha || new Date(),
+        fechaVencimiento: datos.fechaVencimiento,
+        formaPago: datos.formaPago,
+        observaciones: datos.observaciones,
+        contactoNombre: datos.contactoNombre,
+        contactoTelefono: datos.contactoTelefono,
+        aplicaAiu: !!datos.aplicaAiu,
+        aiuAdministracion: datos.aiuAdministracion,
+        aiuImprevistos: datos.aiuImprevistos,
+        aiuUtilidad: datos.aiuUtilidad,
+        estado: 'borrador',
+        subtotal: 0,
+        iva: 0,
+        total: datos.total || 0,
+      },
+      { transaction }
+    );
 
-      subtotal += valorTotal;
-      impuestoTotal += impuestoValor;
+    if (Array.isArray(datos.items) && datos.items.length > 0) {
+      let subtotal = 0;
+      let impuestoTotal = 0;
+
+      for (const item of datos.items) {
+        const cantidad = Number(item.cantidad);
+        const valorUnitario = Number(item.valorUnitario);
+        const tipoImpuesto = item.tipoImpuesto || 'iva';
+        const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
+        const valorTotal = cantidad * valorUnitario;
+        const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
+
+        await CotizacionItem.create(
+          {
+            id: uuidv4(),
+            cotizacionId: cotizacion.id,
+            concepto: item.concepto,
+            cantidad,
+            unidadMedida: item.unidadMedida || 'UND',
+            valorUnitario,
+            tipoImpuesto,
+            impuestoPorcentaje,
+            valorTotal,
+            impuestoValor,
+          },
+          { transaction }
+        );
+
+        subtotal += valorTotal;
+        impuestoTotal += impuestoValor;
+      }
+
+      // Si aplica AIU, el impuesto se recalcula al 19% sobre (subtotal +
+      // AIU) en vez de sumar el impuesto real de cada ítem — es la
+      // convención más común en contratos de obra/servicios, pero asume
+      // IVA general y no contempla ítems con Impoconsumo o exentos
+      // mezclados en la misma cotización con AIU. Validar contra el tipo
+      // de contrato específico antes de confiar en esto a ciegas.
+      let baseImpuesto = subtotal;
+      let impuesto = impuestoTotal;
+      if (cotizacion.aplicaAiu) {
+        const admin = subtotal * (Number(datos.aiuAdministracion || 0) / 100);
+        const imprevistos = subtotal * (Number(datos.aiuImprevistos || 0) / 100);
+        const utilidad = subtotal * (Number(datos.aiuUtilidad || 0) / 100);
+        baseImpuesto = subtotal + admin + imprevistos + utilidad;
+        impuesto = baseImpuesto * 0.19;
+      }
+      const total = baseImpuesto + impuesto;
+
+      await cotizacion.update({ subtotal, iva: impuesto, total }, { transaction });
     }
 
-    // Si aplica AIU, el impuesto se recalcula al 19% sobre (subtotal +
-    // AIU) en vez de sumar el impuesto real de cada ítem — es la
-    // convención más común en contratos de obra/servicios, pero asume
-    // IVA general y no contempla ítems con Impoconsumo o exentos
-    // mezclados en la misma cotización con AIU. Validar contra el tipo
-    // de contrato específico antes de confiar en esto a ciegas.
-    let baseImpuesto = subtotal;
-    let impuesto = impuestoTotal;
-    if (cotizacion.aplicaAiu) {
-      const admin = subtotal * (Number(datos.aiuAdministracion || 0) / 100);
-      const imprevistos = subtotal * (Number(datos.aiuImprevistos || 0) / 100);
-      const utilidad = subtotal * (Number(datos.aiuUtilidad || 0) / 100);
-      baseImpuesto = subtotal + admin + imprevistos + utilidad;
-      impuesto = baseImpuesto * 0.19;
-    }
-    const total = baseImpuesto + impuesto;
-
-    await cotizacion.update({ subtotal, iva: impuesto, total });
-  }
-
-  return cotizacion;
+    return cotizacion;
+  });
 }
 
 // borrador -> enviada

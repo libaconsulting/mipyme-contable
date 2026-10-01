@@ -1,12 +1,8 @@
 const { Op } = require('sequelize');
+const sequelize = require('../../config/database');
 
 // Genera un consecutivo legible tipo "COT-2026-0001", contando cuántos
 // documentos de ese prefijo existen ya este año para la empresa.
-//
-// LIMITACIÓN CONOCIDA: no usa bloqueo transaccional (una tabla de
-// secuencias con SELECT ... FOR UPDATE sería la solución robusta si el
-// volumen de documentos crece mucho). Para compensarlo mientras tanto,
-// crearConSecutivoUnico() reintenta solo cuando choca — ver abajo.
 async function generarConsecutivo(empresaId, prefijo, Modelo) {
   const anio = new Date().getFullYear();
   const conteo = await Modelo.count({
@@ -19,13 +15,16 @@ async function generarConsecutivo(empresaId, prefijo, Modelo) {
   return `${prefijo}-${anio}-${numero}`;
 }
 
-// Genera el consecutivo y crea el registro en un solo paso, reintentando
-// automáticamente si dos creaciones casi simultáneas chocan en el mismo
-// número (violación de la restricción única en "consecutivo"). Cubre el
-// caso real de un doble clic o un reintento inmediato tras un error.
+// Genera el consecutivo y ejecuta TODA la creación (encabezado + ítems +
+// lo que haga falta) dentro de una transacción real: o se guarda todo,
+// o no se guarda nada — así nunca queda un encabezado "huérfano" con un
+// consecutivo gastado si algo falla más adelante en el mismo proceso
+// (por ejemplo, al crear un ítem). Además reintenta automáticamente si
+// dos creaciones casi simultáneas chocan en el mismo número.
 //
-// `crear(consecutivo)` debe ser la función que efectivamente inserta el
-// registro usando ese consecutivo — normalmente un `Modelo.create({...})`.
+// `crear(consecutivo, transaction)` debe hacer TODO el trabajo —
+// Cotizacion.create(..., { transaction }), CotizacionItem.create(...,
+// { transaction }), etc. — pasando siempre esa misma transacción.
 async function crearConSecutivoUnico(Modelo, empresaId, prefijo, crear) {
   const MAX_INTENTOS = 5;
 
@@ -33,7 +32,7 @@ async function crearConSecutivoUnico(Modelo, empresaId, prefijo, crear) {
     const consecutivo = await generarConsecutivo(empresaId, prefijo, Modelo);
 
     try {
-      return await crear(consecutivo);
+      return await sequelize.transaction((transaction) => crear(consecutivo, transaction));
     } catch (error) {
       const chocoPorConsecutivo =
         error.name === 'SequelizeUniqueConstraintError' &&
@@ -43,8 +42,9 @@ async function crearConSecutivoUnico(Modelo, empresaId, prefijo, crear) {
       if (!chocoPorConsecutivo || intento === MAX_INTENTOS) {
         throw error;
       }
-      // Alguien más se quedó con este número justo antes — se reintenta
-      // con el siguiente, sin que el usuario tenga que hacer nada.
+      // La transacción completa ya hizo rollback sola — no queda nada
+      // huérfano. Se reintenta con el siguiente número, sin que el
+      // usuario tenga que hacer nada.
     }
   }
 }

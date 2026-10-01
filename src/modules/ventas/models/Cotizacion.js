@@ -19,7 +19,7 @@ const Cotizacion = sequelize.define('Cotizacion', {
     allowNull: false,
     defaultValue: 'borrador',
   },
-  consecutivo: { type: DataTypes.STRING(30), unique: true },
+  consecutivo: { type: DataTypes.STRING(30) },
   subtotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   iva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
@@ -36,6 +36,9 @@ const Cotizacion = sequelize.define('Cotizacion', {
   aiuUtilidad: { type: DataTypes.DECIMAL(5, 2) },
 }, {
   tableName: 'cotizaciones',
+  // El consecutivo es único DENTRO de cada empresa, no en toda la tabla
+  // — dos empresas distintas pueden tener cada una su propia "COT-2026-0001".
+  indexes: [{ unique: true, fields: ['empresa_id', 'consecutivo'] }],
 });
 
 module.exports = Cotizacion;
