@@ -66,6 +66,14 @@ Terceros) saluda por nombre, muestra la razón social de la empresa, y
 presenta los nueve módulos como tarjetas — clic en cualquiera navega
 directo a esa sección.
 
+## Mi Empresa
+
+Pestaña nueva en el tablero (al final del menú, como una sección de
+configuración) donde se edita el perfil completo de la empresa —todos
+los campos que ya existían en el registro inicial, incluido el logo—
+usando `PATCH /api/empresas/:id`. Si no se elige un archivo nuevo al
+guardar, el logo actual se conserva (no se borra por accidente).
+
 ## Logo de empresa
 
 `Empresa.logoBase64` guarda el logo como data URI (base64) directo en

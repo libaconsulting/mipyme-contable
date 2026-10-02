@@ -125,6 +125,7 @@
       <button class="nav-item" data-tab="inventarios">Inventarios</button>
       <button class="nav-item" data-tab="activos-fijos">Activos fijos</button>
       <button class="nav-item" data-tab="tesoreria">Tesorería</button>
+      <button class="nav-item" data-tab="mi-empresa">Mi Empresa</button>
     </nav>
     <div class="usuario-actual">
       <p id="usuario-nombre"></p>
@@ -488,6 +489,85 @@
       <div class="tabla-envoltorio">
         <table id="tabla-movimientos-bancarios"><thead></thead><tbody></tbody></table>
       </div>
+    </section>
+
+    <section id="panel-mi-empresa" class="panel" hidden>
+      <header class="panel-header"><h2>Mi Empresa</h2></header>
+      <p class="nota-panel">Estos datos aparecen en el encabezado de las cotizaciones y órdenes de adquisición en PDF.</p>
+      <form id="form-mi-empresa" class="form-grande">
+        <div class="fila-campos">
+          <label class="campo-etiquetado">
+            <span>Razón social</span>
+            <input type="text" id="miempresa-razon-social" required>
+          </label>
+          <label class="campo-etiquetado">
+            <span>NIT</span>
+            <input type="text" id="miempresa-nit" required>
+          </label>
+          <label class="campo-etiquetado">
+            <span>Régimen tributario</span>
+            <select id="miempresa-regimen">
+              <option value="ordinario">Ordinario</option>
+              <option value="rst">Régimen Simple (RST)</option>
+              <option value="especial">Régimen Tributario Especial</option>
+            </select>
+          </label>
+          <label class="check-aiu">
+            <input type="checkbox" id="miempresa-responsable-iva"> Responsable de IVA
+          </label>
+        </div>
+        <div class="fila-campos">
+          <label class="campo-etiquetado">
+            <span>Correo electrónico</span>
+            <input type="email" id="miempresa-email">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Teléfono de contacto</span>
+            <input type="text" id="miempresa-telefono">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Dirección</span>
+            <input type="text" id="miempresa-direccion">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Departamento</span>
+            <input type="text" id="miempresa-departamento">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Municipio</span>
+            <input type="text" id="miempresa-municipio">
+          </label>
+        </div>
+        <div class="fila-campos">
+          <label class="campo-etiquetado">
+            <span>Representante legal</span>
+            <input type="text" id="miempresa-representante-nombre">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Documento del representante legal</span>
+            <input type="text" id="miempresa-representante-documento">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Código CIIU</span>
+            <input type="text" id="miempresa-ciiu">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Matrícula mercantil</span>
+            <input type="text" id="miempresa-matricula">
+          </label>
+        </div>
+        <div class="fila-campos">
+          <label class="campo-etiquetado">
+            <span>Logo</span>
+            <input type="file" id="miempresa-logo" accept="image/png, image/jpeg, image/svg+xml">
+          </label>
+          <img id="miempresa-logo-vista-previa" class="logo-vista-previa" hidden>
+        </div>
+        <div class="fila-botones">
+          <button type="submit" class="btn-primario">Guardar cambios</button>
+        </div>
+        <p id="miempresa-resultado" class="mensaje-exito" hidden></p>
+      </form>
     </section>
   </main>
 </div>
