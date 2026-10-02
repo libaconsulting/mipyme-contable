@@ -252,8 +252,10 @@
       <p class="nota-panel">Contratos, negocios o proyectos de la empresa — se usan como "Proyecto / Unidad de Negocio" en Órdenes de Adquisición, y están pensados para servir como centro de costo contable más adelante.</p>
       <form id="form-proyecto" class="form-inline" hidden>
         <input type="text" id="proyecto-nombre" placeholder="Nombre del proyecto/contrato" required>
-        <input type="text" id="proyecto-codigo" placeholder="Código (opcional)">
-        <input type="text" id="proyecto-descripcion" placeholder="Descripción (opcional)">
+        <input type="text" id="proyecto-codigo" placeholder="ID del proyecto (centro de costo)">
+        <select id="proyecto-contratante"></select>
+        <input type="number" id="proyecto-valor-total" placeholder="Valor total" min="0">
+        <input type="text" id="proyecto-objeto" placeholder="Objeto del proyecto (opcional)">
         <button type="submit" class="btn-primario">Guardar</button>
         <button type="button" class="btn-secundario" id="btn-cancelar-proyecto">Cancelar</button>
       </form>

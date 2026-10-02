@@ -4,7 +4,7 @@ const { v4: uuidv4 } = require('uuid');
 const Proyecto = require('../core/models/Proyecto');
 const { mensajeError } = require('../core/utils/mensajeError');
 
-const CAMPOS_PROYECTO = ['nombre', 'codigo', 'descripcion', 'activo'];
+const CAMPOS_PROYECTO = ['nombre', 'codigo', 'objeto', 'contratanteId', 'valorTotal', 'activo'];
 
 function extraerCampos(body) {
   const datos = {};

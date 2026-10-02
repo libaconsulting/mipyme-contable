@@ -77,7 +77,8 @@ cuando existe.
 
 ## Proyectos (futuro centro de costo)
 
-Catálogo nuevo (`Proyecto`: nombre, código, descripción, activo) para
+Catálogo nuevo (`Proyecto`: nombre, código/ID del centro de costo,
+objeto, contratante —referencia a Tercero—, valor total, activo) para
 los contratos/negocios/proyectos de la empresa. Hoy se usa desde
 Órdenes de Adquisición (`OrdenCompra.proyectoId`, con el campo de texto
 viejo `proyecto` conservado solo por compatibilidad con órdenes

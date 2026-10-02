@@ -1,3 +1,613 @@
+#!/bin/bash
+set -e
+
+if [ ! -f "package.json" ]; then
+  echo "ERROR: no se encontró package.json en esta carpeta."
+  exit 1
+fi
+
+cat > src/core/models/Proyecto.js << 'SCRIPTEOF'
+const { DataTypes } = require('sequelize');
+const sequelize = require('../../config/database');
+
+// Un Proyecto es un contrato, negocio o proyecto de la empresa —
+// doble función: (1) se referencia desde Órdenes de Adquisición para
+// saber a qué pertenece una compra, y (2) está pensado para servir
+// como centro de costo en la parte contable (Movimiento.centroCosto
+// hoy es solo texto libre; cuando se conecte de verdad con este
+// catálogo, cada asiento podrá segmentarse por proyecto).
+const Proyecto = sequelize.define('Proyecto', {
+  id: {
+    type: DataTypes.UUID,
+    defaultValue: DataTypes.UUIDV4,
+    primaryKey: true,
+  },
+  empresaId: { type: DataTypes.UUID, allowNull: false },
+  nombre: { type: DataTypes.STRING(200), allowNull: false },
+  // ID del proyecto / centro de costo — el código corto que lo
+  // identifica internamente (ej. "CO-2026-109-CP", "DACP-224-2026").
+  codigo: { type: DataTypes.STRING(50) },
+  // Objeto del proyecto — qué es, en términos contractuales (el mismo
+  // lenguaje que usan las órdenes y cotizaciones reales de la firma).
+  objeto: { type: DataTypes.TEXT },
+  // Quién contrata/financia el proyecto — un Tercero (normalmente tipo
+  // "cliente", pero no se restringe: igual que en cotizaciones/órdenes,
+  // cualquier tercero puede ser contratante).
+  contratanteId: { type: DataTypes.UUID },
+  valorTotal: { type: DataTypes.DECIMAL(15, 2) },
+  activo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
+}, {
+  tableName: 'proyectos',
+});
+
+module.exports = Proyecto;
+SCRIPTEOF
+echo "OK  src/core/models/Proyecto.js"
+
+cat > src/routes/proyectos.routes.js << 'SCRIPTEOF'
+const express = require('express');
+const router = express.Router();
+const { v4: uuidv4 } = require('uuid');
+const Proyecto = require('../core/models/Proyecto');
+const { mensajeError } = require('../core/utils/mensajeError');
+
+const CAMPOS_PROYECTO = ['nombre', 'codigo', 'objeto', 'contratanteId', 'valorTotal', 'activo'];
+
+function extraerCampos(body) {
+  const datos = {};
+  for (const campo of CAMPOS_PROYECTO) {
+    if (body[campo] !== undefined) datos[campo] = body[campo];
+  }
+  return datos;
+}
+
+// POST /api/proyectos
+router.post('/', async (req, res) => {
+  try {
+    const proyecto = await Proyecto.create({
+      id: uuidv4(),
+      empresaId: req.usuario.empresaId,
+      ...extraerCampos(req.body),
+    });
+    res.status(201).json(proyecto);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+});
+
+// GET /api/proyectos
+router.get('/', async (req, res) => {
+  try {
+    const proyectos = await Proyecto.findAll({
+      where: { empresaId: req.usuario.empresaId },
+      order: [['nombre', 'ASC']],
+    });
+    res.json(proyectos);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+});
+
+// PATCH /api/proyectos/:id
+router.patch('/:id', async (req, res) => {
+  try {
+    const proyecto = await Proyecto.findOne({
+      where: { id: req.params.id, empresaId: req.usuario.empresaId },
+    });
+    if (!proyecto) return res.status(404).json({ error: 'Proyecto no encontrado.' });
+    await proyecto.update(extraerCampos(req.body));
+    res.json(proyecto);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+});
+
+module.exports = router;
+SCRIPTEOF
+echo "OK  src/routes/proyectos.routes.js"
+
+cat > public/contable/index.html << 'SCRIPTEOF'
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mipyme Contable</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/contable/style.css">
+</head>
+<body>
+
+<div id="vista-login" class="pantalla-login">
+  <div class="tarjeta-login" id="tarjeta-login-principal">
+    <h1 class="wordmark">Mipyme Contable</h1>
+    <p class="subtitulo">Sistema contable para microempresas — NIIF Grupo 3</p>
+    <form id="form-login">
+      <label>Correo
+        <input type="email" id="login-email" required autocomplete="username">
+      </label>
+      <label>Contraseña
+        <input type="password" id="login-password" required autocomplete="current-password">
+      </label>
+      <button type="submit" class="btn-primario">Entrar</button>
+      <p id="login-error" class="mensaje-error" hidden></p>
+    </form>
+    <button type="button" id="btn-mostrar-onboarding" class="enlace-onboarding">¿Primera vez? Crear empresa y usuario →</button>
+  </div>
+
+  <div class="tarjeta-login tarjeta-onboarding" id="tarjeta-onboarding" hidden>
+    <h1 class="wordmark">Nueva empresa</h1>
+    <p class="subtitulo">Dos pasos: primero la empresa, luego su primer usuario.</p>
+
+    <form id="form-empresa-nueva">
+      <label>Razón social
+        <input type="text" id="empresa-razon-social" required>
+      </label>
+      <label>NIT
+        <input type="text" id="empresa-nit" required>
+      </label>
+      <label>Régimen tributario
+        <select id="empresa-regimen">
+          <option value="ordinario">Ordinario</option>
+          <option value="rst">Régimen Simple (RST)</option>
+          <option value="especial">Régimen Tributario Especial (ESAL, cooperativas)</option>
+        </select>
+      </label>
+      <label class="check-inline">
+        <input type="checkbox" id="empresa-responsable-iva"> Responsable de IVA
+      </label>
+      <label>Correo electrónico
+        <input type="email" id="empresa-email">
+      </label>
+      <label>Teléfono de contacto
+        <input type="text" id="empresa-telefono">
+      </label>
+      <label>Dirección
+        <input type="text" id="empresa-direccion">
+      </label>
+      <label>Departamento
+        <input type="text" id="empresa-departamento">
+      </label>
+      <label>Municipio
+        <input type="text" id="empresa-municipio">
+      </label>
+      <label>Representante legal
+        <input type="text" id="empresa-representante-nombre">
+      </label>
+      <label>Documento del representante legal
+        <input type="text" id="empresa-representante-documento">
+      </label>
+      <label>Código CIIU (actividad económica)
+        <input type="text" id="empresa-ciiu">
+      </label>
+      <label>Matrícula mercantil
+        <input type="text" id="empresa-matricula">
+      </label>
+      <label>Logo (opcional — aparecerá en cotizaciones y órdenes)
+        <input type="file" id="empresa-logo" accept="image/png, image/jpeg, image/svg+xml">
+        <img id="empresa-logo-vista-previa" class="logo-vista-previa" hidden>
+      </label>
+      <button type="submit" class="btn-primario">Crear empresa</button>
+    </form>
+
+    <form id="form-usuario-nuevo" hidden>
+      <p id="empresa-creada-mensaje" class="mensaje-exito"></p>
+      <label>Nombre del usuario
+        <input type="text" id="usuario-nuevo-nombre" required>
+      </label>
+      <label>Correo
+        <input type="email" id="usuario-nuevo-email" required>
+      </label>
+      <label>Contraseña
+        <input type="password" id="usuario-nuevo-password" required>
+      </label>
+      <label>Rol
+        <select id="usuario-nuevo-rol">
+          <option value="contador">Contador</option>
+          <option value="dueño">Dueño</option>
+          <option value="auxiliar">Auxiliar</option>
+          <option value="revisor">Revisor</option>
+        </select>
+      </label>
+      <button type="submit" class="btn-primario">Crear usuario</button>
+    </form>
+
+    <p id="onboarding-resultado" class="mensaje-exito" hidden></p>
+    <button type="button" id="btn-volver-login" class="enlace-onboarding">← Volver a iniciar sesión</button>
+  </div>
+</div>
+
+<div id="vista-dashboard" class="app" hidden>
+  <aside class="barra-lateral">
+    <h1 class="wordmark">Mipyme Contable</h1>
+    <nav>
+      <button class="nav-item activo" data-tab="inicio">Inicio</button>
+      <button class="nav-item" data-tab="terceros">Terceros</button>
+      <button class="nav-item" data-tab="proyectos">Proyectos</button>
+      <button class="nav-item" data-tab="cotizaciones">Cotizaciones</button>
+      <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
+      <button class="nav-item" data-tab="ordenes">Órdenes de adquisición</button>
+      <button class="nav-item" data-tab="facturas-compra">Facturas de compra</button>
+      <button class="nav-item" data-tab="nomina">Nómina</button>
+      <button class="nav-item" data-tab="inventarios">Inventarios</button>
+      <button class="nav-item" data-tab="activos-fijos">Activos fijos</button>
+      <button class="nav-item" data-tab="tesoreria">Tesorería</button>
+    </nav>
+    <div class="usuario-actual">
+      <p id="usuario-nombre"></p>
+      <p id="usuario-rol" class="rol"></p>
+      <button id="btn-salir">Cerrar sesión</button>
+      <a href="/" class="enlace-sitio">← libanielconsulting.com</a>
+    </div>
+  </aside>
+
+  <main class="contenido">
+    <section id="panel-inicio" class="panel">
+      <header class="panel-header"><h2>Inicio</h2></header>
+      <p class="bienvenida">Bienvenido, <span id="inicio-usuario-nombre"></span> — trabajando en <strong id="inicio-empresa-nombre">—</strong>.</p>
+      <div class="grid-modulos">
+        <button class="tarjeta-modulo" data-ir-a="terceros">
+          <span class="numero-modulo">01</span>
+          <h3>Terceros</h3>
+          <p>Clientes, proveedores y empleados</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="cotizaciones">
+          <span class="numero-modulo">02</span>
+          <h3>Cotizaciones</h3>
+          <p>Cotiza y da seguimiento a tus ventas</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="facturas-venta">
+          <span class="numero-modulo">03</span>
+          <h3>Facturas de venta</h3>
+          <p>Facturación electrónica</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="ordenes">
+          <span class="numero-modulo">04</span>
+          <h3>Órdenes de Adquisición</h3>
+          <p>Compras de bienes y servicios</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="facturas-compra">
+          <span class="numero-modulo">05</span>
+          <h3>Facturas de compra</h3>
+          <p>Facturas recibidas y documento soporte</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="nomina">
+          <span class="numero-modulo">06</span>
+          <h3>Nómina</h3>
+          <p>Liquidación de empleados</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="inventarios">
+          <span class="numero-modulo">07</span>
+          <h3>Inventarios</h3>
+          <p>Control de existencias</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="activos-fijos">
+          <span class="numero-modulo">08</span>
+          <h3>Activos fijos</h3>
+          <p>Depreciación y activos</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="tesoreria">
+          <span class="numero-modulo">09</span>
+          <h3>Tesorería</h3>
+          <p>Cuentas y movimientos bancarios</p>
+        </button>
+        <button class="tarjeta-modulo" data-ir-a="proyectos">
+          <span class="numero-modulo">10</span>
+          <h3>Proyectos</h3>
+          <p>Contratos y negocios — futuro centro de costo</p>
+        </button>
+      </div>
+    </section>
+
+    <section id="panel-terceros" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Terceros</h2>
+        <button class="btn-primario" id="btn-nuevo-tercero">+ Nuevo tercero</button>
+      </header>
+      <form id="form-tercero" class="form-inline" hidden>
+        <select id="tercero-tipo" required>
+          <option value="cliente">Cliente</option>
+          <option value="proveedor">Proveedor</option>
+          <option value="empleado">Empleado</option>
+          <option value="otro">Otro</option>
+        </select>
+        <select id="tercero-tipo-persona">
+          <option value="">Tipo de persona...</option>
+          <option value="natural">Natural</option>
+          <option value="juridica">Jurídica</option>
+        </select>
+        <input type="text" id="tercero-identificacion" placeholder="Identificación" required>
+        <input type="text" id="tercero-nombre" placeholder="Nombre" required>
+        <input type="email" id="tercero-email" placeholder="Correo (opcional)">
+        <input type="text" id="tercero-celular" placeholder="Celular (opcional)">
+        <input type="text" id="tercero-direccion" placeholder="Dirección (opcional)">
+        <input type="text" id="tercero-departamento" placeholder="Departamento (opcional)">
+        <input type="text" id="tercero-municipio" placeholder="Municipio (opcional)">
+        <select id="tercero-regimen-iva">
+          <option value="">Régimen de IVA...</option>
+          <option value="responsable">Responsable de IVA</option>
+          <option value="no_responsable">No responsable de IVA</option>
+        </select>
+        <select id="tercero-cuenta-tipo">
+          <option value="">Tipo de cuenta...</option>
+          <option value="ahorros">Ahorros</option>
+          <option value="corriente">Corriente</option>
+        </select>
+        <input type="text" id="tercero-cuenta-banco" placeholder="Banco (opcional)">
+        <input type="text" id="tercero-cuenta-numero" placeholder="No. cuenta (opcional)">
+        <fieldset class="fieldset-responsabilidades">
+          <legend>Responsabilidad fiscal (marca las que apliquen)</legend>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-13"> O-13 Gran contribuyente</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-15"> O-15 Autorretenedor</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-23"> O-23 Agente de retención IVA</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="O-47"> O-47 Régimen simple de tributación</label>
+          <label><input type="checkbox" class="chk-responsabilidad" value="R-99-PN"> R-99-PN No aplica - Otros</label>
+        </fieldset>
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-tercero">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-terceros"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-proyectos" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Proyectos</h2>
+        <button class="btn-primario" id="btn-nuevo-proyecto">+ Nuevo proyecto</button>
+      </header>
+      <p class="nota-panel">Contratos, negocios o proyectos de la empresa — se usan como "Proyecto / Unidad de Negocio" en Órdenes de Adquisición, y están pensados para servir como centro de costo contable más adelante.</p>
+      <form id="form-proyecto" class="form-inline" hidden>
+        <input type="text" id="proyecto-nombre" placeholder="Nombre del proyecto/contrato" required>
+        <input type="text" id="proyecto-codigo" placeholder="ID del proyecto (centro de costo)">
+        <select id="proyecto-contratante"></select>
+        <input type="number" id="proyecto-valor-total" placeholder="Valor total" min="0">
+        <input type="text" id="proyecto-objeto" placeholder="Objeto del proyecto (opcional)">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-proyecto">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-proyectos"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-cotizaciones" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Cotizaciones</h2>
+        <button class="btn-primario" id="btn-nueva-cotizacion">+ Nueva cotización</button>
+      </header>
+      <form id="form-cotizacion" class="form-grande" hidden>
+        <div class="fila-campos">
+          <select id="cotizacion-tercero" required></select>
+          <label class="campo-etiquetado">
+            <span>Vigente hasta</span>
+            <input type="date" id="cotizacion-vencimiento" required>
+          </label>
+          <input type="text" id="cotizacion-forma-pago" placeholder="Forma de pago (opcional)">
+          <input type="text" id="cotizacion-observaciones" placeholder="Observaciones (opcional)">
+          <input type="text" id="cotizacion-contacto-nombre" placeholder="Persona de contacto (opcional)">
+          <input type="text" id="cotizacion-contacto-telefono" placeholder="Teléfono de contacto (opcional)">
+        </div>
+
+        <div class="bloque-items">
+          <div class="bloque-items-header">
+            <h4>Ítems cotizados</h4>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-item-cotizacion">+ Agregar ítem</button>
+          </div>
+          <table class="tabla-items">
+            <thead>
+              <tr><th>Concepto</th><th>Cantidad</th><th>UM</th><th class="num">Valor unitario</th><th>Impuesto</th><th class="num">Total</th><th></th></tr>
+            </thead>
+            <tbody id="items-cotizacion-tbody"></tbody>
+          </table>
+        </div>
+
+        <label class="check-aiu">
+          <input type="checkbox" id="cotizacion-aplica-aiu"> ¿Aplica AIU? (Administración, Imprevistos, Utilidad — contratos de obra/servicios)
+        </label>
+        <div class="fila-campos" id="campos-aiu" hidden>
+          <label class="campo-aiu">
+            <span>Administración %</span>
+            <input type="number" id="cotizacion-aiu-administracion" placeholder="%" min="0" max="100">
+            <span class="valor-aiu" id="valor-aiu-administracion">$0</span>
+          </label>
+          <label class="campo-aiu">
+            <span>Imprevistos %</span>
+            <input type="number" id="cotizacion-aiu-imprevistos" placeholder="%" min="0" max="100">
+            <span class="valor-aiu" id="valor-aiu-imprevistos">$0</span>
+          </label>
+          <label class="campo-aiu">
+            <span>Utilidad %</span>
+            <input type="number" id="cotizacion-aiu-utilidad" placeholder="%" min="0" max="100">
+            <span class="valor-aiu" id="valor-aiu-utilidad">$0</span>
+          </label>
+        </div>
+
+        <div class="resumen-totales">
+          <span>Subtotal: <strong id="resumen-subtotal">$0</strong></span>
+          <span>IVA: <strong id="resumen-iva">$0</strong></span>
+          <span>Total: <strong id="resumen-total">$0</strong></span>
+        </div>
+
+        <div class="fila-botones">
+          <button type="submit" class="btn-primario">Guardar</button>
+          <button type="button" class="btn-secundario" id="btn-cancelar-cotizacion">Cancelar</button>
+        </div>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-cotizaciones"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-facturas-venta" class="panel" hidden>
+      <header class="panel-header"><h2>Facturas de venta</h2></header>
+      <p class="nota-panel">Se generan al convertir una cotización aceptada — no se crean directo aquí.</p>
+      <div class="tabla-envoltorio">
+        <table id="tabla-facturas-venta"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-ordenes" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Órdenes de adquisición</h2>
+        <button class="btn-primario" id="btn-nueva-orden">+ Nueva orden</button>
+      </header>
+      <form id="form-orden" class="form-grande" hidden>
+        <div class="fila-campos">
+          <select id="orden-tercero" required></select>
+          <select id="orden-tipo">
+            <option value="bienes">Bienes</option>
+            <option value="servicios">Servicios</option>
+          </select>
+          <select id="orden-proyecto-id">
+            <option value="">Proyecto / Unidad de Negocio...</option>
+          </select>
+          <input type="text" id="orden-lugar-entrega" placeholder="Lugar de entrega (opcional)">
+          <input type="text" id="orden-forma-pago" placeholder="Forma de pago (opcional)">
+        </div>
+
+        <div class="bloque-items">
+          <div class="bloque-items-header">
+            <h4>Ítems de la orden</h4>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-item-orden">+ Agregar ítem</button>
+          </div>
+          <table class="tabla-items">
+            <thead>
+              <tr><th>Concepto</th><th>Cantidad</th><th>UM</th><th class="num">Valor unitario</th><th>Impuesto</th><th class="num">Total</th><th></th></tr>
+            </thead>
+            <tbody id="items-orden-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="resumen-totales">
+          <span>Subtotal: <strong id="resumen-subtotal-orden">$0</strong></span>
+          <span>IVA: <strong id="resumen-iva-orden">$0</strong></span>
+          <span>Total: <strong id="resumen-total-orden">$0</strong></span>
+        </div>
+
+        <div class="fila-botones">
+          <button type="submit" class="btn-primario">Guardar</button>
+          <button type="button" class="btn-secundario" id="btn-cancelar-orden">Cancelar</button>
+        </div>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-ordenes"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-facturas-compra" class="panel" hidden>
+      <header class="panel-header"><h2>Facturas de compra</h2></header>
+      <p class="nota-panel">Se generan al convertir una orden aprobada, o llegan por webhook del proveedor tecnológico.</p>
+      <div class="tabla-envoltorio">
+        <table id="tabla-facturas-compra"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-nomina" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Nómina</h2>
+        <button class="btn-primario" id="btn-nuevo-periodo">+ Nuevo periodo</button>
+      </header>
+      <form id="form-periodo" class="form-inline" hidden>
+        <input type="date" id="periodo-inicio" required title="Fecha de inicio">
+        <input type="date" id="periodo-fin" required title="Fecha de fin">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-periodo">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-nomina"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-inventarios" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Inventarios</h2>
+        <button class="btn-primario" id="btn-nuevo-producto">+ Nuevo producto</button>
+      </header>
+      <form id="form-producto" class="form-inline" hidden>
+        <input type="text" id="producto-nombre" placeholder="Nombre" required>
+        <select id="producto-tipo">
+          <option value="bien">Bien</option>
+          <option value="servicio">Servicio</option>
+        </select>
+        <input type="text" id="producto-unidad" placeholder="Unidad" value="unidad">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-producto">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-productos"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-activos-fijos" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Activos fijos</h2>
+        <div class="acciones-header">
+          <button class="btn-secundario" id="btn-depreciar">Correr depreciación del mes</button>
+          <button class="btn-primario" id="btn-nuevo-activo">+ Nuevo activo</button>
+        </div>
+      </header>
+      <form id="form-activo" class="form-inline" hidden>
+        <input type="text" id="activo-nombre" placeholder="Nombre" required>
+        <input type="number" id="activo-costo" placeholder="Costo" required min="0">
+        <input type="number" id="activo-vida-util" placeholder="Vida útil (meses)" required min="1">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-activo">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-activos"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-tesoreria" class="panel" hidden>
+      <header class="panel-header"><h2>Tesorería</h2></header>
+
+      <div class="subseccion-header">
+        <h3 class="subseccion">Cuentas bancarias</h3>
+        <button class="btn-primario btn-chico" id="btn-nueva-cuenta">+ Nueva cuenta</button>
+      </div>
+      <form id="form-cuenta" class="form-inline" hidden>
+        <input type="text" id="cuenta-banco" placeholder="Banco" required>
+        <input type="text" id="cuenta-numero" placeholder="Número" required>
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-cuenta">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-cuentas"><thead></thead><tbody></tbody></table>
+      </div>
+
+      <div class="subseccion-header">
+        <h3 class="subseccion">Movimientos</h3>
+        <button class="btn-primario btn-chico" id="btn-nuevo-movimiento">+ Nuevo movimiento</button>
+      </div>
+      <form id="form-movimiento" class="form-inline" hidden>
+        <select id="movimiento-cuenta" required></select>
+        <select id="movimiento-tipo">
+          <option value="ingreso">Ingreso</option>
+          <option value="egreso">Egreso</option>
+          <option value="comision">Comisión</option>
+        </select>
+        <input type="number" id="movimiento-valor" placeholder="Valor" required min="0">
+        <input type="text" id="movimiento-descripcion" placeholder="Descripción (opcional)">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-movimiento">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-movimientos-bancarios"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="/contable/app.js"></script>
+</body>
+</html>
+SCRIPTEOF
+echo "OK  public/contable/index.html"
+
+cat > public/contable/app.js << 'SCRIPTEOF'
 const API = '/api';
 
 let token = localStorage.getItem('token');
@@ -1355,3 +1965,217 @@ async function movimientoInventario(tipo, productoId, pideCosto, pideObservacion
 if (token && usuario) {
   mostrarDashboard();
 }
+SCRIPTEOF
+echo "OK  public/contable/app.js"
+
+cat > README.md << 'SCRIPTEOF'
+# mipyme-contable
+
+Sistema contable para microempresas colombianas (NIIF Grupo 3), pensado
+para desplegarse en Hostinger (plan Business — Node.js administrado +
+PostgreSQL en Supabase).
+
+## Arquitectura
+
+```
+public/                     # Frontend mínimo: HTML + JS plano, sin build step
+├── index.html                 Página institucional de Libaniel Consulting (raíz del dominio)
+├── style.css                  Estilos del sitio institucional
+└── contable/                  El software contable en sí, en /contable
+    ├── index.html                Login + tablero con pestañas por módulo
+    ├── style.css                 Estética de libro contable (IBM Plex, reglas horizontales)
+    └── app.js                    Login, consumo de la API, formularios y acciones por rol
+src/
+├── server.js                 # Punto de entrada — también sirve public/ como estáticos
+├── config/                   # Conexión a base de datos, variables de entorno
+├── core/                     # Núcleo contable — nunca depende de la infraestructura
+│   ├── models/                 Empresa (con logo), Tercero (persona natural/
+│   │                           jurídica, ubicación, régimen y responsabilidades
+│   │                           DIAN, cuenta bancaria), Proyecto (futuro centro
+│   │                           de costo), PlanCuentas, Asiento,
+│   │                           Movimiento, PeriodoContable, ReglaContabilizacion,
+│   │                           ParametroTributario, Usuario, LogAuditoria
+│   └── services/
+│       ├── motorAsientos.js    Traduce eventos operativos en partida doble
+│       ├── cierrePeriodo.js    Máquina de estados del cierre mensual
+│       ├── authService.js      Login y registro de usuarios
+│       ├── auditoria.js        Registro de acciones sensibles
+│       ├── seedService.js      Datos base: empresa, periodo, cuentas, reglas
+│       └── consecutivos.js     Numeración legible tipo COT-2026-0001 / ODA-2026-0001
+├── modules/                  # Módulos operativos (capa transaccional) — TODOS completos
+│   ├── ventas/                 Cotización → factura, patrón de referencia
+│   ├── compras/                Factura recibida + documento soporte, orden de compra
+│   ├── nomina/                 Periodo → empleados → liquidar → documento soporte
+│   ├── inventarios/            Kardex simplificado: entradas, salidas, ajustes
+│   ├── activosFijos/           Registro, depreciación mensual (cron), baja
+│   └── tesoreria/               Cuentas bancarias, movimientos, conciliación
+├── integrations/             # Capa adaptadora hacia proveedores acreditados
+│   ├── adapters/                Interfaz única por tipo de documento
+│   └── webhooks/                Recepción asíncrona de confirmaciones DIAN
+├── jobs/                     # Disparados por Cron Jobs de hPanel
+│   ├── depreciacionMensual.js  Implementado — recorre todas las empresas
+│   └── vencimientoCotizaciones.js
+├── middleware/                # authenticate + authorize por rol
+└── routes/                   # Router raíz (auth, seed, terceros, y los 6 módulos)
+```
+
+## Aprovisionar una empresa nueva
+
+Desde la pantalla de login, "¿Primera vez? Crear empresa y usuario" abre
+un flujo de dos pasos: `POST /api/empresas` crea la empresa (razón
+social, NIT, régimen tributario —ordinario, RST o especial—,
+responsable de IVA, correo, teléfono, dirección, departamento,
+municipio, representante legal y su documento, código CIIU y matrícula
+mercantil), luego `POST /api/auth/registro` crea su primer usuario (rol
+`contador` o `dueño` recomendado). `PATCH /api/empresas/:id` permite
+editar estos datos después. Los tres endpoints quedan abiertos por
+ahora — ver el TODO en `src/routes/empresas.routes.js` antes de tener
+más de un puñado de empresas reales.
+
+Al iniciar sesión, el panel **Inicio** (pestaña por defecto, ya no
+Terceros) saluda por nombre, muestra la razón social de la empresa, y
+presenta los nueve módulos como tarjetas — clic en cualquiera navega
+directo a esa sección.
+
+## Logo de empresa
+
+`Empresa.logoBase64` guarda el logo como data URI (base64) directo en
+la base de datos, no como archivo en disco — en el hosting de Node de
+Hostinger un archivo subido podría perderse en un redeploy, así que
+esto evita esa dependencia. Límite de 2MB desde el frontend. Aparece en
+el encabezado de `cotizacion-imprimir.html` y `orden-imprimir.html`
+cuando existe.
+
+## Proyectos (futuro centro de costo)
+
+Catálogo nuevo (`Proyecto`: nombre, código/ID del centro de costo,
+objeto, contratante —referencia a Tercero—, valor total, activo) para
+los contratos/negocios/proyectos de la empresa. Hoy se usa desde
+Órdenes de Adquisición (`OrdenCompra.proyectoId`, con el campo de texto
+viejo `proyecto` conservado solo por compatibilidad con órdenes
+anteriores al catálogo). Pendiente real: conectarlo con
+`Movimiento.centroCosto` (hoy sigue siendo texto libre) para que la
+segmentación contable por proyecto sea automática, no solo informativa
+en las órdenes.
+
+## Frontend
+
+`public/` es intencionalmente mínimo: sin framework, sin paso de
+compilación, servido directo por el mismo Express (`express.static`).
+
+La raíz del dominio (`/`) es la página institucional de **Libaniel
+Consulting**, pensada para ofrecer varios servicios de la firma — hoy
+solo el software contable es real, los otros dos son marcadores de
+posición con un `mailto:` genérico (`contacto@libanielconsulting.com`)
+hasta que se definan de verdad.
+
+El software contable en sí vive en **`/contable`** — mismo backend,
+solo un subdirectorio distinto en `public/`. Cubre creación y las
+transiciones de estado principales de los seis módulos (formularios
+inline + botones de acción por fila según el estado del registro). Dos
+simplificaciones deliberadas por ahora:
+acciones que piden un solo dato adicional puntual (agregar empleado a
+un periodo, entradas/salidas/ajustes de inventario) usan `prompt()` del
+navegador en vez de un formulario modal propio; y no hay edición ni
+borrado de nada, solo creación y transiciones hacia adelante.
+
+## Principios de diseño (no romper esto)
+
+1. **Ningún módulo operativo escribe asientos directamente.** Todo pasa
+   por `motorAsientos.contabilizarEvento()`, que consulta la tabla
+   `ReglaContabilizacion` de la empresa y resuelve solo el periodo
+   contable vigente si no se le pasa explícito.
+2. **Cotizaciones y órdenes de compra/servicio no generan asiento.**
+   Solo lo hacen cuando se convierten en factura.
+3. **Nunca hardcodear UVT, tarifas de retención, RST o ICA.** Viven en
+   `ParametroTributario`, versionado por año gravable.
+4. **La lógica del proveedor tecnológico de facturación/nómina/documento
+   soporte vive únicamente en `src/integrations/adapters/`.** Cambiar de
+   proveedor no debe tocar ningún módulo operativo.
+5. **Un periodo `cerrado_certificado` es inmutable** salvo por el
+   proceso formal de reapertura (rol Contador + justificación obligatoria).
+6. **Un movimiento bancario sin conciliar bloquea el cierre del periodo**
+   (ver `cierrePeriodo.validarPeriodo`).
+
+## Puesta en marcha
+
+```bash
+cp .env.example .env      # completar credenciales de la base de datos y del proveedor tecnológico
+npm install
+npm run dev
+```
+
+## Despliegue en Hostinger (plan Business)
+
+1. hPanel → Sitios web → Apps Node.js → conectar el repositorio de GitHub.
+2. Base de datos: PostgreSQL vía Supabase (host, puerto, nombre, usuario y
+   contraseña como `DB_*` en las variables de entorno de la app).
+3. hPanel → Avanzado → Cron Jobs → programar:
+   - `node src/jobs/depreciacionMensual.js` — día 1 de cada mes
+   - `node src/jobs/vencimientoCotizaciones.js` — diario
+
+## Roles y autenticación
+
+Cuatro roles, controlados por `src/middleware/auth.js` (`authenticate` +
+`authorize(...roles)`):
+
+| Rol | Puede |
+|---|---|
+| `dueño` | Operar el sistema, certificar el cierre mensual |
+| `contador` | Todo lo anterior + reabrir un periodo certificado |
+| `auxiliar` | Registrar operaciones del día a día (ventas, compras, nómina) |
+| `revisor` | Solo lectura (pendiente de aplicar en cada ruta) |
+
+`POST /api/auth/login` y `POST /api/auth/registro` son las únicas rutas
+públicas. Todas las demás requieren `Authorization: Bearer <token>`.
+
+## Datos base (seed)
+
+`POST /api/seed` (requiere sesión con rol `contador` o `dueño`) crea:
+una empresa de prueba, el periodo contable del mes en curso, un plan de
+cuentas de 22 cuentas, y 13 reglas de contabilización — una por cada
+evento que disparan los seis módulos operativos. Seguro de correr más
+de una vez — no duplica nada. Sin esto, `motorAsientos` no tiene con
+qué contabilizar.
+
+## Pendientes inmediatos
+
+- [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
+- [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
+- [ ] Reemplazar `FACTOR_PRESTACIONES` (21.83% fijo) en `nomina.service.js` por el cálculo exacto de cesantías, intereses, prima y vacaciones según la normativa laboral vigente y el tipo de contrato
+- [ ] Integrar `NovedadNomina` con el cálculo del devengado (hoy es solo un registro informativo, no ajusta nada automáticamente)
+- [ ] Tesorería: cruzar movimientos de tipo ingreso/egreso contra la factura, orden o nómina específica que pagan (hoy solo "comisión" se contabiliza sola al conciliar; el resto solo queda marcado como conciliado, sin generar el asiento de pago)
+- [ ] Mapear cada `CuentaBancaria` a su propia subcuenta contable — hoy todas comparten el código 1110 Bancos
+- [ ] Soportar múltiples líneas (débito/crédito) por evento en `motorAsientos` — hoy una venta no discrimina el IVA en un renglón aparte
+- [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
+- [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
+- [ ] `DELETE` de terceros (crear, listar y editar ya existen; falta borrar)
+- [ ] Vincular `MovimientoInventario` con los ítems reales de `FacturaVenta`/`FacturaCompra` — hoy las entradas y salidas se registran manualmente por API, no automático desde una venta
+- [ ] Cuadre global de débitos vs. créditos del periodo como validación bloqueante del cierre (ver TODO en `cierrePeriodo.validarPeriodo`)
+- [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
+- [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
+- [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
+- [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
+- [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma
+- [x] ~~Fase 2, parte 2~~ — Órdenes de Adquisición ya tiene ítems dinámicos, "Ver ítems" y "Editar" (solo en borrador), igual que Cotizaciones
+- [ ] Aplicar `mensajeError()` (`src/core/utils/mensajeError.js`) en los demás controladores — hoy `ventas.controller.js` y `compras.controller.js` lo usan; nómina, inventarios, activos fijos y tesorería todavía devuelven el mensaje genérico de Sequelize
+- [ ] La opción "Otro (definir %)" de impuesto en el ítem se guarda como `tipoImpuesto: 'iva'` con el porcentaje manual — no distingue si en realidad era un Impoconsumo con tarifa distinta a 4/8/16%. Si eso resulta ser un caso frecuente, vale la pena dejar elegir tipo Y porcentaje por separado en vez de un solo desplegable combinado
+- [ ] El cálculo de IVA cuando `aplicaAiu = true` sigue asumiendo 19% general sobre (subtotal + AIU) sin importar el `tipoImpuesto` real de los ítems — no contempla todavía una cotización con AIU que mezcle ítems de Impoconsumo o exentos
+- [x] ~~Fase 3, parte 2~~ — `orden-imprimir.html` ya existe: mismo patrón que cotización, con los datos del proveedor (incluida su cuenta bancaria) en vez del cliente, y el proyecto resuelto desde el catálogo
+- [ ] Validar con un caso real si el IVA de una cotización con AIU debe calcularse sobre (subtotal + AIU) como quedó programado, o de otra forma según el tipo de contrato — ver la nota en `crearCotizacion` (`ventas.service.js`)
+- [ ] `GET /compras/ordenes/:id` con ítems (el de cotizaciones ya existe: `GET /ventas/cotizaciones/:id`) — necesario para "Ver ítems" y la Fase 3 en Órdenes
+- [ ] "Enviar" (cotización) sigue siendo solo un cambio de estado — no manda correo ni WhatsApp automáticamente, el botón ahora lo aclara con un `confirm()`. El envío real de verdad (correo con el PDF adjunto, por ejemplo) requeriría configurar un proveedor de correo transaccional, que todavía no existe en el proyecto
+- [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` generan el PDF usando "Imprimir" del navegador (`window.print()`), no una librería de generación de PDF en el servidor — evita agregar una dependencia pesada (ej. Puppeteer) que podría no funcionar bien en el hosting de Node de Hostinger. Si el formato de impresión del navegador resulta insuficiente, esto es lo primero a reconsiderar
+- [ ] Conectar `Proyecto` con `Movimiento.centroCosto` para que la contabilidad se segmente por proyecto de verdad (hoy el catálogo solo se usa desde Órdenes de Adquisición)
+- [ ] Editar/eliminar un `Proyecto` desde la interfaz (hoy el panel de Proyectos solo crea y lista, no tiene botón de editar — mismo patrón que ya existe en Terceros y Empresas, falta aplicarlo aquí)
+- [ ] Migrar las órdenes viejas que tienen `proyecto` (texto libre) pero no `proyectoId`, para que puedan filtrarse/agruparse igual que las nuevas
+- [ ] Usar `Tercero.responsabilidadesFiscales` y `tipoPersona` para automatizar el cálculo de retención en la fuente (formulario 350) — hoy son solo datos capturados, no alimentan ningún cálculo todavía
+- [ ] Consecutivos: ya son únicos por empresa (índice compuesto `empresa_id + consecutivo`, no `consecutivo` global) y toda la creación vive en una transacción real — un fallo a mitad de camino ya no deja un encabezado huérfano con el número gastado. Sigue sin bloqueo transaccional de secuencia bajo concurrencia muy alta (una tabla de secuencias con `SELECT ... FOR UPDATE` sería la solución definitiva si el volumen lo exige)
+SCRIPTEOF
+echo "OK  README.md"
+
+echo ""
+echo "Listo. Proyecto ahora tiene ID (centro de costo), objeto, contratante y valor total."
+echo "  git add ."
+echo "  git commit -m \"Ampliar Proyecto con ID, objeto, contratante y valor total\""
+echo "  git push"
