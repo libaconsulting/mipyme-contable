@@ -28,7 +28,19 @@ app.use(
 app.use(cors());
 app.use(express.json());
 
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Cache-Control: no-cache (no "no-store") — el navegador y el CDN de
+// Hostinger SIGUEN pudiendo usar una copia guardada, pero solo después
+// de confirmar con el servidor que sigue siendo la versión vigente
+// (vía ETag/Last-Modified). Sin esto, durante una etapa de despliegues
+// tan frecuentes como esta, es fácil que quede una versión vieja de
+// app.js o del HTML pegada varios minutos u horas sin que se note.
+app.use(
+  express.static(path.join(__dirname, '..', 'public'), {
+    setHeaders: (res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+    },
+  })
+);
 
 app.use('/api', routes);
 app.use('/webhooks', webhooksFacturacion);
