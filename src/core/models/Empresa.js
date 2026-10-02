@@ -35,6 +35,14 @@ const Empresa = sequelize.define('Empresa', {
   // catálogo oficial todavía, es texto libre.
   actividadEconomicaCiiu: { type: DataTypes.STRING(10) },
   matriculaMercantil: { type: DataTypes.STRING(30) },
+
+  // Se guarda como data URI (base64) directo en la base de datos, no
+  // como archivo en disco — en el hosting de Node de Hostinger un
+  // archivo subido podría perderse en un redeploy; así no depende de
+  // eso. Para un logo (normalmente unos pocos KB) es una solución
+  // simple y suficiente; si algún día se suben imágenes mucho más
+  // pesadas, esto debería moverse a almacenamiento de archivos real.
+  logoBase64: { type: DataTypes.TEXT },
 }, {
   tableName: 'empresas',
 });

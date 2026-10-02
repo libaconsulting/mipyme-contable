@@ -4,6 +4,8 @@ let token = localStorage.getItem('token');
 let usuario = JSON.parse(localStorage.getItem('usuario') || 'null');
 let mapaTerceros = {};
 let listaTerceros = [];
+let mapaProyectos = {};
+let listaProyectos = [];
 
 const vistaLogin = document.getElementById('vista-login');
 const vistaDashboard = document.getElementById('vista-dashboard');
@@ -152,9 +154,45 @@ function volverALogin() {
 
 document.getElementById('btn-volver-login').addEventListener('click', volverALogin);
 
+// Convierte el archivo elegido a un data URI (base64) — así se manda
+// tal cual al backend, sin necesitar un endpoint de subida de archivos
+// aparte. Límite de 2MB para no inflar la base de datos con un logo
+// pesado por error.
+function leerArchivoComoBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (file.size > 2 * 1024 * 1024) {
+      reject(new Error('El logo no debe pesar más de 2MB.'));
+      return;
+    }
+    const lector = new FileReader();
+    lector.onload = () => resolve(lector.result);
+    lector.onerror = () => reject(new Error('No se pudo leer la imagen.'));
+    lector.readAsDataURL(file);
+  });
+}
+
+document.getElementById('empresa-logo').addEventListener('change', async (e) => {
+  const archivo = e.target.files[0];
+  const vistaPrevia = document.getElementById('empresa-logo-vista-previa');
+  if (!archivo) {
+    vistaPrevia.hidden = true;
+    return;
+  }
+  try {
+    vistaPrevia.src = await leerArchivoComoBase64(archivo);
+    vistaPrevia.hidden = false;
+  } catch (err) {
+    alert(err.message);
+    e.target.value = '';
+  }
+});
+
 document.getElementById('form-empresa-nueva').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
+    const archivoLogo = document.getElementById('empresa-logo').files[0];
+    const logoBase64 = archivoLogo ? await leerArchivoComoBase64(archivoLogo) : undefined;
+
     const res = await fetch(API + '/empresas', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -172,6 +210,7 @@ document.getElementById('form-empresa-nueva').addEventListener('submit', async (
         representanteLegalDocumento: document.getElementById('empresa-representante-documento').value || undefined,
         actividadEconomicaCiiu: document.getElementById('empresa-ciiu').value || undefined,
         matriculaMercantil: document.getElementById('empresa-matricula').value || undefined,
+        logoBase64,
       }),
     });
     const data = await res.json();
@@ -271,6 +310,7 @@ document.getElementById('btn-nuevo-tercero').addEventListener('click', () => {
   terceroEditandoId = null;
   document.querySelector('#form-tercero button[type="submit"]').textContent = 'Guardar';
 });
+conectarToggle('btn-nuevo-proyecto', 'form-proyecto', 'btn-cancelar-proyecto');
 conectarToggle('btn-nueva-cotizacion', 'form-cotizacion', 'btn-cancelar-cotizacion');
 conectarToggle('btn-nueva-orden', 'form-orden', 'btn-cancelar-orden');
 conectarToggle('btn-nuevo-periodo', 'form-periodo', 'btn-cancelar-periodo');
@@ -288,6 +328,12 @@ async function cargarTodo() {
     renderTerceros(terceros);
     poblarSelectTodosTerceros('cotizacion-tercero', 'Tercero');
     poblarSelectTodosTerceros('orden-tercero', 'Tercero');
+
+    const proyectos = await api('/proyectos');
+    listaProyectos = proyectos;
+    mapaProyectos = Object.fromEntries(proyectos.map((p) => [p.id, p.nombre]));
+    renderProyectos(proyectos);
+    poblarSelectProyectos(proyectos);
 
     const [cotizaciones, facturasVenta, ordenes, facturasCompra, periodos, productos, activos, cuentas, movBancarios] = await Promise.all([
       api('/ventas/cotizaciones'),
@@ -334,6 +380,46 @@ function poblarSelectCuentas(cuentas) {
     '<option value="">Cuenta bancaria...</option>' +
     cuentas.map((c) => `<option value="${c.id}">${c.banco} — ${c.numero}</option>`).join('');
 }
+
+function poblarSelectProyectos(proyectos) {
+  const select = document.getElementById('orden-proyecto-id');
+  select.innerHTML =
+    '<option value="">Proyecto / Unidad de Negocio...</option>' +
+    proyectos
+      .filter((p) => p.activo)
+      .map((p) => `<option value="${p.id}">${p.nombre}${p.codigo ? ' (' + p.codigo + ')' : ''}</option>`)
+      .join('');
+}
+
+function nombreProyecto(id) {
+  return id ? mapaProyectos[id] || id : '—';
+}
+
+// --- RENDER: PROYECTOS ---
+function renderProyectos(lista) {
+  document.querySelector('#tabla-proyectos thead').innerHTML =
+    '<tr><th>Nombre</th><th>Código</th><th>Descripción</th><th>Estado</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-proyectos', 4, 'Todavía no hay proyectos. Crea el primero arriba.');
+  document.querySelector('#tabla-proyectos tbody').innerHTML = lista
+    .map(
+      (p) =>
+        `<tr><td>${p.nombre}</td><td>${p.codigo || '—'}</td><td>${p.descripcion || '—'}</td><td>${badge(
+          p.activo ? 'activo' : 'inactivo'
+        )}</td></tr>`
+    )
+    .join('');
+}
+
+conectarFormulario('form-proyecto', () =>
+  api('/proyectos', {
+    method: 'POST',
+    body: JSON.stringify({
+      nombre: document.getElementById('proyecto-nombre').value,
+      codigo: document.getElementById('proyecto-codigo').value || undefined,
+      descripcion: document.getElementById('proyecto-descripcion').value || undefined,
+    }),
+  })
+);
 
 // --- RENDER: TERCEROS ---
 function renderTerceros(lista) {
@@ -403,14 +489,22 @@ function renderOrdenes(lista) {
   if (lista.length === 0) return tablaVacia('tabla-ordenes', 8, 'Todavía no hay órdenes de adquisición.');
   document.querySelector('#tabla-ordenes tbody').innerHTML = lista
     .map((o) => {
-      let acciones = '—';
-      if (['borrador', 'emitida'].includes(o.estado)) acciones = botonAccion('Aprobar', { accion: 'aprobar-orden', id: o.id });
-      else if (['aprobada', 'recibida_parcial', 'recibida_total'].includes(o.estado))
-        acciones = botonAccion('Convertir en factura', { accion: 'convertir-orden', id: o.id });
+      let acciones =
+        botonAccion('Ver ítems', { accion: 'ver-items-orden', id: o.id }) +
+        botonAccion('Ver PDF', { accion: 'ver-pdf-orden', id: o.id });
 
-      return `<tr><td>${o.consecutivo || '—'}</td><td>${formatoFecha(o.fecha)}</td><td>${nombreTercero(
-        o.terceroId
-      )}</td><td>${o.proyecto || '—'}</td><td>${o.tipo}</td><td>${badge(
+      if (['borrador', 'emitida'].includes(o.estado)) {
+        if (o.estado === 'borrador') acciones += botonAccion('Editar', { accion: 'editar-orden', id: o.id });
+        acciones += botonAccion('Aprobar', { accion: 'aprobar-orden', id: o.id });
+      } else if (['aprobada', 'recibida_parcial', 'recibida_total'].includes(o.estado)) {
+        acciones += botonAccion('Convertir en factura', { accion: 'convertir-orden', id: o.id });
+      }
+
+      const proyecto = o.proyectoId ? nombreProyecto(o.proyectoId) : o.proyecto || '—';
+
+      return `<tr data-fila-orden="${o.id}"><td>${o.consecutivo || '—'}</td><td>${formatoFecha(
+        o.fecha
+      )}</td><td>${nombreTercero(o.terceroId)}</td><td>${proyecto}</td><td>${o.tipo}</td><td>${badge(
         o.estado
       )}</td><td class="num">${formatoDinero(o.total)}</td><td class="acciones">${acciones}</td></tr>`;
     })
@@ -864,21 +958,214 @@ async function verItemsCotizacion(id) {
   }
 }
 
-conectarFormulario('form-orden', () =>
-  api('/compras/ordenes', {
-    method: 'POST',
-    body: JSON.stringify({
-      terceroId: document.getElementById('orden-tercero').value,
-      tipo: document.getElementById('orden-tipo').value,
-      proyecto: document.getElementById('orden-proyecto').value || undefined,
-      lugarEntrega: document.getElementById('orden-lugar-entrega').value || undefined,
-      formaPago: document.getElementById('orden-forma-pago').value || undefined,
-      subtotal: Number(document.getElementById('orden-subtotal').value),
-      iva: Number(document.getElementById('orden-iva').value || 0),
-      total: Number(document.getElementById('orden-total').value),
-    }),
-  })
-);
+// --- ÍTEMS DINÁMICOS DE ORDEN (mismo patrón que cotización) ---
+// Reutiliza UNIDADES_MEDIDA, OPCIONES_IMPUESTO y etiquetaImpuesto, que
+// ya están definidos más arriba para los ítems de cotización.
+function crearFilaItemOrden(item) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td><input type="text" class="item-concepto" placeholder="Concepto" required></td>
+    <td><input type="number" class="item-cantidad" placeholder="Cant." min="0" step="0.01" required></td>
+    <td><select class="item-um">${UNIDADES_MEDIDA.map((u) => `<option value="${u}">${u}</option>`).join('')}</select></td>
+    <td><input type="number" class="item-valor-unitario" placeholder="Valor unit." min="0" required></td>
+    <td>
+      <select class="item-tipo-impuesto">${OPCIONES_IMPUESTO.map((o) => `<option value="${o.value}">${o.texto}</option>`).join('')}</select>
+      <input type="number" class="item-impuesto-manual" min="0" max="100" placeholder="%" hidden>
+    </td>
+    <td class="num item-total-texto">$0</td>
+    <td><button type="button" class="btn-accion destructivo btn-quitar-item">Quitar</button></td>
+  `;
+  tr.querySelectorAll('input').forEach((input) => input.addEventListener('input', recalcularTotalesOrden));
+  tr.querySelector('.item-tipo-impuesto').addEventListener('change', (e) => {
+    const manual = tr.querySelector('.item-impuesto-manual');
+    manual.hidden = !e.target.value.startsWith('otro-');
+    recalcularTotalesOrden();
+  });
+  tr.querySelector('.btn-quitar-item').addEventListener('click', () => {
+    tr.remove();
+    recalcularTotalesOrden();
+  });
+
+  if (item) {
+    tr.querySelector('.item-concepto').value = item.concepto;
+    tr.querySelector('.item-cantidad').value = item.cantidad;
+    tr.querySelector('.item-um').value = item.unidadMedida;
+    tr.querySelector('.item-valor-unitario').value = item.valorUnitario;
+
+    const selectImpuesto = tr.querySelector('.item-tipo-impuesto');
+    const valorCombinado = `${item.tipoImpuesto}-${item.impuestoPorcentaje}`;
+    const coincide = Array.from(selectImpuesto.options).some((o) => o.value === valorCombinado);
+    if (coincide) {
+      selectImpuesto.value = valorCombinado;
+    } else {
+      selectImpuesto.value = 'otro-';
+      const manual = tr.querySelector('.item-impuesto-manual');
+      manual.hidden = false;
+      manual.value = item.impuestoPorcentaje;
+    }
+  }
+
+  return tr;
+}
+
+document.getElementById('btn-agregar-item-orden').addEventListener('click', () => {
+  document.getElementById('items-orden-tbody').appendChild(crearFilaItemOrden());
+});
+
+function leerItemsOrden() {
+  const filas = document.querySelectorAll('#items-orden-tbody tr');
+  return Array.from(filas).map((fila) => {
+    const cantidad = Number(fila.querySelector('.item-cantidad').value || 0);
+    const valorUnitario = Number(fila.querySelector('.item-valor-unitario').value || 0);
+    const seleccion = fila.querySelector('.item-tipo-impuesto').value;
+    const [tipoBruto, porcentajeTexto] = seleccion.split('-');
+    let tipoImpuesto = tipoBruto;
+    let impuestoPorcentaje = Number(porcentajeTexto);
+    if (tipoBruto === 'otro') {
+      tipoImpuesto = 'iva';
+      impuestoPorcentaje = Number(fila.querySelector('.item-impuesto-manual').value || 0);
+    }
+    const valorTotal = cantidad * valorUnitario;
+    fila.querySelector('.item-total-texto').textContent = formatoDinero(valorTotal);
+    return {
+      concepto: fila.querySelector('.item-concepto').value,
+      cantidad,
+      unidadMedida: fila.querySelector('.item-um').value,
+      valorUnitario,
+      tipoImpuesto,
+      impuestoPorcentaje,
+      valorTotal,
+    };
+  });
+}
+
+function recalcularTotalesOrden() {
+  const items = leerItemsOrden();
+  const subtotal = items.reduce((s, i) => s + i.valorTotal, 0);
+  const iva = items.reduce((s, i) => s + i.valorTotal * (i.impuestoPorcentaje / 100), 0);
+  const total = subtotal + iva;
+
+  document.getElementById('resumen-subtotal-orden').textContent = formatoDinero(subtotal);
+  document.getElementById('resumen-iva-orden').textContent = formatoDinero(iva);
+  document.getElementById('resumen-total-orden').textContent = formatoDinero(total);
+}
+
+function limpiarFormularioOrden() {
+  document.getElementById('items-orden-tbody').innerHTML = '';
+  ordenEditandoId = null;
+  document.querySelector('#form-orden button[type="submit"]').textContent = 'Guardar';
+  recalcularTotalesOrden();
+}
+
+// null = creando una orden nueva; con un id, editando esa orden
+// existente — mismo patrón que cotizaciones.
+let ordenEditandoId = null;
+
+async function abrirEdicionOrden(id) {
+  try {
+    const orden = await api(`/compras/ordenes/${id}`);
+    if (orden.estado !== 'borrador') {
+      alert('Solo se puede editar una orden en estado "borrador".');
+      return;
+    }
+
+    ordenEditandoId = id;
+    document.getElementById('form-orden').hidden = false;
+    document.getElementById('orden-tercero').value = orden.terceroId;
+    document.getElementById('orden-tipo').value = orden.tipo;
+    document.getElementById('orden-proyecto-id').value = orden.proyectoId || '';
+    document.getElementById('orden-lugar-entrega').value = orden.lugarEntrega || '';
+    document.getElementById('orden-forma-pago').value = orden.formaPago || '';
+
+    const tbody = document.getElementById('items-orden-tbody');
+    tbody.innerHTML = '';
+    const items = orden.items || [];
+    if (items.length > 0) items.forEach((item) => tbody.appendChild(crearFilaItemOrden(item)));
+    else tbody.appendChild(crearFilaItemOrden());
+
+    recalcularTotalesOrden();
+    document.querySelector('#form-orden button[type="submit"]').textContent = 'Guardar cambios';
+    document.getElementById('form-orden').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('btn-nueva-orden').addEventListener('click', () => {
+  ordenEditandoId = null;
+  document.querySelector('#form-orden button[type="submit"]').textContent = 'Guardar';
+  if (document.getElementById('items-orden-tbody').children.length === 0) {
+    document.getElementById('items-orden-tbody').appendChild(crearFilaItemOrden());
+  }
+});
+document.getElementById('btn-cancelar-orden').addEventListener('click', limpiarFormularioOrden);
+
+conectarFormulario('form-orden', async () => {
+  const items = leerItemsOrden();
+  if (items.length === 0 || items.some((i) => !i.concepto || i.cantidad <= 0)) {
+    throw new Error('Agrega al menos un ítem con concepto y cantidad mayor a cero.');
+  }
+
+  const cuerpo = {
+    terceroId: document.getElementById('orden-tercero').value,
+    tipo: document.getElementById('orden-tipo').value,
+    proyectoId: document.getElementById('orden-proyecto-id').value || undefined,
+    lugarEntrega: document.getElementById('orden-lugar-entrega').value || undefined,
+    formaPago: document.getElementById('orden-forma-pago').value || undefined,
+    items,
+  };
+
+  if (ordenEditandoId) {
+    await api(`/compras/ordenes/${ordenEditandoId}`, { method: 'PATCH', body: JSON.stringify(cuerpo) });
+  } else {
+    await api('/compras/ordenes', { method: 'POST', body: JSON.stringify(cuerpo) });
+  }
+
+  limpiarFormularioOrden();
+  document.getElementById('form-orden').hidden = true;
+});
+
+// --- VER ÍTEMS de una orden existente (fila expandible, mismo patrón que cotización) ---
+async function verItemsOrden(id) {
+  const filaDetalleExistente = document.getElementById('detalle-orden-' + id);
+  if (filaDetalleExistente) {
+    filaDetalleExistente.remove();
+    return;
+  }
+
+  try {
+    const orden = await api(`/compras/ordenes/${id}`);
+    const filaOriginal = document.querySelector(`tr[data-fila-orden="${id}"]`);
+    if (!filaOriginal) return;
+
+    const itemsHtml = (orden.items || [])
+      .map(
+        (it) =>
+          `<tr><td>${it.concepto}</td><td class="num">${Number(it.cantidad).toLocaleString('es-CO')} ${
+            it.unidadMedida
+          }</td><td class="num">${formatoDinero(it.valorUnitario)}</td><td class="num">${etiquetaImpuesto(
+            it.tipoImpuesto,
+            it.impuestoPorcentaje
+          )}</td><td class="num">${formatoDinero(it.valorTotal)}</td></tr>`
+      )
+      .join('');
+
+    const tr = document.createElement('tr');
+    tr.id = 'detalle-orden-' + id;
+    tr.innerHTML = `<td colspan="8"><div class="detalle-items">
+      <table class="tabla-items-detalle">
+        <thead><tr><th>Concepto</th><th class="num">Cantidad</th><th class="num">Valor unit.</th><th class="num">Impuesto</th><th class="num">Total</th></tr></thead>
+        <tbody>${
+          itemsHtml ||
+          '<tr><td colspan="5" class="vacio">Esta orden no tiene ítems registrados (se creó antes de esta función).</td></tr>'
+        }</tbody>
+      </table>
+    </div></td>`;
+    filaOriginal.after(tr);
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
 conectarFormulario('form-periodo', () =>
   api('/nomina/periodos', {
@@ -977,6 +1264,13 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
     case 'convertir-cotizacion':
       return accion(`/ventas/cotizaciones/${id}/convertir`, { method: 'POST' });
 
+    case 'ver-items-orden':
+      return verItemsOrden(id);
+    case 'ver-pdf-orden':
+      window.open(`/contable/orden-imprimir.html?id=${id}`, '_blank');
+      return;
+    case 'editar-orden':
+      return abrirEdicionOrden(id);
     case 'aprobar-orden':
       return accion(`/compras/ordenes/${id}/aprobar`, { method: 'PATCH' });
     case 'convertir-orden':

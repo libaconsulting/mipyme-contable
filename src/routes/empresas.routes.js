@@ -23,6 +23,7 @@ const CAMPOS_EMPRESA = [
   'representanteLegalDocumento',
   'actividadEconomicaCiiu',
   'matriculaMercantil',
+  'logoBase64',
 ];
 
 function extraerCampos(body) {

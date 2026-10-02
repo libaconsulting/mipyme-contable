@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const sequelize = require('../../../config/database');
 const OrdenCompra = require('../models/OrdenCompra');
 const OrdenCompraItem = require('../models/OrdenCompraItem');
 const FacturaCompra = require('../models/FacturaCompra');
@@ -22,6 +23,7 @@ async function crearOrden(datos, usuario) {
         consecutivo,
         fecha: datos.fecha || new Date(),
         fechaRequerida: datos.fechaRequerida,
+        proyectoId: datos.proyectoId || null,
         proyecto: datos.proyecto,
         lugarEntrega: datos.lugarEntrega,
         formaPago: datos.formaPago,
@@ -224,11 +226,86 @@ async function confirmarDocumentoSoporteEmitido(documentoId, datosProveedor) {
   return documento;
 }
 
+// Orden con sus ítems — para "Ver ítems", "Editar" y el PDF.
+async function obtenerOrden(id, usuario) {
+  const orden = await OrdenCompra.findOne({ where: { id, empresaId: usuario.empresaId } });
+  if (!orden) return null;
+
+  const items = await OrdenCompraItem.findAll({ where: { ordenCompraId: id } });
+  return { ...orden.toJSON(), items };
+}
+
+// Edita una orden — solo mientras sigue en "borrador", mismo criterio
+// y misma mecánica (reemplaza todos los ítems dentro de una
+// transacción) que actualizarCotizacion en ventas.service.js.
+async function actualizarOrden(id, datos, usuario) {
+  const orden = await OrdenCompra.findOne({ where: { id, empresaId: usuario.empresaId } });
+  if (!orden) return null;
+
+  if (orden.estado !== 'borrador') {
+    throw new Error('Solo se puede editar una orden en estado "borrador".');
+  }
+
+  return sequelize.transaction(async (transaction) => {
+    await orden.update(
+      {
+        terceroId: datos.terceroId,
+        tipo: datos.tipo || 'bienes',
+        fechaRequerida: datos.fechaRequerida,
+        proyectoId: datos.proyectoId || null,
+        proyecto: datos.proyecto,
+        lugarEntrega: datos.lugarEntrega,
+        formaPago: datos.formaPago,
+      },
+      { transaction }
+    );
+
+    await OrdenCompraItem.destroy({ where: { ordenCompraId: id }, transaction });
+
+    let subtotal = 0;
+    let iva = 0;
+
+    for (const item of datos.items || []) {
+      const cantidad = Number(item.cantidad);
+      const valorUnitario = Number(item.valorUnitario);
+      const tipoImpuesto = item.tipoImpuesto || 'iva';
+      const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
+      const valorTotal = cantidad * valorUnitario;
+      const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
+
+      await OrdenCompraItem.create(
+        {
+          id: uuidv4(),
+          ordenCompraId: id,
+          concepto: item.concepto,
+          cantidad,
+          unidadMedida: item.unidadMedida || 'UND',
+          valorUnitario,
+          tipoImpuesto,
+          impuestoPorcentaje,
+          valorTotal,
+          impuestoValor,
+        },
+        { transaction }
+      );
+
+      subtotal += valorTotal;
+      iva += impuestoValor;
+    }
+
+    await orden.update({ subtotal, iva, total: subtotal + iva }, { transaction });
+
+    return orden;
+  });
+}
+
 module.exports = {
   crearOrden,
   aprobarOrden,
   listarOrdenes,
   listarFacturas,
+  obtenerOrden,
+  actualizarOrden,
   convertirOrdenEnFactura,
   registrarFacturaRecibida,
   emitirDocumentoSoporte,

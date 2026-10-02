@@ -154,6 +154,15 @@ button { font-family: var(--font-sans); cursor: pointer; }
 }
 .tarjeta-onboarding .btn-primario { width: 100%; padding: 12px; margin-top: 4px; }
 
+.logo-vista-previa {
+  display: block;
+  max-width: 140px;
+  max-height: 80px;
+  margin-top: 8px;
+  border: 1px solid var(--rule-strong);
+  padding: 6px;
+}
+
 .tarjeta-onboarding .check-inline {
   display: flex;
   align-items: center;

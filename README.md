@@ -18,9 +18,10 @@ src/
 ├── server.js                 # Punto de entrada — también sirve public/ como estáticos
 ├── config/                   # Conexión a base de datos, variables de entorno
 ├── core/                     # Núcleo contable — nunca depende de la infraestructura
-│   ├── models/                 Empresa, Tercero (persona natural/jurídica,
-│   │                           ubicación, régimen y responsabilidades DIAN,
-│   │                           cuenta bancaria), PlanCuentas, Asiento,
+│   ├── models/                 Empresa (con logo), Tercero (persona natural/
+│   │                           jurídica, ubicación, régimen y responsabilidades
+│   │                           DIAN, cuenta bancaria), Proyecto (futuro centro
+│   │                           de costo), PlanCuentas, Asiento,
 │   │                           Movimiento, PeriodoContable, ReglaContabilizacion,
 │   │                           ParametroTributario, Usuario, LogAuditoria
 │   └── services/
@@ -64,6 +65,26 @@ Al iniciar sesión, el panel **Inicio** (pestaña por defecto, ya no
 Terceros) saluda por nombre, muestra la razón social de la empresa, y
 presenta los nueve módulos como tarjetas — clic en cualquiera navega
 directo a esa sección.
+
+## Logo de empresa
+
+`Empresa.logoBase64` guarda el logo como data URI (base64) directo en
+la base de datos, no como archivo en disco — en el hosting de Node de
+Hostinger un archivo subido podría perderse en un redeploy, así que
+esto evita esa dependencia. Límite de 2MB desde el frontend. Aparece en
+el encabezado de `cotizacion-imprimir.html` y `orden-imprimir.html`
+cuando existe.
+
+## Proyectos (futuro centro de costo)
+
+Catálogo nuevo (`Proyecto`: nombre, código, descripción, activo) para
+los contratos/negocios/proyectos de la empresa. Hoy se usa desde
+Órdenes de Adquisición (`OrdenCompra.proyectoId`, con el campo de texto
+viejo `proyecto` conservado solo por compatibilidad con órdenes
+anteriores al catálogo). Pendiente real: conectarlo con
+`Movimiento.centroCosto` (hoy sigue siendo texto libre) para que la
+segmentación contable por proyecto sea automática, no solo informativa
+en las órdenes.
 
 ## Frontend
 
@@ -164,14 +185,17 @@ qué contabilizar.
 - [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
 - [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
 - [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma
-- [ ] **Fase 2 — ítems en el frontend, parte 2**: Cotizaciones ya tiene tabla dinámica de ítems, AIU, "Ver ítems" y "Editar" (solo en borrador, reemplaza todos los ítems dentro de una transacción) por fila. Falta replicar exactamente el mismo patrón completo en Órdenes de Adquisición (`OrdenCompraItem` ya existe en el backend, solo falta la UI de ítems, ver ítems y edición)
+- [x] ~~Fase 2, parte 2~~ — Órdenes de Adquisición ya tiene ítems dinámicos, "Ver ítems" y "Editar" (solo en borrador), igual que Cotizaciones
 - [ ] Aplicar `mensajeError()` (`src/core/utils/mensajeError.js`) en los demás controladores — hoy `ventas.controller.js` y `compras.controller.js` lo usan; nómina, inventarios, activos fijos y tesorería todavía devuelven el mensaje genérico de Sequelize
 - [ ] La opción "Otro (definir %)" de impuesto en el ítem se guarda como `tipoImpuesto: 'iva'` con el porcentaje manual — no distingue si en realidad era un Impoconsumo con tarifa distinta a 4/8/16%. Si eso resulta ser un caso frecuente, vale la pena dejar elegir tipo Y porcentaje por separado en vez de un solo desplegable combinado
 - [ ] El cálculo de IVA cuando `aplicaAiu = true` sigue asumiendo 19% general sobre (subtotal + AIU) sin importar el `tipoImpuesto` real de los ítems — no contempla todavía una cotización con AIU que mezcle ítems de Impoconsumo o exentos
-- [ ] **Fase 3, parte 2**: replicar `cotizacion-imprimir.html` para Órdenes de Adquisición (mismo patrón: página independiente, lee `GET /compras/ordenes/:id` con ítems, usa los datos del proveedor en vez del cliente, y agrega la cuenta bancaria del proveedor que pidió el usuario desde el principio)
+- [x] ~~Fase 3, parte 2~~ — `orden-imprimir.html` ya existe: mismo patrón que cotización, con los datos del proveedor (incluida su cuenta bancaria) en vez del cliente, y el proyecto resuelto desde el catálogo
 - [ ] Validar con un caso real si el IVA de una cotización con AIU debe calcularse sobre (subtotal + AIU) como quedó programado, o de otra forma según el tipo de contrato — ver la nota en `crearCotizacion` (`ventas.service.js`)
 - [ ] `GET /compras/ordenes/:id` con ítems (el de cotizaciones ya existe: `GET /ventas/cotizaciones/:id`) — necesario para "Ver ítems" y la Fase 3 en Órdenes
 - [ ] "Enviar" (cotización) sigue siendo solo un cambio de estado — no manda correo ni WhatsApp automáticamente, el botón ahora lo aclara con un `confirm()`. El envío real de verdad (correo con el PDF adjunto, por ejemplo) requeriría configurar un proveedor de correo transaccional, que todavía no existe en el proyecto
-- [ ] `cotizacion-imprimir.html` genera el PDF usando "Imprimir" del navegador (`window.print()`), no una librería de generación de PDF en el servidor — evita agregar una dependencia pesada (ej. Puppeteer) que podría no funcionar bien en el hosting de Node de Hostinger. Si el formato de impresión del navegador resulta insuficiente, esto es lo primero a reconsiderar
+- [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` generan el PDF usando "Imprimir" del navegador (`window.print()`), no una librería de generación de PDF en el servidor — evita agregar una dependencia pesada (ej. Puppeteer) que podría no funcionar bien en el hosting de Node de Hostinger. Si el formato de impresión del navegador resulta insuficiente, esto es lo primero a reconsiderar
+- [ ] Conectar `Proyecto` con `Movimiento.centroCosto` para que la contabilidad se segmente por proyecto de verdad (hoy el catálogo solo se usa desde Órdenes de Adquisición)
+- [ ] Editar/eliminar un `Proyecto` desde la interfaz (hoy el panel de Proyectos solo crea y lista, no tiene botón de editar — mismo patrón que ya existe en Terceros y Empresas, falta aplicarlo aquí)
+- [ ] Migrar las órdenes viejas que tienen `proyecto` (texto libre) pero no `proyectoId`, para que puedan filtrarse/agruparse igual que las nuevas
 - [ ] Usar `Tercero.responsabilidadesFiscales` y `tipoPersona` para automatizar el cálculo de retención en la fuente (formulario 350) — hoy son solo datos capturados, no alimentan ningún cálculo todavía
 - [ ] Consecutivos: ya son únicos por empresa (índice compuesto `empresa_id + consecutivo`, no `consecutivo` global) y toda la creación vive en una transacción real — un fallo a mitad de camino ya no deja un encabezado huérfano con el número gastado. Sigue sin bloqueo transaccional de secuencia bajo concurrencia muy alta (una tabla de secuencias con `SELECT ... FOR UPDATE` sería la solución definitiva si el volumen lo exige)

@@ -58,6 +58,26 @@ async function listarFacturas(req, res) {
   }
 }
 
+async function obtenerOrden(req, res) {
+  try {
+    const orden = await comprasService.obtenerOrden(req.params.id, req.usuario);
+    if (!orden) return res.status(404).json({ error: 'Orden no encontrada.' });
+    res.json(orden);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function actualizarOrden(req, res) {
+  try {
+    const orden = await comprasService.actualizarOrden(req.params.id, req.body, req.usuario);
+    if (!orden) return res.status(404).json({ error: 'Orden no encontrada.' });
+    res.json(orden);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
 module.exports = {
   crearOrden,
   aprobarOrden,
@@ -65,4 +85,6 @@ module.exports = {
   emitirDocumentoSoporte,
   listarOrdenes,
   listarFacturas,
+  obtenerOrden,
+  actualizarOrden,
 };

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cotización</title>
+<title>Orden de Adquisición</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -81,10 +81,11 @@
   .titulo-documento .consecutivo { font-family: var(--font-mono); font-size: 15px; }
   .titulo-documento .fechas { font-size: 12px; color: var(--ink-soft); margin-top: 6px; }
 
+  .fila-bloques { display: flex; gap: 16px; margin-bottom: 24px; }
   .bloque-cliente {
     background: #F6F8F4;
     padding: 16px 20px;
-    margin-bottom: 24px;
+    flex: 1;
   }
   .bloque-cliente h3 {
     font-family: var(--font-serif);
@@ -151,7 +152,7 @@ const API = '/api';
 const token = localStorage.getItem('token');
 const usuario = JSON.parse(localStorage.getItem('usuario') || 'null');
 const params = new URLSearchParams(window.location.search);
-const cotizacionId = params.get('id');
+const ordenId = params.get('id');
 
 function formatoDinero(valor) {
   return Number(valor || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
@@ -178,31 +179,25 @@ function mostrarError(mensaje) {
 
 async function cargar() {
   if (!token || !usuario) return mostrarError('Debes iniciar sesión primero. <a href="/contable">Ir al login</a>');
-  if (!cotizacionId) return mostrarError('Falta indicar qué cotización mostrar.');
+  if (!ordenId) return mostrarError('Falta indicar qué orden mostrar.');
 
   try {
-    const [cotizacion, empresas, terceros] = await Promise.all([
-      api(`/ventas/cotizaciones/${cotizacionId}`),
+    const [orden, empresas, terceros, proyectos] = await Promise.all([
+      api(`/compras/ordenes/${ordenId}`),
       api('/empresas'),
       api('/terceros'),
+      api('/proyectos'),
     ]);
 
     const empresa = empresas.find((e) => e.id === usuario.empresaId) || {};
-    const cliente = terceros.find((t) => t.id === cotizacion.terceroId) || {};
-    const items = cotizacion.items || [];
+    const proveedor = terceros.find((t) => t.id === orden.terceroId) || {};
+    const proyecto = proyectos.find((p) => p.id === orden.proyectoId);
+    const nombreProyecto = proyecto ? proyecto.nombre : orden.proyecto || '—';
+    const items = orden.items || [];
 
-    const subtotal = Number(cotizacion.subtotal || 0);
-    let filasAiu = '';
-    if (cotizacion.aplicaAiu) {
-      const admin = subtotal * (Number(cotizacion.aiuAdministracion || 0) / 100);
-      const imprevistos = subtotal * (Number(cotizacion.aiuImprevistos || 0) / 100);
-      const utilidad = subtotal * (Number(cotizacion.aiuUtilidad || 0) / 100);
-      filasAiu = `
-        <tr><td>Administración (${cotizacion.aiuAdministracion}%)</td><td class="num">${formatoDinero(admin)}</td></tr>
-        <tr><td>Imprevistos (${cotizacion.aiuImprevistos}%)</td><td class="num">${formatoDinero(imprevistos)}</td></tr>
-        <tr><td>Utilidad (${cotizacion.aiuUtilidad}%)</td><td class="num">${formatoDinero(utilidad)}</td></tr>
-      `;
-    }
+    const cuentaProveedor = proveedor.cuentaBancariaBanco
+      ? `${proveedor.cuentaBancariaBanco} · ${proveedor.cuentaBancariaTipo || ''} ${proveedor.cuentaBancariaNumero || ''}`
+      : null;
 
     document.getElementById('contenido').innerHTML = `
       <div class="hoja">
@@ -219,20 +214,29 @@ async function cargar() {
             </div>
           </div>
           <div class="titulo-documento">
-            <h1>Cotización</h1>
-            <div class="consecutivo">${cotizacion.consecutivo || '—'}</div>
+            <h1>Orden de Adquisición</h1>
+            <div class="consecutivo">${orden.consecutivo || '—'}</div>
             <div class="fechas">
-              Fecha: ${formatoFecha(cotizacion.fecha)}<br>
-              Válida hasta: ${formatoFecha(cotizacion.fechaVencimiento)}
+              Fecha: ${formatoFecha(orden.fecha)}<br>
+              Entrega requerida: ${formatoFecha(orden.fechaRequerida)}
             </div>
           </div>
         </div>
 
-        <div class="bloque-cliente">
-          <h3>Cliente</h3>
-          <p><strong>${cliente.nombre || '—'}</strong>${cliente.identificacion ? ' · ' + cliente.identificacion : ''}</p>
-          <p>${cliente.direccion || ''}</p>
-          <p>${cliente.celular || ''} ${cliente.email ? '· ' + cliente.email : ''}</p>
+        <div class="fila-bloques">
+          <div class="bloque-cliente">
+            <h3>Proveedor</h3>
+            <p><strong>${proveedor.nombre || '—'}</strong>${proveedor.identificacion ? ' · ' + proveedor.identificacion : ''}</p>
+            <p>${proveedor.direccion || ''}</p>
+            <p>${proveedor.celular || ''} ${proveedor.email ? '· ' + proveedor.email : ''}</p>
+            ${cuentaProveedor ? `<p>Cuenta: ${cuentaProveedor}</p>` : ''}
+          </div>
+          <div class="bloque-cliente">
+            <h3>Orden</h3>
+            <p><strong>Tipo:</strong> ${orden.tipo === 'servicios' ? 'Servicios' : 'Bienes'}</p>
+            <p><strong>Proyecto / Unidad de negocio:</strong> ${nombreProyecto}</p>
+            <p><strong>Lugar de entrega:</strong> ${orden.lugarEntrega || '—'}</p>
+          </div>
         </div>
 
         <table class="items">
@@ -251,27 +255,24 @@ async function cargar() {
                     <td>${etiquetaImpuesto(it.tipoImpuesto, it.impuestoPorcentaje)}</td>
                     <td class="num">${formatoDinero(it.valorTotal)}</td>
                   </tr>`).join('')
-                : '<tr><td colspan="6" style="text-align:center; color:#888;">Esta cotización no tiene ítems registrados.</td></tr>'
+                : '<tr><td colspan="6" style="text-align:center; color:#888;">Esta orden no tiene ítems registrados.</td></tr>'
             }
           </tbody>
         </table>
 
         <div class="totales">
           <table>
-            <tr><td>Subtotal</td><td class="num">${formatoDinero(cotizacion.subtotal)}</td></tr>
-            ${filasAiu}
-            <tr><td>IVA</td><td class="num">${formatoDinero(cotizacion.iva)}</td></tr>
-            <tr class="total-final"><td>Total</td><td class="num">${formatoDinero(cotizacion.total)}</td></tr>
+            <tr><td>Subtotal</td><td class="num">${formatoDinero(orden.subtotal)}</td></tr>
+            <tr><td>IVA</td><td class="num">${formatoDinero(orden.iva)}</td></tr>
+            <tr class="total-final"><td>Total</td><td class="num">${formatoDinero(orden.total)}</td></tr>
           </table>
         </div>
 
-        ${cotizacion.formaPago ? `<p class="info-adicional"><strong>Forma de pago:</strong> ${cotizacion.formaPago}</p>` : ''}
-        ${cotizacion.observaciones ? `<p class="info-adicional"><strong>Observaciones:</strong> ${cotizacion.observaciones}</p>` : ''}
-        ${cotizacion.contactoNombre ? `<p class="info-adicional"><strong>Contacto:</strong> ${cotizacion.contactoNombre} ${cotizacion.contactoTelefono ? '— ' + cotizacion.contactoTelefono : ''}</p>` : ''}
+        ${orden.formaPago ? `<p class="info-adicional"><strong>Forma de pago:</strong> ${orden.formaPago}</p>` : ''}
 
         <div class="pie-firma">
           ${empresa.representanteLegalNombre ? `${empresa.representanteLegalNombre}${empresa.representanteLegalDocumento ? ' · C.C. ' + empresa.representanteLegalDocumento : ''}<br>` : ''}
-          Cotización generada por ${empresa.razonSocial || 'el sistema'} — válida hasta la fecha indicada arriba.
+          Orden de adquisición generada por ${empresa.razonSocial || 'el sistema'}.
         </div>
       </div>
     `;

@@ -43,6 +43,11 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
   // Proyecto o unidad de negocio al que pertenece — es, en la práctica,
   // el mismo concepto que centro de costo (todavía pendiente como
   // catálogo propio, ver README).
+  // proyectoId es la referencia real al catálogo Proyecto (selector en
+  // el formulario). "proyecto" (texto libre) se conserva solo por
+  // compatibilidad con órdenes creadas antes de que existiera el
+  // catálogo — las nuevas usan proyectoId.
+  proyectoId: { type: DataTypes.UUID },
   proyecto: { type: DataTypes.STRING(150) },
   lugarEntrega: { type: DataTypes.STRING(255) },
   formaPago: { type: DataTypes.TEXT },

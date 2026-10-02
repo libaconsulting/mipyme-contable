@@ -6,6 +6,7 @@
 
 const Empresa = require('./Empresa');
 const Tercero = require('./Tercero');
+const Proyecto = require('./Proyecto');
 const PlanCuentas = require('./PlanCuentas');
 const Asiento = require('./Asiento');
 const Movimiento = require('./Movimiento');
@@ -35,6 +36,7 @@ const MovimientoBancario = require('../../modules/tesoreria/models/MovimientoBan
 module.exports = {
   Empresa,
   Tercero,
+  Proyecto,
   PlanCuentas,
   Asiento,
   Movimiento,

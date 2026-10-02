@@ -76,6 +76,10 @@
       <label>Matrícula mercantil
         <input type="text" id="empresa-matricula">
       </label>
+      <label>Logo (opcional — aparecerá en cotizaciones y órdenes)
+        <input type="file" id="empresa-logo" accept="image/png, image/jpeg, image/svg+xml">
+        <img id="empresa-logo-vista-previa" class="logo-vista-previa" hidden>
+      </label>
       <button type="submit" class="btn-primario">Crear empresa</button>
     </form>
 
@@ -112,6 +116,7 @@
     <nav>
       <button class="nav-item activo" data-tab="inicio">Inicio</button>
       <button class="nav-item" data-tab="terceros">Terceros</button>
+      <button class="nav-item" data-tab="proyectos">Proyectos</button>
       <button class="nav-item" data-tab="cotizaciones">Cotizaciones</button>
       <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
       <button class="nav-item" data-tab="ordenes">Órdenes de adquisición</button>
@@ -179,6 +184,11 @@
           <h3>Tesorería</h3>
           <p>Cuentas y movimientos bancarios</p>
         </button>
+        <button class="tarjeta-modulo" data-ir-a="proyectos">
+          <span class="numero-modulo">10</span>
+          <h3>Proyectos</h3>
+          <p>Contratos y negocios — futuro centro de costo</p>
+        </button>
       </div>
     </section>
 
@@ -231,6 +241,24 @@
       </form>
       <div class="tabla-envoltorio">
         <table id="tabla-terceros"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-proyectos" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Proyectos</h2>
+        <button class="btn-primario" id="btn-nuevo-proyecto">+ Nuevo proyecto</button>
+      </header>
+      <p class="nota-panel">Contratos, negocios o proyectos de la empresa — se usan como "Proyecto / Unidad de Negocio" en Órdenes de Adquisición, y están pensados para servir como centro de costo contable más adelante.</p>
+      <form id="form-proyecto" class="form-inline" hidden>
+        <input type="text" id="proyecto-nombre" placeholder="Nombre del proyecto/contrato" required>
+        <input type="text" id="proyecto-codigo" placeholder="Código (opcional)">
+        <input type="text" id="proyecto-descripcion" placeholder="Descripción (opcional)">
+        <button type="submit" class="btn-primario">Guardar</button>
+        <button type="button" class="btn-secundario" id="btn-cancelar-proyecto">Cancelar</button>
+      </form>
+      <div class="tabla-envoltorio">
+        <table id="tabla-proyectos"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
@@ -315,22 +343,44 @@
         <h2>Órdenes de adquisición</h2>
         <button class="btn-primario" id="btn-nueva-orden">+ Nueva orden</button>
       </header>
-      <form id="form-orden" class="form-inline" hidden>
-        <select id="orden-tercero" required></select>
-        <select id="orden-tipo">
-          <option value="bienes">Bienes</option>
-          <option value="servicios">Servicios</option>
-        </select>
-        <input type="text" id="orden-proyecto" placeholder="Proyecto / unidad de negocio (opcional)">
-        <input type="text" id="orden-lugar-entrega" placeholder="Lugar de entrega (opcional)">
-        <input type="text" id="orden-forma-pago" placeholder="Forma de pago (opcional)">
-        <input type="number" id="orden-subtotal" placeholder="Subtotal" required min="0">
-        <input type="number" id="orden-iva" placeholder="IVA" min="0" value="0">
-        <input type="number" id="orden-total" placeholder="Total" required min="0">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-orden">Cancelar</button>
+      <form id="form-orden" class="form-grande" hidden>
+        <div class="fila-campos">
+          <select id="orden-tercero" required></select>
+          <select id="orden-tipo">
+            <option value="bienes">Bienes</option>
+            <option value="servicios">Servicios</option>
+          </select>
+          <select id="orden-proyecto-id">
+            <option value="">Proyecto / Unidad de Negocio...</option>
+          </select>
+          <input type="text" id="orden-lugar-entrega" placeholder="Lugar de entrega (opcional)">
+          <input type="text" id="orden-forma-pago" placeholder="Forma de pago (opcional)">
+        </div>
+
+        <div class="bloque-items">
+          <div class="bloque-items-header">
+            <h4>Ítems de la orden</h4>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-item-orden">+ Agregar ítem</button>
+          </div>
+          <table class="tabla-items">
+            <thead>
+              <tr><th>Concepto</th><th>Cantidad</th><th>UM</th><th class="num">Valor unitario</th><th>Impuesto</th><th class="num">Total</th><th></th></tr>
+            </thead>
+            <tbody id="items-orden-tbody"></tbody>
+          </table>
+        </div>
+
+        <div class="resumen-totales">
+          <span>Subtotal: <strong id="resumen-subtotal-orden">$0</strong></span>
+          <span>IVA: <strong id="resumen-iva-orden">$0</strong></span>
+          <span>Total: <strong id="resumen-total-orden">$0</strong></span>
+        </div>
+
+        <div class="fila-botones">
+          <button type="submit" class="btn-primario">Guardar</button>
+          <button type="button" class="btn-secundario" id="btn-cancelar-orden">Cancelar</button>
+        </div>
       </form>
-      <p class="nota-panel">Los ítems línea por línea llegan en el siguiente ajuste — por ahora subtotal/IVA/total se escriben a mano.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-ordenes"><thead></thead><tbody></tbody></table>
       </div>
