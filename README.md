@@ -66,6 +66,16 @@ Terceros) saluda por nombre, muestra la razón social de la empresa, y
 presenta los nueve módulos como tarjetas — clic en cualquiera navega
 directo a esa sección.
 
+## Límite de tamaño del body JSON
+
+`express.json()` ahora acepta hasta 5mb (antes, el default de Express
+es 100kb). Lo necesita el logo de empresa, que se manda como base64
+dentro del JSON — sin este cambio, cualquier imagen un poco pesada
+hacía que la petición se rechazara antes de llegar a nuestro código,
+con un error genérico ("Error inesperado") que no decía qué había
+pasado de verdad. `api()` en el frontend ahora también reconoce un 413
+específicamente y muestra un mensaje claro.
+
 ## Caché de archivos estáticos
 
 `express.static` ahora manda `Cache-Control: no-cache` en todo lo que

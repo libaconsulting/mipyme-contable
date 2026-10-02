@@ -26,7 +26,11 @@ app.use(
   })
 );
 app.use(cors());
-app.use(express.json());
+// 5mb, no el default de 100kb: el logo de empresa se manda como base64
+// dentro del JSON (hasta 2MB de archivo original, que en base64 pesa
+// ~33% más), y sin este límite ampliado la petición se rechaza antes
+// de llegar a nuestro código, con un error genérico poco claro.
+app.use(express.json({ limit: '5mb' }));
 
 // Cache-Control: no-cache (no "no-store") — el navegador y el CDN de
 // Hostinger SIGUEN pudiendo usar una copia guardada, pero solo después
