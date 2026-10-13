@@ -17,9 +17,18 @@
 //    Con AIU se ignora el IVA individual de los ítems (convención común
 //    en contratos de obra/servicios).
 //  - Impoconsumo: suma del impuesto de los ítems tipo "impoconsumo".
-//  - Retención en la fuente: porcentaje sobre la base ANTES de impuestos
-//    (subtotal + AIU). No se suma al total: se resta para obtener el
-//    neto a pagar al proveedor.
+//  - Retención en la fuente: informativa para el proveedor. No se suma al
+//    total: se resta para obtener el neto a pagar. Tres modos:
+//      'ninguna'   no se menciona retención
+//      'aplica'    una o varias líneas, cada una con su concepto ya
+//                  "especificado" (ver retencionesCatalogo.especificar):
+//                  tarifa, sobre qué se aplica (subtotal+AIU, solo AIU o el
+//                  IVA) y tope mínimo en UVT. Si la base de la línea no
+//                  alcanza el tope, esa línea no retiene (valor 0).
+//      'no_aplica' el proveedor no está sujeto (Régimen Simple, tratamiento
+//                  especial, bajo el tope...). Exige un motivo, que se imprime.
+//    Este archivo NO conoce el catálogo de conceptos: recibe las líneas ya
+//    resueltas, así una orden guardada no cambia si el catálogo se actualiza.
 (function (raiz, fabrica) {
   if (typeof module === 'object' && module.exports) module.exports = fabrica();
   else raiz.calcularOrden = fabrica();
@@ -90,13 +99,59 @@
     const total = redondear(base + iva + impoconsumo);
 
     // --- Retención en la fuente ---
-    const aplicaRetencion = !!datos.aplicaRetencion;
-    let retencionPorcentaje = aplicaRetencion ? numero(datos.retencionPorcentaje) : 0;
-    if (aplicaRetencion && !(retencionPorcentaje > 0 && retencionPorcentaje <= 100)) {
-      if (estricto) throw new Error('Indica el porcentaje de retención en la fuente (mayor a 0 y máximo 100).');
-      retencionPorcentaje = 0;
+    const retencionModo = ['aplica', 'no_aplica'].includes(datos.retencionModo) ? datos.retencionModo : 'ninguna';
+    const retencionMotivo = retencionModo === 'no_aplica' ? String(datos.retencionMotivo || '').trim() : '';
+    const retencionDetalle = retencionModo === 'no_aplica' ? String(datos.retencionDetalle || '').trim() : '';
+
+    if (estricto && retencionModo === 'no_aplica' && !retencionMotivo) {
+      throw new Error('Indica el motivo por el cual no aplica la retención en la fuente.');
     }
-    const retencionValor = aplicaRetencion ? redondear(base * (retencionPorcentaje / 100)) : 0;
+
+    const aiuTotal = redondear(aiuAdministracionValor + aiuImprevistosValor + aiuUtilidadValor);
+    let retenciones = [];
+    if (retencionModo === 'aplica') {
+      const entradas = Array.isArray(datos.retenciones) ? datos.retenciones : [];
+      if (estricto && entradas.length === 0) {
+        throw new Error('Agrega al menos un concepto de retención, o elige "No aplica retención".');
+      }
+      retenciones = entradas.map((r) => {
+        const tarifa = numero(r.tarifa);
+        const uvt = numero(r.uvt);
+        const uvtValor = numero(r.uvtValor);
+        const sobre = ['aiu', 'iva'].includes(r.sobre) ? r.sobre : 'base';
+        if (estricto && (!r.codigo || !(tarifa > 0 && tarifa <= 100))) {
+          throw new Error('Cada retención necesita un concepto con tarifa mayor a 0 y máximo 100.');
+        }
+
+        // Valor sobre el que se aplica la tarifa de este concepto.
+        const baseLinea = sobre === 'aiu' ? aiuTotal : sobre === 'iva' ? iva : base;
+        // El tope (en UVT) siempre se mide contra la base de la operación
+        // (subtotal + AIU antes de impuestos), también en ReteIVA.
+        const baseMinima = redondear(uvt * uvtValor);
+        const alcanzaTope = base >= baseMinima;
+
+        let nota = '';
+        if (!r.codigo) nota = '';
+        else if (sobre === 'aiu' && aiuTotal === 0) nota = 'Este concepto se calcula sobre el AIU: discrimínalo en la orden.';
+        else if (!alcanzaTope) nota = 'La base no alcanza el tope mínimo: no se practica esta retención.';
+
+        const aplica = !!r.codigo && alcanzaTope && baseLinea > 0;
+        return {
+          codigo: r.codigo || '',
+          nombre: r.nombre || '',
+          tarifa,
+          sobre,
+          uvt,
+          uvtValor,
+          base: baseLinea,
+          baseMinima,
+          aplica,
+          valor: aplica ? redondear(baseLinea * (tarifa / 100)) : 0,
+          nota,
+        };
+      });
+    }
+    const retencionValor = redondear(retenciones.reduce((s, r) => s + r.valor, 0));
 
     return {
       lineas,
@@ -114,8 +169,11 @@
         aiuUtilidadValor,
         aiuBaseIva,
         base,
-        aplicaRetencion,
-        retencionPorcentaje,
+        aiuTotal,
+        retencionModo,
+        retencionMotivo,
+        retencionDetalle,
+        retenciones,
         retencionValor,
       },
       netoAPagar: redondear(total - retencionValor),

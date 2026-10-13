@@ -1210,13 +1210,88 @@ function leerItemsOrden() {
   });
 }
 
+// --- RETENCIÓN EN LA FUENTE (catálogo 2026, ver retencionesCatalogo.js) ---
+// Desplegable de conceptos agrupado por categoría.
+function opcionesConceptoRetencionHtml() {
+  const cat = retencionesCatalogo;
+  const grupos = {};
+  cat.CONCEPTOS.forEach((c) => (grupos[c.categoria] = grupos[c.categoria] || []).push(c));
+  const porGrupo = Object.entries(grupos)
+    .map(
+      ([nombre, lista]) =>
+        `<optgroup label="${nombre}">` +
+        lista
+          .map(
+            (c) =>
+              `<option value="${c.codigo}" title="${(c.detalle || c.nombre).replace(/"/g, '&quot;')}">${c.nombre} — ${c.tarifa.toLocaleString('es-CO')}%</option>`
+          )
+          .join('') +
+        '</optgroup>'
+    )
+    .join('');
+  return `<option value="">Elegir concepto...</option>${porGrupo}<option value="${cat.CONCEPTO_MANUAL.codigo}">${cat.CONCEPTO_MANUAL.nombre}</option>`;
+}
+
+function crearFilaRetencion(linea) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>
+      <select class="item-ret-concepto">${opcionesConceptoRetencionHtml()}</select>
+      <span class="ret-nota" hidden></span>
+    </td>
+    <td><input type="number" class="item-ret-tarifa" min="0" max="100" step="0.01" placeholder="%" readonly> %</td>
+    <td class="num ret-base">—</td>
+    <td class="num ret-tope">—</td>
+    <td class="num ret-valor">$0</td>
+    <td><button type="button" class="btn-accion destructivo btn-quitar-retencion">Quitar</button></td>
+  `;
+  const select = tr.querySelector('.item-ret-concepto');
+  const tarifa = tr.querySelector('.item-ret-tarifa');
+  select.addEventListener('change', () => {
+    const concepto = retencionesCatalogo.porCodigo(select.value);
+    // La tarifa sale del catálogo; solo "Otro concepto" se digita a mano.
+    tarifa.readOnly = !(concepto && concepto.manual);
+    tarifa.value = concepto ? (concepto.manual ? '' : concepto.tarifa) : '';
+    recalcularTotalesOrden();
+  });
+  tarifa.addEventListener('input', recalcularTotalesOrden);
+  tr.querySelector('.btn-quitar-retencion').addEventListener('click', () => {
+    tr.remove();
+    recalcularTotalesOrden();
+  });
+
+  if (linea) {
+    select.value = linea.codigo || '';
+    const concepto = retencionesCatalogo.porCodigo(select.value);
+    tarifa.readOnly = !(concepto && concepto.manual);
+    tarifa.value = linea.tarifa !== undefined && linea.tarifa !== null ? Number(linea.tarifa) : '';
+  }
+  return tr;
+}
+
+function modoRetencionOrden() {
+  return document.querySelector('input[name="orden-retencion-modo"]:checked').value;
+}
+
+// Lo que se manda al servidor por cada retención: solo el código (y la
+// tarifa si es "Otro concepto"). El servidor toma lo demás del catálogo.
+function leerRetencionesOrden() {
+  return Array.from(document.querySelectorAll('#retenciones-orden-tbody tr')).map((tr) => {
+    const codigo = tr.querySelector('.item-ret-concepto').value;
+    const concepto = retencionesCatalogo.porCodigo(codigo);
+    return {
+      codigo,
+      tarifa: concepto && concepto.manual ? Number(tr.querySelector('.item-ret-tarifa').value || 0) : undefined,
+    };
+  });
+}
+
 // Junta lo que hay en el formulario con la forma que espera
 // calcularOrden() (el mismo cálculo que corre el servidor al guardar).
 function leerDatosOrden() {
   const tipo = document.getElementById('orden-tipo').value;
   const aplicaAiu = tipo === 'servicios' && document.getElementById('orden-aplica-aiu').checked;
-  const aplicaRetencion = document.getElementById('orden-aplica-retencion').checked;
-  const concepto = document.getElementById('orden-retencion-concepto').value;
+  const retencionModo = modoRetencionOrden();
 
   return {
     tipo,
@@ -1226,37 +1301,65 @@ function leerDatosOrden() {
     aiuImprevistos: Number(document.getElementById('orden-aiu-imprevistos').value || 0),
     aiuUtilidad: Number(document.getElementById('orden-aiu-utilidad').value || 0),
     aiuBaseIva: document.getElementById('orden-aiu-base-iva').value,
-    aplicaRetencion,
-    retencionPorcentaje: Number(document.getElementById('orden-retencion-porcentaje').value || 0),
-    retencionConcepto: concepto || undefined,
+    retencionModo,
+    retencionMotivo: document.getElementById('orden-retencion-motivo').value,
+    retencionDetalle: document.getElementById('orden-retencion-detalle').value,
+    // Una especificación por fila (aunque esté a medias, queda en cero)
+    // para poder pintar cada resultado en su propia fila.
+    retenciones:
+      retencionModo === 'aplica'
+        ? leerRetencionesOrden().map((r) => retencionesCatalogo.especificar(r, { estricto: false }))
+        : [],
   };
 }
 
 function recalcularTotalesOrden() {
   // estricto:false → mientras se digita no se lanzan errores (ej.
-  // retención marcada pero sin % todavía); el servidor sí valida al guardar.
+  // retención sin concepto todavía); el servidor sí valida al guardar.
   const datos = leerDatosOrden();
   const { cabecera: c, netoAPagar } = calcularOrden(datos, { estricto: false });
-
-  const aiuTotal = c.aiuAdministracionValor + c.aiuImprevistosValor + c.aiuUtilidadValor;
 
   document.getElementById('valor-orden-aiu-administracion').textContent = formatoDineroDec(c.aiuAdministracionValor);
   document.getElementById('valor-orden-aiu-imprevistos').textContent = formatoDineroDec(c.aiuImprevistosValor);
   document.getElementById('valor-orden-aiu-utilidad').textContent = formatoDineroDec(c.aiuUtilidadValor);
 
+  // Cada fila de retención muestra su base, su tope y su valor.
+  document.querySelectorAll('#retenciones-orden-tbody tr').forEach((tr, i) => {
+    const l = c.retenciones[i];
+    if (!l) return;
+    tr.querySelector('.ret-base').textContent = l.codigo ? formatoDineroDec(l.base) : '—';
+    tr.querySelector('.ret-tope').textContent = l.codigo ? (l.baseMinima > 0 ? formatoDineroDec(l.baseMinima) : 'Sin tope') : '—';
+    const valor = tr.querySelector('.ret-valor');
+    valor.textContent = formatoDineroDec(l.valor);
+    valor.classList.toggle('ret-sin-efecto', l.valor === 0);
+    const nota = tr.querySelector('.ret-nota');
+    nota.textContent = l.nota;
+    nota.hidden = !l.nota;
+  });
+
   document.getElementById('resumen-subtotal-orden').textContent = formatoDineroDec(c.subtotal);
-  document.getElementById('resumen-aiu-orden').textContent = formatoDineroDec(aiuTotal);
+  document.getElementById('resumen-aiu-orden').textContent = formatoDineroDec(c.aiuTotal);
   document.getElementById('resumen-aiu-orden-fila').hidden = !c.aplicaAiu;
   document.getElementById('resumen-iva-orden').textContent = formatoDineroDec(c.iva);
   document.getElementById('resumen-impoconsumo-orden').textContent = formatoDineroDec(c.impoconsumo);
   document.getElementById('resumen-total-orden').textContent = formatoDineroDec(c.total);
-  document.getElementById('resumen-retencion-orden').textContent = '− ' + formatoDineroDec(c.retencionValor);
-  document.getElementById('resumen-retencion-orden-fila').hidden = !c.aplicaRetencion;
+
+  const aplica = c.retencionModo === 'aplica';
+  const noAplica = c.retencionModo === 'no_aplica';
+  document.getElementById('resumen-retencion-orden').textContent = noAplica
+    ? 'No aplica' + (c.retencionMotivo ? ' — ' + c.retencionMotivo : '')
+    : '− ' + formatoDineroDec(c.retencionValor);
+  document.getElementById('resumen-retencion-orden-fila').hidden = !(aplica || noAplica);
   document.getElementById('resumen-neto-orden').textContent = formatoDineroDec(netoAPagar);
-  document.getElementById('resumen-neto-orden-fila').hidden = !c.aplicaRetencion;
+  document.getElementById('resumen-neto-orden-fila').hidden = !aplica;
+
+  document.getElementById('nota-retencion-orden').textContent =
+    `Conceptos y tarifas ${retencionesCatalogo.ANIO} (UVT ${formatoDineroDec(retencionesCatalogo.UVT_VALOR)}). ` +
+    'Elige el concepto según el bien o servicio de la orden. La base se mide antes de impuestos; si no alcanza el tope mínimo, esa retención no se practica. ' +
+    'Si el proveedor no está sujeto (Régimen Simple, tratamiento especial), usa "No aplica retención".';
 }
 
-// Muestra/oculta los bloques según el tipo de orden y las casillas.
+// Muestra/oculta los bloques según el tipo de orden y las opciones.
 // El AIU solo existe en compra de SERVICIOS; al pasar a "bienes" se
 // apaga para que no quede un AIU "fantasma" afectando el total.
 function actualizarVisibilidadOrden() {
@@ -1265,7 +1368,13 @@ function actualizarVisibilidadOrden() {
   if (!esServicios) document.getElementById('orden-aplica-aiu').checked = false;
 
   document.getElementById('campos-aiu-orden').hidden = !document.getElementById('orden-aplica-aiu').checked;
-  document.getElementById('campos-retencion-orden').hidden = !document.getElementById('orden-aplica-retencion').checked;
+
+  const modo = modoRetencionOrden();
+  document.getElementById('retencion-aplica-orden').hidden = modo !== 'aplica';
+  document.getElementById('retencion-no-aplica-orden').hidden = modo !== 'no_aplica';
+  // Al elegir "Aplicar" aparece ya la primera fila para elegir concepto.
+  const tbody = document.getElementById('retenciones-orden-tbody');
+  if (modo === 'aplica' && tbody.children.length === 0) tbody.appendChild(crearFilaRetencion());
 }
 
 document.getElementById('orden-tipo').addEventListener('change', () => {
@@ -1276,30 +1385,24 @@ document.getElementById('orden-aplica-aiu').addEventListener('change', () => {
   actualizarVisibilidadOrden();
   recalcularTotalesOrden();
 });
-document.getElementById('orden-aplica-retencion').addEventListener('change', () => {
-  actualizarVisibilidadOrden();
-  recalcularTotalesOrden();
+document.querySelectorAll('input[name="orden-retencion-modo"]').forEach((radio) =>
+  radio.addEventListener('change', () => {
+    actualizarVisibilidadOrden();
+    recalcularTotalesOrden();
+  })
+);
+document.getElementById('btn-agregar-retencion-orden').addEventListener('click', () => {
+  document.getElementById('retenciones-orden-tbody').appendChild(crearFilaRetencion());
 });
+document.getElementById('orden-retencion-motivo').innerHTML =
+  '<option value="">Elegir motivo...</option>' +
+  retencionesCatalogo.MOTIVOS_NO_APLICA.map((m) => `<option value="${m}">${m}</option>`).join('');
 document
-  .querySelectorAll('#campos-aiu-orden input, #campos-aiu-orden select, #orden-retencion-porcentaje')
+  .querySelectorAll('#campos-aiu-orden input, #campos-aiu-orden select, #orden-retencion-motivo, #orden-retencion-detalle')
   .forEach((el) => {
     el.addEventListener('input', recalcularTotalesOrden);
     el.addEventListener('change', recalcularTotalesOrden);
   });
-// Si se cambia el % a mano y ya no coincide con el del concepto
-// elegido, el concepto pasa a "Otro" para que el PDF no diga, por
-// ejemplo, "Compras generales 4%".
-document.getElementById('orden-retencion-porcentaje').addEventListener('input', (e) => {
-  const select = document.getElementById('orden-retencion-concepto');
-  const sugerido = select.selectedOptions[0]?.dataset.pct;
-  if (sugerido && Number(sugerido) !== Number(e.target.value)) select.value = 'Otro';
-});
-// Elegir un concepto sugiere su porcentaje (editable después).
-document.getElementById('orden-retencion-concepto').addEventListener('change', (e) => {
-  const pct = e.target.selectedOptions[0]?.dataset.pct;
-  if (pct) document.getElementById('orden-retencion-porcentaje').value = pct;
-  recalcularTotalesOrden();
-});
 
 function limpiarFormularioOrden() {
   document.getElementById('items-orden-tbody').innerHTML = '';
@@ -1309,9 +1412,11 @@ function limpiarFormularioOrden() {
   document.getElementById('orden-aplica-aiu').checked = false;
   ['administracion', 'imprevistos', 'utilidad'].forEach((n) => (document.getElementById('orden-aiu-' + n).value = ''));
   document.getElementById('orden-aiu-base-iva').value = 'total';
-  document.getElementById('orden-aplica-retencion').checked = false;
-  document.getElementById('orden-retencion-concepto').value = '';
-  document.getElementById('orden-retencion-porcentaje').value = '';
+
+  document.querySelector('input[name="orden-retencion-modo"][value="ninguna"]').checked = true;
+  document.getElementById('retenciones-orden-tbody').innerHTML = '';
+  document.getElementById('orden-retencion-motivo').value = '';
+  document.getElementById('orden-retencion-detalle').value = '';
   actualizarVisibilidadOrden();
   recalcularTotalesOrden();
 }
@@ -1350,13 +1455,14 @@ async function abrirEdicionOrden(id) {
     document.getElementById('orden-aiu-utilidad').value = Number(orden.aiuUtilidad) || '';
     document.getElementById('orden-aiu-base-iva').value = orden.aiuBaseIva || 'total';
 
-    document.getElementById('orden-aplica-retencion').checked = !!orden.aplicaRetencion;
-    const conceptoGuardado = orden.retencionConcepto || '';
-    const selectConcepto = document.getElementById('orden-retencion-concepto');
-    selectConcepto.value = Array.from(selectConcepto.options).some((o) => o.value === conceptoGuardado)
-      ? conceptoGuardado
-      : '';
-    document.getElementById('orden-retencion-porcentaje').value = Number(orden.retencionPorcentaje) || '';
+    // Retención: se recrean las filas desde la foto guardada en la orden.
+    const modo = orden.retencionModo || 'ninguna';
+    document.querySelector(`input[name="orden-retencion-modo"][value="${modo}"]`).checked = true;
+    const tbodyRet = document.getElementById('retenciones-orden-tbody');
+    tbodyRet.innerHTML = '';
+    if (modo === 'aplica') (orden.retenciones || []).forEach((l) => tbodyRet.appendChild(crearFilaRetencion(l)));
+    document.getElementById('orden-retencion-motivo').value = orden.retencionMotivo || '';
+    document.getElementById('orden-retencion-detalle').value = orden.retencionDetalle || '';
     actualizarVisibilidadOrden();
 
     const tbody = document.getElementById('items-orden-tbody');
@@ -1389,8 +1495,17 @@ conectarFormulario('form-orden', async () => {
   if (items.length === 0 || items.some((i) => !i.concepto || i.cantidad <= 0)) {
     throw new Error('Agrega al menos un ítem con concepto y cantidad mayor a cero.');
   }
-  if (datosCalculo.aplicaRetencion && !(datosCalculo.retencionPorcentaje > 0)) {
-    throw new Error('Marcaste calcular la retención en la fuente: indica el porcentaje.');
+  if (datosCalculo.retencionModo === 'aplica') {
+    const filas = leerRetencionesOrden();
+    if (filas.length === 0 || filas.some((r) => !r.codigo)) {
+      throw new Error('Elige el concepto de cada retención, o cambia a "No aplica retención".');
+    }
+    if (filas.some((r) => r.codigo === retencionesCatalogo.CONCEPTO_MANUAL.codigo && !(r.tarifa > 0))) {
+      throw new Error('En "Otro concepto" digita la tarifa de la retención.');
+    }
+  }
+  if (datosCalculo.retencionModo === 'no_aplica' && !datosCalculo.retencionMotivo) {
+    throw new Error('Elige el motivo por el cual no aplica la retención en la fuente.');
   }
 
   const cuerpo = {
@@ -1406,9 +1521,10 @@ conectarFormulario('form-orden', async () => {
     aiuImprevistos: datosCalculo.aiuImprevistos,
     aiuUtilidad: datosCalculo.aiuUtilidad,
     aiuBaseIva: datosCalculo.aiuBaseIva,
-    aplicaRetencion: datosCalculo.aplicaRetencion,
-    retencionConcepto: datosCalculo.retencionConcepto,
-    retencionPorcentaje: datosCalculo.retencionPorcentaje,
+    retencionModo: datosCalculo.retencionModo,
+    retenciones: datosCalculo.retencionModo === 'aplica' ? leerRetencionesOrden() : [],
+    retencionMotivo: datosCalculo.retencionModo === 'no_aplica' ? datosCalculo.retencionMotivo : undefined,
+    retencionDetalle: datosCalculo.retencionModo === 'no_aplica' ? datosCalculo.retencionDetalle || undefined : undefined,
   };
 
   if (ordenEditandoId) {
@@ -1481,13 +1597,16 @@ function resumenTotalesOrdenHtml(orden) {
   partes.push(`IVA ${formatoDineroDec(c.iva)}`);
   if (c.impoconsumo > 0) partes.push(`Impoconsumo ${formatoDineroDec(c.impoconsumo)}`);
   partes.push(`<strong>Total ${formatoDineroDec(c.total)}</strong>`);
-  if (c.aplicaRetencion) {
-    partes.push(
-      `Retención en la fuente${orden.retencionConcepto && orden.retencionConcepto !== 'Otro' ? ' (' + orden.retencionConcepto + ')' : ''} ${
-        c.retencionPorcentaje
-      }%: − ${formatoDineroDec(c.retencionValor)}`
-    );
+  if (c.retencionModo === 'aplica') {
+    c.retenciones.forEach((l) => {
+      partes.push(
+        `Retención: ${l.nombre} ${l.tarifa}% sobre ${formatoDineroDec(l.base)} → ` +
+          (l.aplica ? `− ${formatoDineroDec(l.valor)}` : 'no se practica (no alcanza el tope)')
+      );
+    });
     partes.push(`<strong>Neto a pagar ${formatoDineroDec(c.netoAPagar)}</strong>`);
+  } else if (c.retencionModo === 'no_aplica') {
+    partes.push(`No aplica retención en la fuente: ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}`);
   }
   return `<p class="nota-aiu">${partes.join(' · ')}</p>`;
 }

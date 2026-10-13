@@ -592,3 +592,32 @@ td.num, th.num {
 .resumen-totales { flex-wrap: wrap; row-gap: 6px; }
 .resumen-totales .neto-pagar, #resumen-neto-orden-fila { font-weight: 600; }
 .fila-campos .nota-aiu { flex-basis: 100%; margin: 0; }
+
+/* Retención en la fuente de la orden */
+.bloque-retencion {
+  border: 1px solid var(--rule);
+  padding: 12px 16px 14px;
+  margin: 0 0 16px;
+}
+.bloque-retencion legend {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  padding: 0 6px;
+  color: var(--ink-soft);
+}
+.opciones-retencion { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; margin-bottom: 10px; }
+.opciones-retencion label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.bloque-retencion select, .bloque-retencion input[type="text"], .bloque-retencion input[type="number"] {
+  padding: 7px 9px;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--paper);
+}
+.bloque-retencion .item-ret-concepto { width: 100%; min-width: 260px; }
+.bloque-retencion .item-ret-tarifa { width: 70px; }
+.bloque-retencion .campo-ancho { flex: 1; min-width: 240px; }
+.bloque-retencion .campo-ancho input { width: 100%; }
+.bloque-retencion .ret-nota { display: block; font-size: 11px; color: #9A5B13; margin-top: 3px; }
+.bloque-retencion .ret-sin-efecto { color: var(--ink-soft); }
+.bloque-retencion td:nth-child(2) { white-space: nowrap; }

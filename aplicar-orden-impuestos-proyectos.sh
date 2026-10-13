@@ -1,11 +1,494 @@
 #!/bin/bash
 # Ejecutar DESDE DENTRO de la carpeta mipyme-contable.
 # Orden de adquisición: ID del proyecto visible, Impoconsumo, AIU (servicios),
-# retención en la fuente con neto a pagar, y edición de Proyectos.
+# retención en la fuente por concepto (catálogo 2026) con topes en UVT y opción
+# "No aplica", neto a pagar, y edición de Proyectos.
 set -e
 if [ ! -f "package.json" ]; then echo "ERROR: ve a la carpeta mipyme-contable primero."; exit 1; fi
 
 mkdir -p public/contable src/modules/compras/models src/modules/compras/services tests
+cat > public/contable/retencionesCatalogo.js << 'SCRIPTEOF'
+// Catálogo de conceptos de retención en la fuente — año gravable 2026.
+//
+// Fuente: la tabla de conceptos que entregó la firma (Excel "datos_retenciones").
+// Para cambiar de año: actualizar ANIO, UVT_VALOR y las tarifas/UVT del arreglo.
+//
+// Mismo patrón que calculoOrden.js: un solo archivo para el navegador
+// (<script src>) y para el backend (require).
+//
+// Cada concepto:
+//   codigo    identificador estable (RF-01...), es lo que se guarda en la orden
+//   categoria agrupa el desplegable
+//   uvt       base mínima en UVT para practicar la retención (0 = sin tope)
+//   tarifa    porcentaje (2.5 = 2,5%)
+//   sobre     sobre qué se aplica: 'base' = subtotal + AIU (antes de impuestos),
+//             'aiu' = solo el AIU, 'iva' = el valor del IVA (ReteIVA)
+(function (raiz, fabrica) {
+  if (typeof module === 'object' && module.exports) module.exports = fabrica();
+  else raiz.retencionesCatalogo = fabrica();
+})(typeof self !== 'undefined' ? self : this, function () {
+  const ANIO = 2026;
+  // Resolución DIAN 000238 de 2025. OJO: el Excel de la firma trae la
+  // columna VALOR calculada con 52.400 (redondeada); aquí se usa la UVT
+  // oficial para que el tope no quede levemente por encima del real.
+  const UVT_VALOR = 52374;
+
+  const CONCEPTO_MANUAL = {
+    codigo: 'OTRO',
+    categoria: 'Otro',
+    nombre: 'Otro concepto (digitar tarifa)',
+    uvt: 0,
+    tarifa: 0,
+    sobre: 'base',
+    manual: true,
+  };
+
+  const CONCEPTOS = [
+    {
+      "codigo": "RF-01",
+      "categoria": "Compras",
+      "nombre": "Compras generales (declarantes)",
+      "uvt": 10,
+      "tarifa": 2.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-02",
+      "categoria": "Compras",
+      "nombre": "Compras generales (no declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-03",
+      "categoria": "Compras",
+      "nombre": "Compras con tarjeta débito o crédito",
+      "uvt": 0,
+      "tarifa": 1.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-04",
+      "categoria": "Compras",
+      "nombre": "Compras agrícolas o pecuarias sin procesamiento industrial",
+      "uvt": 70,
+      "tarifa": 1.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-05",
+      "categoria": "Compras",
+      "nombre": "Compras agrícolas o pecuarias con procesamiento industrial (declarantes)",
+      "uvt": 10,
+      "tarifa": 2.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-06",
+      "categoria": "Compras",
+      "nombre": "Compras agrícolas o pecuarias con procesamiento industrial (no declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base",
+      "detalle": "Compras de bienes o productos agrícolas o pecuarios con procesamiento industrial declarantes (no declarantes)"
+    },
+    {
+      "codigo": "RF-07",
+      "categoria": "Compras",
+      "nombre": "Compras de café pergamino o cereza",
+      "uvt": 70,
+      "tarifa": 0.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-08",
+      "categoria": "Compras",
+      "nombre": "Compras de combustibles derivados del petróleo",
+      "uvt": 0,
+      "tarifa": 0.1,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-09",
+      "categoria": "Compras",
+      "nombre": "Enajenación de activos fijos de personas naturales (notarías y tránsito son agentes retenedores)",
+      "uvt": 0,
+      "tarifa": 1,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-10",
+      "categoria": "Compras",
+      "nombre": "Compras de vehículos",
+      "uvt": 0,
+      "tarifa": 1,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-11",
+      "categoria": "Compras",
+      "nombre": "Bienes raíces de vivienda de habitación (primeras 20.000 UVT)",
+      "uvt": 0,
+      "tarifa": 1,
+      "sobre": "base",
+      "detalle": "Compras de bienes raíces cuya destinación y uso sea vivienda de habitación (por las primeras 20.000 UVT, es decir hasta $941.300.000)"
+    },
+    {
+      "codigo": "RF-12",
+      "categoria": "Compras",
+      "nombre": "Bienes raíces de vivienda de habitación (exceso de 20.000 UVT)",
+      "uvt": 20000,
+      "tarifa": 2.5,
+      "sobre": "base",
+      "detalle": "Compras de bienes raíces cuya destinación y uso sea vivienda de habitación (exceso de las primeras 20.000 UVT, es decir superior a $941.300.000)"
+    },
+    {
+      "codigo": "RF-13",
+      "categoria": "Compras",
+      "nombre": "Bienes raíces de destinación distinta a vivienda",
+      "uvt": 0,
+      "tarifa": 2.5,
+      "sobre": "base",
+      "detalle": "Compras de bienes raíces cuya destinación y uso sea distinto a vivienda de habitación"
+    },
+    {
+      "codigo": "RF-14",
+      "categoria": "Servicios",
+      "nombre": "Servicios generales (declarantes)",
+      "uvt": 2,
+      "tarifa": 4,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-15",
+      "categoria": "Servicios",
+      "nombre": "Servicios generales (no declarantes)",
+      "uvt": 2,
+      "tarifa": 6,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-16",
+      "categoria": "Servicios",
+      "nombre": "Emolumentos eclesiásticos (declarantes)",
+      "uvt": 10,
+      "tarifa": 4,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-17",
+      "categoria": "Servicios",
+      "nombre": "Emolumentos eclesiásticos (no declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-18",
+      "categoria": "Servicios",
+      "nombre": "Servicios de transporte de carga",
+      "uvt": 2,
+      "tarifa": 1,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-19",
+      "categoria": "Servicios",
+      "nombre": "Transporte nacional de pasajeros por vía terrestre (declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-20",
+      "categoria": "Servicios",
+      "nombre": "Transporte nacional de pasajeros por vía terrestre (no declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-21",
+      "categoria": "Servicios",
+      "nombre": "Transporte nacional de pasajeros por vía aérea o marítima",
+      "uvt": 2,
+      "tarifa": 1,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-22",
+      "categoria": "Servicios",
+      "nombre": "Empresas de servicios temporales (sobre AIU)",
+      "uvt": 2,
+      "tarifa": 1,
+      "sobre": "aiu"
+    },
+    {
+      "codigo": "RF-23",
+      "categoria": "Servicios",
+      "nombre": "Empresas de vigilancia y aseo (sobre AIU)",
+      "uvt": 2,
+      "tarifa": 2,
+      "sobre": "aiu"
+    },
+    {
+      "codigo": "RF-24",
+      "categoria": "Servicios",
+      "nombre": "Servicios integrales de salud prestados por IPS",
+      "uvt": 2,
+      "tarifa": 2,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-25",
+      "categoria": "Servicios",
+      "nombre": "Servicios de hoteles y restaurantes (declarantes)",
+      "uvt": 2,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-26",
+      "categoria": "Servicios",
+      "nombre": "Servicios de hoteles y restaurantes (no declarantes)",
+      "uvt": 2,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-27",
+      "categoria": "Arrendamientos",
+      "nombre": "Arrendamiento de bienes muebles",
+      "uvt": 0,
+      "tarifa": 4,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-28",
+      "categoria": "Arrendamientos",
+      "nombre": "Arrendamiento de bienes inmuebles (declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-29",
+      "categoria": "Arrendamientos",
+      "nombre": "Arrendamiento de bienes inmuebles (no declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-30",
+      "categoria": "Otros ingresos tributarios",
+      "nombre": "Otros ingresos tributarios (declarantes)",
+      "uvt": 10,
+      "tarifa": 2.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-31",
+      "categoria": "Otros ingresos tributarios",
+      "nombre": "Otros ingresos tributarios (no declarantes)",
+      "uvt": 10,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-32",
+      "categoria": "Honorarios y comisiones",
+      "nombre": "Honorarios y comisiones (personas jurídicas)",
+      "uvt": 0,
+      "tarifa": 11,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-33",
+      "categoria": "Honorarios y comisiones",
+      "nombre": "Honorarios y comisiones a personas naturales (contratos o pagos del año superiores a 3.300 UVT)",
+      "uvt": 0,
+      "tarifa": 11,
+      "sobre": "base",
+      "detalle": "Honorarios y comisiones pagados a personas naturales que suscriban contratos por más de 3.300 Uvt o que la sumatoria de los pagos o abonos en cuenta durante el año gravable superen 3.300 UVT ($155.315.000)"
+    },
+    {
+      "codigo": "RF-34",
+      "categoria": "Honorarios y comisiones",
+      "nombre": "Honorarios y comisiones (no declarantes)",
+      "uvt": 0,
+      "tarifa": 10,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-35",
+      "categoria": "Servicios",
+      "nombre": "Servicios de licenciamiento o derecho de uso de software",
+      "uvt": 0,
+      "tarifa": 3.5,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-36",
+      "categoria": "Rendimientos financieros",
+      "nombre": "Intereses o rendimientos financieros",
+      "uvt": 0,
+      "tarifa": 7,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-37",
+      "categoria": "Rendimientos financieros",
+      "nombre": "Rendimientos financieros de títulos de renta fija",
+      "uvt": 0,
+      "tarifa": 4,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-38",
+      "categoria": "Juegos de suerte y azar",
+      "nombre": "Loterías, rifas, apuestas y similares",
+      "uvt": 48,
+      "tarifa": 20,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-39",
+      "categoria": "Juegos de suerte y azar",
+      "nombre": "Colocación independiente de juegos de suerte y azar",
+      "uvt": 5,
+      "tarifa": 3,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-40",
+      "categoria": "Construcción",
+      "nombre": "Contratos de construcción y urbanización",
+      "uvt": 10,
+      "tarifa": 2,
+      "sobre": "base"
+    },
+    {
+      "codigo": "RF-41",
+      "categoria": "ReteIVA",
+      "nombre": "IVA retenido en servicios (ReteIVA)",
+      "uvt": 2,
+      "tarifa": 15,
+      "sobre": "iva"
+    },
+    {
+      "codigo": "RF-42",
+      "categoria": "ReteIVA",
+      "nombre": "IVA retenido en compras (ReteIVA)",
+      "uvt": 10,
+      "tarifa": 15,
+      "sobre": "iva"
+    },
+    {
+      "codigo": "RF-43",
+      "categoria": "Pagos al exterior",
+      "nombre": "Pagos al exterior: intereses, comisiones, honorarios, regalías, arrendamientos, servicios, propiedad industrial, software",
+      "uvt": 0,
+      "tarifa": 20,
+      "sobre": "base",
+      "detalle": "Pagos o abonos en cuenta por concepto de intereses, comisiones, honorarios, regalías, arrendamientos, compensaciones por servicios personales, o explotación de toda especie de propiedad industrial o del know-how, prestación de servicios, beneficios o regalías provenientes de la propiedad literaria, artística y científica, explotación de películas cinematográficas y explotación de software."
+    },
+    {
+      "codigo": "RF-44",
+      "categoria": "Pagos al exterior",
+      "nombre": "Pagos al exterior: consultorías, servicios técnicos y asistencia técnica",
+      "uvt": 0,
+      "tarifa": 20,
+      "sobre": "base",
+      "detalle": "Pagos o abonos en cuenta por concepto de consultorías, servicios técnicos y de asistencia técnica, prestados por personas no residentes o no domiciliadas en Colombia,"
+    },
+    {
+      "codigo": "RF-45",
+      "categoria": "Pagos al exterior",
+      "nombre": "Pagos al exterior: rendimientos financieros de créditos del exterior (1 año o más) y leasing",
+      "uvt": 0,
+      "tarifa": 15,
+      "sobre": "base",
+      "detalle": "Pagos o abonos en cuenta por concepto de rendimientos financieros, realizados a personas no residentes o no domiciliadas en el país, originados en créditos obtenidos en el exterior por término igual o superior a un (1) año o por concepto de intereses o costos financieros del canon de arrendamiento originados en contratos de leasing que se celebre directamente o a través de compañías de leasing con empresas extranjeras sin domicilio en Colombia,"
+    },
+    {
+      "codigo": "RF-46",
+      "categoria": "Pagos al exterior",
+      "nombre": "Pagos al exterior: leasing de naves, helicópteros y aerodinos",
+      "uvt": 0,
+      "tarifa": 1,
+      "sobre": "base",
+      "detalle": "Pagos o abonos en cuenta, originados en contratos de leasing sobre naves, helicópteros y/o aerodinos, así como sus partes que se celebren directamente o a través de compañías de leasing, con empresas extranjeras sin domicilio en Colombia."
+    },
+    {
+      "codigo": "RF-47",
+      "categoria": "Pagos al exterior",
+      "nombre": "Pagos al exterior: intereses de créditos a 8 años o más para infraestructura (APP)",
+      "uvt": 0,
+      "tarifa": 5,
+      "sobre": "base",
+      "detalle": "Pagos o abonos en cuenta por concepto de rendimientos financieros o intereses, realizados a personas no residentes o no domiciliadas en el país, originados en créditos o valores de contenido crediticio, por término igual o superior a ocho (8) años, destinados a la financiación de proyectos de infraestructura bajo el esquema de Asociaciones Público-Privadas en el marco de la Ley 1508 de 2012."
+    },
+    {
+      "codigo": "RF-48",
+      "categoria": "Pagos al exterior",
+      "nombre": "Pagos al exterior: prima cedida por reaseguros",
+      "uvt": 0,
+      "tarifa": 1,
+      "sobre": "base",
+      "detalle": "Pagos o abonos en cuenta por concepto de prima cedida por reaseguros realizados a personas no residentes o no domiciliadas en el país."
+    }
+  ];
+
+  // Motivos para NO practicar retención (quedan impresos en el PDF).
+  const MOTIVOS_NO_APLICA = [
+    'Proveedor en Régimen Simple de Tributación (RST)',
+    'Proveedor con tratamiento tributario especial',
+    'No supera la base mínima (tope) para practicar retención',
+    'Otro motivo',
+  ];
+
+  function porCodigo(codigo) {
+    if (codigo === CONCEPTO_MANUAL.codigo) return CONCEPTO_MANUAL;
+    return CONCEPTOS.find((c) => c.codigo === codigo) || null;
+  }
+
+  // Convierte {codigo, tarifa?} en la "especificación" completa que
+  // consume calcularOrden (incluye el nombre, la UVT y su valor, para que
+  // una orden guardada no cambie si el catálogo se actualiza el año
+  // siguiente). Con estricto:false un código vacío o inválido devuelve
+  // una especificación en cero en vez de lanzar error (formulario a medias).
+  function especificar(entrada, opciones) {
+    const estricto = !opciones || opciones.estricto !== false;
+    const concepto = entrada && porCodigo(entrada.codigo);
+    if (!concepto) {
+      if (estricto) throw new Error('Concepto de retención no reconocido: ' + (entrada && entrada.codigo));
+      return { codigo: '', nombre: '', tarifa: 0, sobre: 'base', uvt: 0, uvtValor: UVT_VALOR };
+    }
+    let tarifa = concepto.tarifa;
+    if (concepto.manual) {
+      tarifa = Number(entrada.tarifa);
+      if (!(tarifa > 0 && tarifa <= 100)) {
+        if (estricto) throw new Error('Retención "Otro concepto": la tarifa debe ser mayor a 0 y máximo 100.');
+        tarifa = 0;
+      }
+    }
+    return {
+      codigo: concepto.codigo,
+      nombre: concepto.nombre,
+      tarifa,
+      sobre: concepto.sobre,
+      uvt: concepto.uvt,
+      uvtValor: UVT_VALOR,
+    };
+  }
+
+  return { ANIO, UVT_VALOR, CONCEPTOS, CONCEPTO_MANUAL, MOTIVOS_NO_APLICA, porCodigo, especificar };
+});
+SCRIPTEOF
+echo "OK  public/contable/retencionesCatalogo.js"
+
 cat > public/contable/calculoOrden.js << 'SCRIPTEOF'
 // Cálculo de totales de una orden de adquisición.
 //
@@ -26,9 +509,18 @@ cat > public/contable/calculoOrden.js << 'SCRIPTEOF'
 //    Con AIU se ignora el IVA individual de los ítems (convención común
 //    en contratos de obra/servicios).
 //  - Impoconsumo: suma del impuesto de los ítems tipo "impoconsumo".
-//  - Retención en la fuente: porcentaje sobre la base ANTES de impuestos
-//    (subtotal + AIU). No se suma al total: se resta para obtener el
-//    neto a pagar al proveedor.
+//  - Retención en la fuente: informativa para el proveedor. No se suma al
+//    total: se resta para obtener el neto a pagar. Tres modos:
+//      'ninguna'   no se menciona retención
+//      'aplica'    una o varias líneas, cada una con su concepto ya
+//                  "especificado" (ver retencionesCatalogo.especificar):
+//                  tarifa, sobre qué se aplica (subtotal+AIU, solo AIU o el
+//                  IVA) y tope mínimo en UVT. Si la base de la línea no
+//                  alcanza el tope, esa línea no retiene (valor 0).
+//      'no_aplica' el proveedor no está sujeto (Régimen Simple, tratamiento
+//                  especial, bajo el tope...). Exige un motivo, que se imprime.
+//    Este archivo NO conoce el catálogo de conceptos: recibe las líneas ya
+//    resueltas, así una orden guardada no cambia si el catálogo se actualiza.
 (function (raiz, fabrica) {
   if (typeof module === 'object' && module.exports) module.exports = fabrica();
   else raiz.calcularOrden = fabrica();
@@ -99,13 +591,59 @@ cat > public/contable/calculoOrden.js << 'SCRIPTEOF'
     const total = redondear(base + iva + impoconsumo);
 
     // --- Retención en la fuente ---
-    const aplicaRetencion = !!datos.aplicaRetencion;
-    let retencionPorcentaje = aplicaRetencion ? numero(datos.retencionPorcentaje) : 0;
-    if (aplicaRetencion && !(retencionPorcentaje > 0 && retencionPorcentaje <= 100)) {
-      if (estricto) throw new Error('Indica el porcentaje de retención en la fuente (mayor a 0 y máximo 100).');
-      retencionPorcentaje = 0;
+    const retencionModo = ['aplica', 'no_aplica'].includes(datos.retencionModo) ? datos.retencionModo : 'ninguna';
+    const retencionMotivo = retencionModo === 'no_aplica' ? String(datos.retencionMotivo || '').trim() : '';
+    const retencionDetalle = retencionModo === 'no_aplica' ? String(datos.retencionDetalle || '').trim() : '';
+
+    if (estricto && retencionModo === 'no_aplica' && !retencionMotivo) {
+      throw new Error('Indica el motivo por el cual no aplica la retención en la fuente.');
     }
-    const retencionValor = aplicaRetencion ? redondear(base * (retencionPorcentaje / 100)) : 0;
+
+    const aiuTotal = redondear(aiuAdministracionValor + aiuImprevistosValor + aiuUtilidadValor);
+    let retenciones = [];
+    if (retencionModo === 'aplica') {
+      const entradas = Array.isArray(datos.retenciones) ? datos.retenciones : [];
+      if (estricto && entradas.length === 0) {
+        throw new Error('Agrega al menos un concepto de retención, o elige "No aplica retención".');
+      }
+      retenciones = entradas.map((r) => {
+        const tarifa = numero(r.tarifa);
+        const uvt = numero(r.uvt);
+        const uvtValor = numero(r.uvtValor);
+        const sobre = ['aiu', 'iva'].includes(r.sobre) ? r.sobre : 'base';
+        if (estricto && (!r.codigo || !(tarifa > 0 && tarifa <= 100))) {
+          throw new Error('Cada retención necesita un concepto con tarifa mayor a 0 y máximo 100.');
+        }
+
+        // Valor sobre el que se aplica la tarifa de este concepto.
+        const baseLinea = sobre === 'aiu' ? aiuTotal : sobre === 'iva' ? iva : base;
+        // El tope (en UVT) siempre se mide contra la base de la operación
+        // (subtotal + AIU antes de impuestos), también en ReteIVA.
+        const baseMinima = redondear(uvt * uvtValor);
+        const alcanzaTope = base >= baseMinima;
+
+        let nota = '';
+        if (!r.codigo) nota = '';
+        else if (sobre === 'aiu' && aiuTotal === 0) nota = 'Este concepto se calcula sobre el AIU: discrimínalo en la orden.';
+        else if (!alcanzaTope) nota = 'La base no alcanza el tope mínimo: no se practica esta retención.';
+
+        const aplica = !!r.codigo && alcanzaTope && baseLinea > 0;
+        return {
+          codigo: r.codigo || '',
+          nombre: r.nombre || '',
+          tarifa,
+          sobre,
+          uvt,
+          uvtValor,
+          base: baseLinea,
+          baseMinima,
+          aplica,
+          valor: aplica ? redondear(baseLinea * (tarifa / 100)) : 0,
+          nota,
+        };
+      });
+    }
+    const retencionValor = redondear(retenciones.reduce((s, r) => s + r.valor, 0));
 
     return {
       lineas,
@@ -123,8 +661,11 @@ cat > public/contable/calculoOrden.js << 'SCRIPTEOF'
         aiuUtilidadValor,
         aiuBaseIva,
         base,
-        aplicaRetencion,
-        retencionPorcentaje,
+        aiuTotal,
+        retencionModo,
+        retencionMotivo,
+        retencionDetalle,
+        retenciones,
         retencionValor,
       },
       netoAPagar: redondear(total - retencionValor),
@@ -1349,13 +1890,88 @@ function leerItemsOrden() {
   });
 }
 
+// --- RETENCIÓN EN LA FUENTE (catálogo 2026, ver retencionesCatalogo.js) ---
+// Desplegable de conceptos agrupado por categoría.
+function opcionesConceptoRetencionHtml() {
+  const cat = retencionesCatalogo;
+  const grupos = {};
+  cat.CONCEPTOS.forEach((c) => (grupos[c.categoria] = grupos[c.categoria] || []).push(c));
+  const porGrupo = Object.entries(grupos)
+    .map(
+      ([nombre, lista]) =>
+        `<optgroup label="${nombre}">` +
+        lista
+          .map(
+            (c) =>
+              `<option value="${c.codigo}" title="${(c.detalle || c.nombre).replace(/"/g, '&quot;')}">${c.nombre} — ${c.tarifa.toLocaleString('es-CO')}%</option>`
+          )
+          .join('') +
+        '</optgroup>'
+    )
+    .join('');
+  return `<option value="">Elegir concepto...</option>${porGrupo}<option value="${cat.CONCEPTO_MANUAL.codigo}">${cat.CONCEPTO_MANUAL.nombre}</option>`;
+}
+
+function crearFilaRetencion(linea) {
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td>
+      <select class="item-ret-concepto">${opcionesConceptoRetencionHtml()}</select>
+      <span class="ret-nota" hidden></span>
+    </td>
+    <td><input type="number" class="item-ret-tarifa" min="0" max="100" step="0.01" placeholder="%" readonly> %</td>
+    <td class="num ret-base">—</td>
+    <td class="num ret-tope">—</td>
+    <td class="num ret-valor">$0</td>
+    <td><button type="button" class="btn-accion destructivo btn-quitar-retencion">Quitar</button></td>
+  `;
+  const select = tr.querySelector('.item-ret-concepto');
+  const tarifa = tr.querySelector('.item-ret-tarifa');
+  select.addEventListener('change', () => {
+    const concepto = retencionesCatalogo.porCodigo(select.value);
+    // La tarifa sale del catálogo; solo "Otro concepto" se digita a mano.
+    tarifa.readOnly = !(concepto && concepto.manual);
+    tarifa.value = concepto ? (concepto.manual ? '' : concepto.tarifa) : '';
+    recalcularTotalesOrden();
+  });
+  tarifa.addEventListener('input', recalcularTotalesOrden);
+  tr.querySelector('.btn-quitar-retencion').addEventListener('click', () => {
+    tr.remove();
+    recalcularTotalesOrden();
+  });
+
+  if (linea) {
+    select.value = linea.codigo || '';
+    const concepto = retencionesCatalogo.porCodigo(select.value);
+    tarifa.readOnly = !(concepto && concepto.manual);
+    tarifa.value = linea.tarifa !== undefined && linea.tarifa !== null ? Number(linea.tarifa) : '';
+  }
+  return tr;
+}
+
+function modoRetencionOrden() {
+  return document.querySelector('input[name="orden-retencion-modo"]:checked').value;
+}
+
+// Lo que se manda al servidor por cada retención: solo el código (y la
+// tarifa si es "Otro concepto"). El servidor toma lo demás del catálogo.
+function leerRetencionesOrden() {
+  return Array.from(document.querySelectorAll('#retenciones-orden-tbody tr')).map((tr) => {
+    const codigo = tr.querySelector('.item-ret-concepto').value;
+    const concepto = retencionesCatalogo.porCodigo(codigo);
+    return {
+      codigo,
+      tarifa: concepto && concepto.manual ? Number(tr.querySelector('.item-ret-tarifa').value || 0) : undefined,
+    };
+  });
+}
+
 // Junta lo que hay en el formulario con la forma que espera
 // calcularOrden() (el mismo cálculo que corre el servidor al guardar).
 function leerDatosOrden() {
   const tipo = document.getElementById('orden-tipo').value;
   const aplicaAiu = tipo === 'servicios' && document.getElementById('orden-aplica-aiu').checked;
-  const aplicaRetencion = document.getElementById('orden-aplica-retencion').checked;
-  const concepto = document.getElementById('orden-retencion-concepto').value;
+  const retencionModo = modoRetencionOrden();
 
   return {
     tipo,
@@ -1365,37 +1981,65 @@ function leerDatosOrden() {
     aiuImprevistos: Number(document.getElementById('orden-aiu-imprevistos').value || 0),
     aiuUtilidad: Number(document.getElementById('orden-aiu-utilidad').value || 0),
     aiuBaseIva: document.getElementById('orden-aiu-base-iva').value,
-    aplicaRetencion,
-    retencionPorcentaje: Number(document.getElementById('orden-retencion-porcentaje').value || 0),
-    retencionConcepto: concepto || undefined,
+    retencionModo,
+    retencionMotivo: document.getElementById('orden-retencion-motivo').value,
+    retencionDetalle: document.getElementById('orden-retencion-detalle').value,
+    // Una especificación por fila (aunque esté a medias, queda en cero)
+    // para poder pintar cada resultado en su propia fila.
+    retenciones:
+      retencionModo === 'aplica'
+        ? leerRetencionesOrden().map((r) => retencionesCatalogo.especificar(r, { estricto: false }))
+        : [],
   };
 }
 
 function recalcularTotalesOrden() {
   // estricto:false → mientras se digita no se lanzan errores (ej.
-  // retención marcada pero sin % todavía); el servidor sí valida al guardar.
+  // retención sin concepto todavía); el servidor sí valida al guardar.
   const datos = leerDatosOrden();
   const { cabecera: c, netoAPagar } = calcularOrden(datos, { estricto: false });
-
-  const aiuTotal = c.aiuAdministracionValor + c.aiuImprevistosValor + c.aiuUtilidadValor;
 
   document.getElementById('valor-orden-aiu-administracion').textContent = formatoDineroDec(c.aiuAdministracionValor);
   document.getElementById('valor-orden-aiu-imprevistos').textContent = formatoDineroDec(c.aiuImprevistosValor);
   document.getElementById('valor-orden-aiu-utilidad').textContent = formatoDineroDec(c.aiuUtilidadValor);
 
+  // Cada fila de retención muestra su base, su tope y su valor.
+  document.querySelectorAll('#retenciones-orden-tbody tr').forEach((tr, i) => {
+    const l = c.retenciones[i];
+    if (!l) return;
+    tr.querySelector('.ret-base').textContent = l.codigo ? formatoDineroDec(l.base) : '—';
+    tr.querySelector('.ret-tope').textContent = l.codigo ? (l.baseMinima > 0 ? formatoDineroDec(l.baseMinima) : 'Sin tope') : '—';
+    const valor = tr.querySelector('.ret-valor');
+    valor.textContent = formatoDineroDec(l.valor);
+    valor.classList.toggle('ret-sin-efecto', l.valor === 0);
+    const nota = tr.querySelector('.ret-nota');
+    nota.textContent = l.nota;
+    nota.hidden = !l.nota;
+  });
+
   document.getElementById('resumen-subtotal-orden').textContent = formatoDineroDec(c.subtotal);
-  document.getElementById('resumen-aiu-orden').textContent = formatoDineroDec(aiuTotal);
+  document.getElementById('resumen-aiu-orden').textContent = formatoDineroDec(c.aiuTotal);
   document.getElementById('resumen-aiu-orden-fila').hidden = !c.aplicaAiu;
   document.getElementById('resumen-iva-orden').textContent = formatoDineroDec(c.iva);
   document.getElementById('resumen-impoconsumo-orden').textContent = formatoDineroDec(c.impoconsumo);
   document.getElementById('resumen-total-orden').textContent = formatoDineroDec(c.total);
-  document.getElementById('resumen-retencion-orden').textContent = '− ' + formatoDineroDec(c.retencionValor);
-  document.getElementById('resumen-retencion-orden-fila').hidden = !c.aplicaRetencion;
+
+  const aplica = c.retencionModo === 'aplica';
+  const noAplica = c.retencionModo === 'no_aplica';
+  document.getElementById('resumen-retencion-orden').textContent = noAplica
+    ? 'No aplica' + (c.retencionMotivo ? ' — ' + c.retencionMotivo : '')
+    : '− ' + formatoDineroDec(c.retencionValor);
+  document.getElementById('resumen-retencion-orden-fila').hidden = !(aplica || noAplica);
   document.getElementById('resumen-neto-orden').textContent = formatoDineroDec(netoAPagar);
-  document.getElementById('resumen-neto-orden-fila').hidden = !c.aplicaRetencion;
+  document.getElementById('resumen-neto-orden-fila').hidden = !aplica;
+
+  document.getElementById('nota-retencion-orden').textContent =
+    `Conceptos y tarifas ${retencionesCatalogo.ANIO} (UVT ${formatoDineroDec(retencionesCatalogo.UVT_VALOR)}). ` +
+    'Elige el concepto según el bien o servicio de la orden. La base se mide antes de impuestos; si no alcanza el tope mínimo, esa retención no se practica. ' +
+    'Si el proveedor no está sujeto (Régimen Simple, tratamiento especial), usa "No aplica retención".';
 }
 
-// Muestra/oculta los bloques según el tipo de orden y las casillas.
+// Muestra/oculta los bloques según el tipo de orden y las opciones.
 // El AIU solo existe en compra de SERVICIOS; al pasar a "bienes" se
 // apaga para que no quede un AIU "fantasma" afectando el total.
 function actualizarVisibilidadOrden() {
@@ -1404,7 +2048,13 @@ function actualizarVisibilidadOrden() {
   if (!esServicios) document.getElementById('orden-aplica-aiu').checked = false;
 
   document.getElementById('campos-aiu-orden').hidden = !document.getElementById('orden-aplica-aiu').checked;
-  document.getElementById('campos-retencion-orden').hidden = !document.getElementById('orden-aplica-retencion').checked;
+
+  const modo = modoRetencionOrden();
+  document.getElementById('retencion-aplica-orden').hidden = modo !== 'aplica';
+  document.getElementById('retencion-no-aplica-orden').hidden = modo !== 'no_aplica';
+  // Al elegir "Aplicar" aparece ya la primera fila para elegir concepto.
+  const tbody = document.getElementById('retenciones-orden-tbody');
+  if (modo === 'aplica' && tbody.children.length === 0) tbody.appendChild(crearFilaRetencion());
 }
 
 document.getElementById('orden-tipo').addEventListener('change', () => {
@@ -1415,30 +2065,24 @@ document.getElementById('orden-aplica-aiu').addEventListener('change', () => {
   actualizarVisibilidadOrden();
   recalcularTotalesOrden();
 });
-document.getElementById('orden-aplica-retencion').addEventListener('change', () => {
-  actualizarVisibilidadOrden();
-  recalcularTotalesOrden();
+document.querySelectorAll('input[name="orden-retencion-modo"]').forEach((radio) =>
+  radio.addEventListener('change', () => {
+    actualizarVisibilidadOrden();
+    recalcularTotalesOrden();
+  })
+);
+document.getElementById('btn-agregar-retencion-orden').addEventListener('click', () => {
+  document.getElementById('retenciones-orden-tbody').appendChild(crearFilaRetencion());
 });
+document.getElementById('orden-retencion-motivo').innerHTML =
+  '<option value="">Elegir motivo...</option>' +
+  retencionesCatalogo.MOTIVOS_NO_APLICA.map((m) => `<option value="${m}">${m}</option>`).join('');
 document
-  .querySelectorAll('#campos-aiu-orden input, #campos-aiu-orden select, #orden-retencion-porcentaje')
+  .querySelectorAll('#campos-aiu-orden input, #campos-aiu-orden select, #orden-retencion-motivo, #orden-retencion-detalle')
   .forEach((el) => {
     el.addEventListener('input', recalcularTotalesOrden);
     el.addEventListener('change', recalcularTotalesOrden);
   });
-// Si se cambia el % a mano y ya no coincide con el del concepto
-// elegido, el concepto pasa a "Otro" para que el PDF no diga, por
-// ejemplo, "Compras generales 4%".
-document.getElementById('orden-retencion-porcentaje').addEventListener('input', (e) => {
-  const select = document.getElementById('orden-retencion-concepto');
-  const sugerido = select.selectedOptions[0]?.dataset.pct;
-  if (sugerido && Number(sugerido) !== Number(e.target.value)) select.value = 'Otro';
-});
-// Elegir un concepto sugiere su porcentaje (editable después).
-document.getElementById('orden-retencion-concepto').addEventListener('change', (e) => {
-  const pct = e.target.selectedOptions[0]?.dataset.pct;
-  if (pct) document.getElementById('orden-retencion-porcentaje').value = pct;
-  recalcularTotalesOrden();
-});
 
 function limpiarFormularioOrden() {
   document.getElementById('items-orden-tbody').innerHTML = '';
@@ -1448,9 +2092,11 @@ function limpiarFormularioOrden() {
   document.getElementById('orden-aplica-aiu').checked = false;
   ['administracion', 'imprevistos', 'utilidad'].forEach((n) => (document.getElementById('orden-aiu-' + n).value = ''));
   document.getElementById('orden-aiu-base-iva').value = 'total';
-  document.getElementById('orden-aplica-retencion').checked = false;
-  document.getElementById('orden-retencion-concepto').value = '';
-  document.getElementById('orden-retencion-porcentaje').value = '';
+
+  document.querySelector('input[name="orden-retencion-modo"][value="ninguna"]').checked = true;
+  document.getElementById('retenciones-orden-tbody').innerHTML = '';
+  document.getElementById('orden-retencion-motivo').value = '';
+  document.getElementById('orden-retencion-detalle').value = '';
   actualizarVisibilidadOrden();
   recalcularTotalesOrden();
 }
@@ -1489,13 +2135,14 @@ async function abrirEdicionOrden(id) {
     document.getElementById('orden-aiu-utilidad').value = Number(orden.aiuUtilidad) || '';
     document.getElementById('orden-aiu-base-iva').value = orden.aiuBaseIva || 'total';
 
-    document.getElementById('orden-aplica-retencion').checked = !!orden.aplicaRetencion;
-    const conceptoGuardado = orden.retencionConcepto || '';
-    const selectConcepto = document.getElementById('orden-retencion-concepto');
-    selectConcepto.value = Array.from(selectConcepto.options).some((o) => o.value === conceptoGuardado)
-      ? conceptoGuardado
-      : '';
-    document.getElementById('orden-retencion-porcentaje').value = Number(orden.retencionPorcentaje) || '';
+    // Retención: se recrean las filas desde la foto guardada en la orden.
+    const modo = orden.retencionModo || 'ninguna';
+    document.querySelector(`input[name="orden-retencion-modo"][value="${modo}"]`).checked = true;
+    const tbodyRet = document.getElementById('retenciones-orden-tbody');
+    tbodyRet.innerHTML = '';
+    if (modo === 'aplica') (orden.retenciones || []).forEach((l) => tbodyRet.appendChild(crearFilaRetencion(l)));
+    document.getElementById('orden-retencion-motivo').value = orden.retencionMotivo || '';
+    document.getElementById('orden-retencion-detalle').value = orden.retencionDetalle || '';
     actualizarVisibilidadOrden();
 
     const tbody = document.getElementById('items-orden-tbody');
@@ -1528,8 +2175,17 @@ conectarFormulario('form-orden', async () => {
   if (items.length === 0 || items.some((i) => !i.concepto || i.cantidad <= 0)) {
     throw new Error('Agrega al menos un ítem con concepto y cantidad mayor a cero.');
   }
-  if (datosCalculo.aplicaRetencion && !(datosCalculo.retencionPorcentaje > 0)) {
-    throw new Error('Marcaste calcular la retención en la fuente: indica el porcentaje.');
+  if (datosCalculo.retencionModo === 'aplica') {
+    const filas = leerRetencionesOrden();
+    if (filas.length === 0 || filas.some((r) => !r.codigo)) {
+      throw new Error('Elige el concepto de cada retención, o cambia a "No aplica retención".');
+    }
+    if (filas.some((r) => r.codigo === retencionesCatalogo.CONCEPTO_MANUAL.codigo && !(r.tarifa > 0))) {
+      throw new Error('En "Otro concepto" digita la tarifa de la retención.');
+    }
+  }
+  if (datosCalculo.retencionModo === 'no_aplica' && !datosCalculo.retencionMotivo) {
+    throw new Error('Elige el motivo por el cual no aplica la retención en la fuente.');
   }
 
   const cuerpo = {
@@ -1545,9 +2201,10 @@ conectarFormulario('form-orden', async () => {
     aiuImprevistos: datosCalculo.aiuImprevistos,
     aiuUtilidad: datosCalculo.aiuUtilidad,
     aiuBaseIva: datosCalculo.aiuBaseIva,
-    aplicaRetencion: datosCalculo.aplicaRetencion,
-    retencionConcepto: datosCalculo.retencionConcepto,
-    retencionPorcentaje: datosCalculo.retencionPorcentaje,
+    retencionModo: datosCalculo.retencionModo,
+    retenciones: datosCalculo.retencionModo === 'aplica' ? leerRetencionesOrden() : [],
+    retencionMotivo: datosCalculo.retencionModo === 'no_aplica' ? datosCalculo.retencionMotivo : undefined,
+    retencionDetalle: datosCalculo.retencionModo === 'no_aplica' ? datosCalculo.retencionDetalle || undefined : undefined,
   };
 
   if (ordenEditandoId) {
@@ -1620,13 +2277,16 @@ function resumenTotalesOrdenHtml(orden) {
   partes.push(`IVA ${formatoDineroDec(c.iva)}`);
   if (c.impoconsumo > 0) partes.push(`Impoconsumo ${formatoDineroDec(c.impoconsumo)}`);
   partes.push(`<strong>Total ${formatoDineroDec(c.total)}</strong>`);
-  if (c.aplicaRetencion) {
-    partes.push(
-      `Retención en la fuente${orden.retencionConcepto && orden.retencionConcepto !== 'Otro' ? ' (' + orden.retencionConcepto + ')' : ''} ${
-        c.retencionPorcentaje
-      }%: − ${formatoDineroDec(c.retencionValor)}`
-    );
+  if (c.retencionModo === 'aplica') {
+    c.retenciones.forEach((l) => {
+      partes.push(
+        `Retención: ${l.nombre} ${l.tarifa}% sobre ${formatoDineroDec(l.base)} → ` +
+          (l.aplica ? `− ${formatoDineroDec(l.valor)}` : 'no se practica (no alcanza el tope)')
+      );
+    });
     partes.push(`<strong>Neto a pagar ${formatoDineroDec(c.netoAPagar)}</strong>`);
+  } else if (c.retencionModo === 'no_aplica') {
+    partes.push(`No aplica retención en la fuente: ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}`);
   }
   return `<p class="nota-aiu">${partes.join(' · ')}</p>`;
 }
@@ -2227,26 +2887,36 @@ cat > public/contable/index.html << 'SCRIPTEOF'
           </div>
         </div>
 
-        <label class="check-aiu">
-          <input type="checkbox" id="orden-aplica-retencion"> Calcular retención en la fuente (queda informada al proveedor en el PDF)
-        </label>
-        <div class="fila-campos" id="campos-retencion-orden" hidden>
-          <label class="campo-aiu">
-            <span>Concepto (sugerencia)</span>
-            <select id="orden-retencion-concepto">
-              <option value="">Elegir concepto...</option>
-              <option value="Compras generales" data-pct="2.5">Compras generales — 2,5%</option>
-              <option value="Servicios generales" data-pct="4">Servicios generales — 4%</option>
-              <option value="Honorarios y comisiones" data-pct="10">Honorarios y comisiones — 10%</option>
-              <option value="Otro">Otro (digitar %)</option>
-            </select>
-          </label>
-          <label class="campo-aiu">
-            <span>Retención %</span>
-            <input type="number" id="orden-retencion-porcentaje" placeholder="%" min="0" max="100" step="0.01">
-          </label>
-          <p class="nota-aiu">Las tarifas son una sugerencia: verifica la tarifa y la base mínima que aplican a este proveedor. Se calcula sobre el subtotal + AIU, antes de impuestos.</p>
-        </div>
+        <fieldset class="bloque-retencion" id="bloque-retencion-orden">
+          <legend>Retención en la fuente (informativa para el proveedor)</legend>
+          <div class="opciones-retencion">
+            <label><input type="radio" name="orden-retencion-modo" value="ninguna" checked> No indicar retención</label>
+            <label><input type="radio" name="orden-retencion-modo" value="aplica"> Aplicar retención</label>
+            <label><input type="radio" name="orden-retencion-modo" value="no_aplica"> No aplica retención</label>
+          </div>
+
+          <div id="retencion-aplica-orden" hidden>
+            <table class="tabla-items">
+              <thead>
+                <tr><th>Concepto (tipo de bien o servicio)</th><th>Tarifa</th><th class="num">Base</th><th class="num">Tope mínimo</th><th class="num">Retención</th><th></th></tr>
+              </thead>
+              <tbody id="retenciones-orden-tbody"></tbody>
+            </table>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-retencion-orden">+ Agregar concepto de retención</button>
+            <p class="nota-aiu" id="nota-retencion-orden"></p>
+          </div>
+
+          <div id="retencion-no-aplica-orden" class="fila-campos" hidden>
+            <label class="campo-aiu">
+              <span>Motivo</span>
+              <select id="orden-retencion-motivo"></select>
+            </label>
+            <label class="campo-aiu campo-ancho">
+              <span>Detalle (opcional)</span>
+              <input type="text" id="orden-retencion-detalle" maxlength="255" placeholder="Ej.: certificado RST vigente, resolución, etc.">
+            </label>
+          </div>
+        </fieldset>
 
         <div class="resumen-totales">
           <span>Subtotal: <strong id="resumen-subtotal-orden">$0</strong></span>
@@ -2451,6 +3121,7 @@ cat > public/contable/index.html << 'SCRIPTEOF'
   </main>
 </div>
 
+<script src="/contable/retencionesCatalogo.js"></script>
 <script src="/contable/calculoOrden.js"></script>
 <script src="/contable/app.js"></script>
 </body>
@@ -3053,6 +3724,35 @@ td.num, th.num {
 .resumen-totales { flex-wrap: wrap; row-gap: 6px; }
 .resumen-totales .neto-pagar, #resumen-neto-orden-fila { font-weight: 600; }
 .fila-campos .nota-aiu { flex-basis: 100%; margin: 0; }
+
+/* Retención en la fuente de la orden */
+.bloque-retencion {
+  border: 1px solid var(--rule);
+  padding: 12px 16px 14px;
+  margin: 0 0 16px;
+}
+.bloque-retencion legend {
+  font-family: var(--font-serif);
+  font-size: 13px;
+  padding: 0 6px;
+  color: var(--ink-soft);
+}
+.opciones-retencion { display: flex; gap: 20px; flex-wrap: wrap; font-size: 13px; margin-bottom: 10px; }
+.opciones-retencion label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.bloque-retencion select, .bloque-retencion input[type="text"], .bloque-retencion input[type="number"] {
+  padding: 7px 9px;
+  border: 1px solid var(--rule-strong);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  background: var(--paper);
+}
+.bloque-retencion .item-ret-concepto { width: 100%; min-width: 260px; }
+.bloque-retencion .item-ret-tarifa { width: 70px; }
+.bloque-retencion .campo-ancho { flex: 1; min-width: 240px; }
+.bloque-retencion .campo-ancho input { width: 100%; }
+.bloque-retencion .ret-nota { display: block; font-size: 11px; color: #9A5B13; margin-top: 3px; }
+.bloque-retencion .ret-sin-efecto { color: var(--ink-soft); }
+.bloque-retencion td:nth-child(2) { white-space: nowrap; }
 SCRIPTEOF
 echo "OK  public/contable/style.css"
 
@@ -3301,19 +4001,41 @@ async function cargar() {
       );
       if (c.impoconsumo > 0) filas.push(f('Impoconsumo', formatoDineroDec(c.impoconsumo)));
       filas.push(f('Total', formatoDineroDec(c.total), 'total-final'));
-      if (c.aplicaRetencion) {
-        filas.push(
-          f(
-            `Retención en la fuente${orden.retencionConcepto && orden.retencionConcepto !== 'Otro' ? ' (' + orden.retencionConcepto + ')' : ''} ${c.retencionPorcentaje}%`,
-            '− ' + formatoDineroDec(c.retencionValor)
-          )
+      if (c.retencionModo === 'aplica') {
+        const practicadas = c.retenciones.filter((l) => l.aplica);
+        const sinEfecto = c.retenciones.filter((l) => !l.aplica);
+        practicadas.forEach((l) =>
+          filas.push(f(`Retención: ${l.nombre} (${l.tarifa}%)`, '− ' + formatoDineroDec(l.valor)))
         );
-        filas.push(f('Neto a pagar al proveedor', formatoDineroDec(c.netoAPagar), 'total-final'));
+        if (practicadas.length > 0) {
+          filas.push(f('Neto a pagar al proveedor', formatoDineroDec(c.netoAPagar), 'total-final'));
+          avisoRetencion = `<p class="aviso-retencion">
+            <strong>Retención en la fuente:</strong> al momento del pago se practicarán las siguientes retenciones:
+            ${practicadas
+              .map(
+                (l) =>
+                  `${l.nombre} al ${l.tarifa}% sobre ${formatoDineroDec(l.base)}${
+                    l.sobre === 'iva' ? ' (valor del IVA)' : l.sobre === 'aiu' ? ' (AIU)' : ' (antes de impuestos)'
+                  } = ${formatoDineroDec(l.valor)}`
+              )
+              .join('; ')}.
+            Total retenido: ${formatoDineroDec(c.retencionValor)}; valor neto a pagar: ${formatoDineroDec(c.netoAPagar)}.
+            Al aceptar esta orden, el proveedor declara conocer esta retención.
+            ${
+              sinEfecto.length > 0
+                ? `<br>No se practica: ${sinEfecto.map((l) => l.nombre).join('; ')}, por no alcanzar la base mínima (tope) o no tener base de cálculo.`
+                : ''
+            }
+          </p>`;
+        } else {
+          avisoRetencion = `<p class="aviso-retencion">
+            <strong>Retención en la fuente:</strong> no se practica retención en esta orden
+            (${sinEfecto.map((l) => l.nombre).join('; ')}: la base no alcanza el tope mínimo o no hay base de cálculo).
+          </p>`;
+        }
+      } else if (c.retencionModo === 'no_aplica') {
         avisoRetencion = `<p class="aviso-retencion">
-          <strong>Retención en la fuente:</strong> al momento del pago se practicará una retención del
-          ${c.retencionPorcentaje}% sobre la base de ${formatoDineroDec(c.base)} (antes de impuestos), equivalente a
-          ${formatoDineroDec(c.retencionValor)}, por lo que el valor neto a pagar es ${formatoDineroDec(c.netoAPagar)}.
-          Al aceptar esta orden, el proveedor declara conocer esta retención.
+          <strong>Retención en la fuente:</strong> no aplica — ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}.
         </p>`;
       }
       filasTotales = filas.join('');
@@ -3481,11 +4203,17 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
   aiuImprevistos: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
   aiuUtilidad: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
   aiuBaseIva: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'total' },
-  // Retención en la fuente: informativa para el proveedor (se muestra
-  // en el PDF con el neto a pagar). No genera asiento por sí sola.
-  aplicaRetencion: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-  retencionConcepto: { type: DataTypes.STRING(60) },
-  retencionPorcentaje: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+  // Retención en la fuente: informativa para el proveedor (se muestra en
+  // el PDF con el neto a pagar). No genera asiento por sí sola.
+  //   retencionModo: 'ninguna' | 'aplica' | 'no_aplica'
+  //   retenciones:   líneas calculadas (concepto, tarifa, base, tope, valor).
+  //                  Es una FOTO del momento de guardar: así la orden no
+  //                  cambia si el catálogo de tarifas se actualiza otro año.
+  //   retencionMotivo/Detalle: por qué no aplica (RST, tratamiento especial...)
+  retencionModo: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'ninguna' },
+  retencionMotivo: { type: DataTypes.STRING(120) },
+  retencionDetalle: { type: DataTypes.STRING(255) },
+  retenciones: { type: DataTypes.JSON },
   retencionValor: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
 }, {
   tableName: 'ordenes_compra',
@@ -3508,6 +4236,16 @@ const { contabilizarEvento } = require('../../../core/services/motorAsientos');
 const { crearConSecutivoUnico } = require('../../../core/services/consecutivos');
 // Mismo archivo que usa el navegador: lo que se ve al digitar es lo que se guarda.
 const calcularOrden = require('../../../../public/contable/calculoOrden');
+const retencionesCatalogo = require('../../../../public/contable/retencionesCatalogo');
+
+// Lo que llega del cliente por cada retención es solo {codigo, tarifa?}
+// (tarifa solo para "Otro concepto"). Nombre, tarifa oficial, tope en UVT y
+// base de cálculo se toman SIEMPRE del catálogo del servidor.
+function prepararDatosOrden(datos) {
+  if (datos.retencionModo !== 'aplica') return { ...datos, retenciones: [] };
+  const entradas = Array.isArray(datos.retenciones) ? datos.retenciones : [];
+  return { ...datos, retenciones: entradas.map((e) => retencionesCatalogo.especificar(e)) };
+}
 
 // Campos de cabecera derivados del cálculo (impuestos, AIU, retención).
 function camposCalculados(cabecera, datos) {
@@ -3521,9 +4259,10 @@ function camposCalculados(cabecera, datos) {
     aiuImprevistos: cabecera.aiuImprevistos,
     aiuUtilidad: cabecera.aiuUtilidad,
     aiuBaseIva: cabecera.aiuBaseIva,
-    aplicaRetencion: cabecera.aplicaRetencion,
-    retencionConcepto: cabecera.aplicaRetencion ? datos.retencionConcepto || null : null,
-    retencionPorcentaje: cabecera.retencionPorcentaje,
+    retencionModo: cabecera.retencionModo,
+    retencionMotivo: cabecera.retencionModo === 'no_aplica' ? cabecera.retencionMotivo : null,
+    retencionDetalle: cabecera.retencionModo === 'no_aplica' ? cabecera.retencionDetalle || null : null,
+    retenciones: cabecera.retenciones,
     retencionValor: cabecera.retencionValor,
   };
 }
@@ -3557,7 +4296,7 @@ async function crearOrden(datos, usuario) {
   const hayItems = Array.isArray(datos.items) && datos.items.length > 0;
   // Se calcula (y valida) ANTES de abrir la transacción: si el
   // porcentaje de retención viene mal, falla sin consumir consecutivo.
-  const calculo = hayItems ? calcularOrden(datos) : null;
+  const calculo = hayItems ? calcularOrden(prepararDatosOrden(datos)) : null;
 
   return crearConSecutivoUnico(OrdenCompra, usuario.empresaId, 'ODA', async (consecutivo, transaction) => {
     const orden = await OrdenCompra.create(
@@ -3755,7 +4494,12 @@ async function obtenerOrden(id, usuario) {
   // retención y neto a pagar). Se recalcula con los mismos datos
   // guardados; "modo formulario" para no fallar con órdenes viejas que
   // no tienen nada de esto.
-  const { cabecera, netoAPagar } = calcularOrden({ ...datos, items: items.map((i) => i.toJSON()) }, { estricto: false });
+  // Las retenciones se calculan con la foto guardada (no con el catálogo
+  // vigente), para que una orden vieja no cambie al actualizar tarifas.
+  const { cabecera, netoAPagar } = calcularOrden(
+    { ...datos, items: items.map((i) => i.toJSON()), retenciones: datos.retenciones || [] },
+    { estricto: false }
+  );
   // Órdenes anteriores a los ítems/AIU/retención conservan sus totales guardados.
   const calculo = items.length > 0 ? { ...cabecera, netoAPagar } : null;
 
@@ -3773,7 +4517,7 @@ async function actualizarOrden(id, datos, usuario) {
     throw new Error('Solo se puede editar una orden en estado "borrador".');
   }
 
-  const calculo = calcularOrden(datos);
+  const calculo = calcularOrden(prepararDatosOrden(datos));
 
   return sequelize.transaction(async (transaction) => {
     await orden.update(
@@ -3817,6 +4561,10 @@ cat > tests/calculoOrden.test.js << 'SCRIPTEOF'
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const calcularOrden = require('../public/contable/calculoOrden');
+const cat = require('../public/contable/retencionesCatalogo');
+
+// Línea de retención ya "especificada" a partir del catálogo.
+const ret = (codigo, tarifa) => cat.especificar({ codigo, tarifa });
 
 const item = (valorUnitario, extra = {}) => ({ concepto: 'x', cantidad: 1, valorUnitario, ...extra });
 
@@ -3824,8 +4572,8 @@ test('ODA-016-2026: servicios, IVA 19% y retención 2,5%', () => {
   const r = calcularOrden({
     tipo: 'servicios',
     items: [item(906807)],
-    aplicaRetencion: true,
-    retencionPorcentaje: 2.5,
+    retencionModo: 'aplica',
+    retenciones: [ret('RF-01')], // Compras generales (declarantes) 2,5%
   });
   assert.equal(r.cabecera.subtotal, 906807);
   assert.equal(r.cabecera.iva, 172293.33);
@@ -3895,20 +4643,6 @@ test('IVA, Impoconsumo y exento mezclados', () => {
   assert.equal(r.cabecera.total, 277000);
 });
 
-test('Retención sin porcentaje falla en modo estricto', () => {
-  assert.throws(() => calcularOrden({ items: [item(1000)], aplicaRetencion: true }), /retención/);
-  assert.throws(
-    () => calcularOrden({ items: [item(1000)], aplicaRetencion: true, retencionPorcentaje: 101 }),
-    /retención/
-  );
-});
-
-test('Retención sin porcentaje, en modo formulario, se calcula en cero', () => {
-  const r = calcularOrden({ items: [item(1000)], aplicaRetencion: true }, { estricto: false });
-  assert.equal(r.cabecera.retencionValor, 0);
-  assert.equal(r.netoAPagar, r.cabecera.total);
-});
-
 test('Retención con AIU se calcula sobre subtotal + AIU, no sobre el IVA', () => {
   const r = calcularOrden({
     tipo: 'servicios',
@@ -3917,17 +4651,132 @@ test('Retención con AIU se calcula sobre subtotal + AIU, no sobre el IVA', () =
     aiuAdministracion: 10,
     aiuImprevistos: 5,
     aiuUtilidad: 5,
-    aplicaRetencion: true,
-    retencionPorcentaje: 4,
+    retencionModo: 'aplica',
+    retenciones: [ret('RF-14')], // Servicios generales (declarantes) 4%
   });
+  assert.equal(r.cabecera.retenciones[0].base, 1200000);
   assert.equal(r.cabecera.retencionValor, 48000); // 1.200.000 × 4%
   assert.equal(r.netoAPagar, 1380000); // 1.428.000 − 48.000
 });
 
-test('Sin retención, el neto es igual al total', () => {
-  const r = calcularOrden({ items: [item(1000)] });
-  assert.equal(r.cabecera.aplicaRetencion, false);
+test('Retefuente + ReteIVA en la misma orden', () => {
+  const r = calcularOrden({
+    tipo: 'servicios',
+    items: [item(906807)],
+    retencionModo: 'aplica',
+    retenciones: [ret('RF-14'), ret('RF-41')], // 4% sobre la base + 15% sobre el IVA
+  });
+  assert.equal(r.cabecera.retenciones[0].valor, 36272.28); // 906.807 × 4%
+  assert.equal(r.cabecera.retenciones[1].base, 172293.33);
+  assert.equal(r.cabecera.retenciones[1].valor, 25844); // 172.293,33 × 15%
+  assert.equal(r.cabecera.retencionValor, 62116.28);
+  assert.equal(r.netoAPagar, 1016984.05); // 1.079.100,33 − 62.116,28
+});
+
+test('Concepto sobre AIU (vigilancia y aseo) retiene solo sobre el AIU', () => {
+  const r = calcularOrden({
+    tipo: 'servicios',
+    items: [item(10000000)],
+    aplicaAiu: true,
+    aiuAdministracion: 8,
+    aiuImprevistos: 2,
+    aiuUtilidad: 5,
+    retencionModo: 'aplica',
+    retenciones: [ret('RF-23')], // 2% sobre AIU
+  });
+  assert.equal(r.cabecera.aiuTotal, 1500000);
+  assert.equal(r.cabecera.retenciones[0].base, 1500000);
+  assert.equal(r.cabecera.retencionValor, 30000);
+});
+
+test('Concepto sobre AIU sin AIU discriminado: no retiene y avisa', () => {
+  const r = calcularOrden(
+    { tipo: 'servicios', items: [item(10000000)], retencionModo: 'aplica', retenciones: [ret('RF-23')] }
+  );
+  assert.equal(r.cabecera.retencionValor, 0);
+  assert.match(r.cabecera.retenciones[0].nota, /AIU/);
+});
+
+test('Base por debajo del tope en UVT: la línea no retiene', () => {
+  // Servicios: tope 2 UVT = 104.748. Base de 100.000 no lo alcanza.
+  const r = calcularOrden({
+    tipo: 'servicios',
+    items: [item(100000)],
+    retencionModo: 'aplica',
+    retenciones: [ret('RF-14')],
+  });
+  const l = r.cabecera.retenciones[0];
+  assert.equal(l.baseMinima, 104748);
+  assert.equal(l.aplica, false);
+  assert.equal(l.valor, 0);
+  assert.match(l.nota, /tope/);
   assert.equal(r.netoAPagar, r.cabecera.total);
+});
+
+test('Base exactamente en el tope sí retiene', () => {
+  const r = calcularOrden({ tipo: 'servicios', items: [item(104748)], retencionModo: 'aplica', retenciones: [ret('RF-14')] });
+  assert.equal(r.cabecera.retenciones[0].aplica, true);
+});
+
+test('Concepto sin tope (honorarios) retiene desde el primer peso', () => {
+  const r = calcularOrden({ tipo: 'servicios', items: [item(10000)], retencionModo: 'aplica', retenciones: [ret('RF-32')] });
+  assert.equal(r.cabecera.retencionValor, 1100); // 11%
+});
+
+test('"Otro concepto" usa la tarifa digitada', () => {
+  const r = calcularOrden({ items: [item(1000000)], retencionModo: 'aplica', retenciones: [ret('OTRO', 3)] });
+  assert.equal(r.cabecera.retencionValor, 30000);
+  assert.throws(() => ret('OTRO', 0), /tarifa/);
+});
+
+test('Modo "aplica" sin líneas falla en estricto', () => {
+  assert.throws(() => calcularOrden({ items: [item(1000)], retencionModo: 'aplica', retenciones: [] }), /concepto de retención/);
+});
+
+test('Concepto desconocido falla al especificar', () => {
+  assert.throws(() => cat.especificar({ codigo: 'RF-99' }), /no reconocido/);
+});
+
+test('Formulario a medias (modo aplica, línea vacía) se calcula en cero sin lanzar error', () => {
+  const lineaVacia = cat.especificar({ codigo: '' }, { estricto: false });
+  const r = calcularOrden(
+    { items: [item(1000)], retencionModo: 'aplica', retenciones: [lineaVacia] },
+    { estricto: false }
+  );
+  assert.equal(r.cabecera.retencionValor, 0);
+  assert.equal(r.netoAPagar, r.cabecera.total);
+});
+
+test('"No aplica retención" guarda el motivo y no retiene', () => {
+  const r = calcularOrden({
+    items: [item(5000000)],
+    retencionModo: 'no_aplica',
+    retencionMotivo: 'Proveedor en Régimen Simple de Tributación (RST)',
+    retencionDetalle: 'Certificado RST 2026',
+    retenciones: [ret('RF-01')], // se ignora
+  });
+  assert.equal(r.cabecera.retencionModo, 'no_aplica');
+  assert.equal(r.cabecera.retencionMotivo, 'Proveedor en Régimen Simple de Tributación (RST)');
+  assert.equal(r.cabecera.retenciones.length, 0);
+  assert.equal(r.cabecera.retencionValor, 0);
+  assert.equal(r.netoAPagar, r.cabecera.total);
+});
+
+test('"No aplica retención" sin motivo falla en estricto', () => {
+  assert.throws(() => calcularOrden({ items: [item(1000)], retencionModo: 'no_aplica' }), /motivo/);
+});
+
+test('Sin retención (modo ninguna), el neto es igual al total', () => {
+  const r = calcularOrden({ items: [item(1000)] });
+  assert.equal(r.cabecera.retencionModo, 'ninguna');
+  assert.equal(r.netoAPagar, r.cabecera.total);
+});
+
+test('Catálogo: 48 conceptos con tarifa válida y códigos únicos', () => {
+  assert.equal(cat.CONCEPTOS.length, 48);
+  assert.equal(new Set(cat.CONCEPTOS.map((c) => c.codigo)).size, 48);
+  for (const c of cat.CONCEPTOS) assert.ok(c.tarifa > 0 && c.tarifa <= 100, c.codigo);
+  assert.equal(cat.UVT_VALOR, 52374);
 });
 
 test('Valores negativos fallan en modo estricto', () => {
@@ -4069,10 +4918,22 @@ guardar; nunca confía en totales que lleguen del cliente. Pruebas:
 - **AIU** (Administración, Imprevistos, Utilidad): solo en órdenes de *servicios*; cada % se
   calcula sobre el subtotal. IVA 19% sobre (subtotal + AIU), o solo sobre la Utilidad
   (`aiuBaseIva = 'utilidad'`). Con AIU se ignora el IVA individual de los ítems.
-- **Retención en la fuente**: casilla opcional + porcentaje (con sugerencias de concepto).
-  Se calcula sobre la base *antes de impuestos* (subtotal + AIU), no se suma al total
-  (`total` es el valor bruto) y el PDF muestra el **neto a pagar** y un aviso para que el
-  proveedor conozca la retención al aceptar la orden.
+- **Retención en la fuente** (informativa para el proveedor; no se suma al total, se resta para
+  dar el **neto a pagar**). Tres opciones por orden: *No indicar*, *Aplicar* o *No aplica*.
+  - *Aplicar*: una o varias líneas; cada una se elige **manualmente** del catálogo 2026
+    (`public/contable/retencionesCatalogo.js`, 48 conceptos tomados del Excel de la firma: tarifa,
+    tope en UVT y sobre qué se aplica). Se puede combinar, p. ej., retefuente de servicios + ReteIVA.
+    La base es subtotal + AIU antes de impuestos; los conceptos "sobre AIU" (temporales, vigilancia y
+    aseo) usan solo el AIU y ReteIVA usa el valor del IVA. Si la base no alcanza el tope en UVT
+    (medido por orden), esa línea no retiene. "Otro concepto" permite digitar la tarifa.
+  - *No aplica*: exige motivo (Régimen Simple, tratamiento especial, no supera el tope, otro) y
+    detalle opcional; se imprime en el PDF.
+  - El servidor toma tarifas y topes **del catálogo** (el cliente solo manda el código) y guarda una
+    **foto** de las líneas calculadas (`OrdenCompra.retenciones`), para que una orden vieja no
+    cambie cuando se actualice el catálogo en otro año. Para cambiar de año: editar `ANIO`,
+    `UVT_VALOR` y el arreglo de conceptos.
+  - UVT 2026 = $52.374 (Res. DIAN 000238/2025). El Excel traía la columna VALOR con 52.400; el
+    sistema usa la oficial.
 - Al convertir la orden en factura de compra, `subtotal = total − iva`, de modo que el
   Impoconsumo (no descontable) queda como mayor valor del costo y `subtotal + iva = total`.
 
@@ -4159,7 +5020,7 @@ qué contabilizar.
 ## Pendientes inmediatos
 
 - [ ] **Retención en la fuente en órdenes es solo informativa**: no genera asiento (retención por pagar) ni la usa `convertirOrdenEnFactura` / `motorAsientos`. Falta decidir si se contabiliza al causar la factura o al pagar (Tesorería)
-- [ ] Retención: las tarifas del desplegable son una **sugerencia fija** (compras 2,5%, servicios 4%, honorarios 10%); no se evalúan bases mínimas en UVT ni se deriva la tarifa de `Tercero.tipoPersona` / `responsabilidadesFiscales`. Validar con el contador antes de depender de esos valores
+- [ ] Retención: el concepto se elige a mano en cada orden; no se deriva automáticamente de `Tercero.tipoPersona` / `responsabilidadesFiscales` (declarante / no declarante, RST). El tope en UVT se mide **por orden**, sin acumular los pagos del mes o del año al mismo proveedor. Validar los conceptos y tarifas del catálogo con el contador
 - [ ] AIU en órdenes: igual que en cotizaciones, no admite mezclar ítems exentos/Impoconsumo con IVA sobre la base AIU (el Impoconsumo de los ítems se suma aparte; el IVA individual de los ítems se ignora)
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
@@ -4203,5 +5064,5 @@ echo "Las columnas nuevas de ordenes_compra (impoconsumo, AIU, retención) se cr
 echo "Prueba opcional del cálculo:  node --test tests/calculoOrden.test.js"
 echo "Siguiente paso:"
 echo "  git add ."
-echo "  git commit -m \"Orden de adquisición: Impoconsumo, AIU, retención en la fuente, ID de proyecto y edición de proyectos\""
+echo "  git commit -m \"Orden de adquisición: Impoconsumo, AIU, retención por concepto 2026, ID de proyecto y edición de proyectos\""
 echo "  git push"

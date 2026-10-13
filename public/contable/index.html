@@ -406,26 +406,36 @@
           </div>
         </div>
 
-        <label class="check-aiu">
-          <input type="checkbox" id="orden-aplica-retencion"> Calcular retención en la fuente (queda informada al proveedor en el PDF)
-        </label>
-        <div class="fila-campos" id="campos-retencion-orden" hidden>
-          <label class="campo-aiu">
-            <span>Concepto (sugerencia)</span>
-            <select id="orden-retencion-concepto">
-              <option value="">Elegir concepto...</option>
-              <option value="Compras generales" data-pct="2.5">Compras generales — 2,5%</option>
-              <option value="Servicios generales" data-pct="4">Servicios generales — 4%</option>
-              <option value="Honorarios y comisiones" data-pct="10">Honorarios y comisiones — 10%</option>
-              <option value="Otro">Otro (digitar %)</option>
-            </select>
-          </label>
-          <label class="campo-aiu">
-            <span>Retención %</span>
-            <input type="number" id="orden-retencion-porcentaje" placeholder="%" min="0" max="100" step="0.01">
-          </label>
-          <p class="nota-aiu">Las tarifas son una sugerencia: verifica la tarifa y la base mínima que aplican a este proveedor. Se calcula sobre el subtotal + AIU, antes de impuestos.</p>
-        </div>
+        <fieldset class="bloque-retencion" id="bloque-retencion-orden">
+          <legend>Retención en la fuente (informativa para el proveedor)</legend>
+          <div class="opciones-retencion">
+            <label><input type="radio" name="orden-retencion-modo" value="ninguna" checked> No indicar retención</label>
+            <label><input type="radio" name="orden-retencion-modo" value="aplica"> Aplicar retención</label>
+            <label><input type="radio" name="orden-retencion-modo" value="no_aplica"> No aplica retención</label>
+          </div>
+
+          <div id="retencion-aplica-orden" hidden>
+            <table class="tabla-items">
+              <thead>
+                <tr><th>Concepto (tipo de bien o servicio)</th><th>Tarifa</th><th class="num">Base</th><th class="num">Tope mínimo</th><th class="num">Retención</th><th></th></tr>
+              </thead>
+              <tbody id="retenciones-orden-tbody"></tbody>
+            </table>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-retencion-orden">+ Agregar concepto de retención</button>
+            <p class="nota-aiu" id="nota-retencion-orden"></p>
+          </div>
+
+          <div id="retencion-no-aplica-orden" class="fila-campos" hidden>
+            <label class="campo-aiu">
+              <span>Motivo</span>
+              <select id="orden-retencion-motivo"></select>
+            </label>
+            <label class="campo-aiu campo-ancho">
+              <span>Detalle (opcional)</span>
+              <input type="text" id="orden-retencion-detalle" maxlength="255" placeholder="Ej.: certificado RST vigente, resolución, etc.">
+            </label>
+          </div>
+        </fieldset>
 
         <div class="resumen-totales">
           <span>Subtotal: <strong id="resumen-subtotal-orden">$0</strong></span>
@@ -630,6 +640,7 @@
   </main>
 </div>
 
+<script src="/contable/retencionesCatalogo.js"></script>
 <script src="/contable/calculoOrden.js"></script>
 <script src="/contable/app.js"></script>
 </body>

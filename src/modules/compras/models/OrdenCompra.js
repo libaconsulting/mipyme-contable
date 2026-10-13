@@ -64,11 +64,17 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
   aiuImprevistos: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
   aiuUtilidad: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
   aiuBaseIva: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'total' },
-  // Retención en la fuente: informativa para el proveedor (se muestra
-  // en el PDF con el neto a pagar). No genera asiento por sí sola.
-  aplicaRetencion: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
-  retencionConcepto: { type: DataTypes.STRING(60) },
-  retencionPorcentaje: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+  // Retención en la fuente: informativa para el proveedor (se muestra en
+  // el PDF con el neto a pagar). No genera asiento por sí sola.
+  //   retencionModo: 'ninguna' | 'aplica' | 'no_aplica'
+  //   retenciones:   líneas calculadas (concepto, tarifa, base, tope, valor).
+  //                  Es una FOTO del momento de guardar: así la orden no
+  //                  cambia si el catálogo de tarifas se actualiza otro año.
+  //   retencionMotivo/Detalle: por qué no aplica (RST, tratamiento especial...)
+  retencionModo: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'ninguna' },
+  retencionMotivo: { type: DataTypes.STRING(120) },
+  retencionDetalle: { type: DataTypes.STRING(255) },
+  retenciones: { type: DataTypes.JSON },
   retencionValor: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
 }, {
   tableName: 'ordenes_compra',

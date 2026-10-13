@@ -9,6 +9,16 @@ const { contabilizarEvento } = require('../../../core/services/motorAsientos');
 const { crearConSecutivoUnico } = require('../../../core/services/consecutivos');
 // Mismo archivo que usa el navegador: lo que se ve al digitar es lo que se guarda.
 const calcularOrden = require('../../../../public/contable/calculoOrden');
+const retencionesCatalogo = require('../../../../public/contable/retencionesCatalogo');
+
+// Lo que llega del cliente por cada retención es solo {codigo, tarifa?}
+// (tarifa solo para "Otro concepto"). Nombre, tarifa oficial, tope en UVT y
+// base de cálculo se toman SIEMPRE del catálogo del servidor.
+function prepararDatosOrden(datos) {
+  if (datos.retencionModo !== 'aplica') return { ...datos, retenciones: [] };
+  const entradas = Array.isArray(datos.retenciones) ? datos.retenciones : [];
+  return { ...datos, retenciones: entradas.map((e) => retencionesCatalogo.especificar(e)) };
+}
 
 // Campos de cabecera derivados del cálculo (impuestos, AIU, retención).
 function camposCalculados(cabecera, datos) {
@@ -22,9 +32,10 @@ function camposCalculados(cabecera, datos) {
     aiuImprevistos: cabecera.aiuImprevistos,
     aiuUtilidad: cabecera.aiuUtilidad,
     aiuBaseIva: cabecera.aiuBaseIva,
-    aplicaRetencion: cabecera.aplicaRetencion,
-    retencionConcepto: cabecera.aplicaRetencion ? datos.retencionConcepto || null : null,
-    retencionPorcentaje: cabecera.retencionPorcentaje,
+    retencionModo: cabecera.retencionModo,
+    retencionMotivo: cabecera.retencionModo === 'no_aplica' ? cabecera.retencionMotivo : null,
+    retencionDetalle: cabecera.retencionModo === 'no_aplica' ? cabecera.retencionDetalle || null : null,
+    retenciones: cabecera.retenciones,
     retencionValor: cabecera.retencionValor,
   };
 }
@@ -58,7 +69,7 @@ async function crearOrden(datos, usuario) {
   const hayItems = Array.isArray(datos.items) && datos.items.length > 0;
   // Se calcula (y valida) ANTES de abrir la transacción: si el
   // porcentaje de retención viene mal, falla sin consumir consecutivo.
-  const calculo = hayItems ? calcularOrden(datos) : null;
+  const calculo = hayItems ? calcularOrden(prepararDatosOrden(datos)) : null;
 
   return crearConSecutivoUnico(OrdenCompra, usuario.empresaId, 'ODA', async (consecutivo, transaction) => {
     const orden = await OrdenCompra.create(
@@ -256,7 +267,12 @@ async function obtenerOrden(id, usuario) {
   // retención y neto a pagar). Se recalcula con los mismos datos
   // guardados; "modo formulario" para no fallar con órdenes viejas que
   // no tienen nada de esto.
-  const { cabecera, netoAPagar } = calcularOrden({ ...datos, items: items.map((i) => i.toJSON()) }, { estricto: false });
+  // Las retenciones se calculan con la foto guardada (no con el catálogo
+  // vigente), para que una orden vieja no cambie al actualizar tarifas.
+  const { cabecera, netoAPagar } = calcularOrden(
+    { ...datos, items: items.map((i) => i.toJSON()), retenciones: datos.retenciones || [] },
+    { estricto: false }
+  );
   // Órdenes anteriores a los ítems/AIU/retención conservan sus totales guardados.
   const calculo = items.length > 0 ? { ...cabecera, netoAPagar } : null;
 
@@ -274,7 +290,7 @@ async function actualizarOrden(id, datos, usuario) {
     throw new Error('Solo se puede editar una orden en estado "borrador".');
   }
 
-  const calculo = calcularOrden(datos);
+  const calculo = calcularOrden(prepararDatosOrden(datos));
 
   return sequelize.transaction(async (transaction) => {
     await orden.update(

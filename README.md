@@ -130,10 +130,22 @@ guardar; nunca confía en totales que lleguen del cliente. Pruebas:
 - **AIU** (Administración, Imprevistos, Utilidad): solo en órdenes de *servicios*; cada % se
   calcula sobre el subtotal. IVA 19% sobre (subtotal + AIU), o solo sobre la Utilidad
   (`aiuBaseIva = 'utilidad'`). Con AIU se ignora el IVA individual de los ítems.
-- **Retención en la fuente**: casilla opcional + porcentaje (con sugerencias de concepto).
-  Se calcula sobre la base *antes de impuestos* (subtotal + AIU), no se suma al total
-  (`total` es el valor bruto) y el PDF muestra el **neto a pagar** y un aviso para que el
-  proveedor conozca la retención al aceptar la orden.
+- **Retención en la fuente** (informativa para el proveedor; no se suma al total, se resta para
+  dar el **neto a pagar**). Tres opciones por orden: *No indicar*, *Aplicar* o *No aplica*.
+  - *Aplicar*: una o varias líneas; cada una se elige **manualmente** del catálogo 2026
+    (`public/contable/retencionesCatalogo.js`, 48 conceptos tomados del Excel de la firma: tarifa,
+    tope en UVT y sobre qué se aplica). Se puede combinar, p. ej., retefuente de servicios + ReteIVA.
+    La base es subtotal + AIU antes de impuestos; los conceptos "sobre AIU" (temporales, vigilancia y
+    aseo) usan solo el AIU y ReteIVA usa el valor del IVA. Si la base no alcanza el tope en UVT
+    (medido por orden), esa línea no retiene. "Otro concepto" permite digitar la tarifa.
+  - *No aplica*: exige motivo (Régimen Simple, tratamiento especial, no supera el tope, otro) y
+    detalle opcional; se imprime en el PDF.
+  - El servidor toma tarifas y topes **del catálogo** (el cliente solo manda el código) y guarda una
+    **foto** de las líneas calculadas (`OrdenCompra.retenciones`), para que una orden vieja no
+    cambie cuando se actualice el catálogo en otro año. Para cambiar de año: editar `ANIO`,
+    `UVT_VALOR` y el arreglo de conceptos.
+  - UVT 2026 = $52.374 (Res. DIAN 000238/2025). El Excel traía la columna VALOR con 52.400; el
+    sistema usa la oficial.
 - Al convertir la orden en factura de compra, `subtotal = total − iva`, de modo que el
   Impoconsumo (no descontable) queda como mayor valor del costo y `subtotal + iva = total`.
 
@@ -220,7 +232,7 @@ qué contabilizar.
 ## Pendientes inmediatos
 
 - [ ] **Retención en la fuente en órdenes es solo informativa**: no genera asiento (retención por pagar) ni la usa `convertirOrdenEnFactura` / `motorAsientos`. Falta decidir si se contabiliza al causar la factura o al pagar (Tesorería)
-- [ ] Retención: las tarifas del desplegable son una **sugerencia fija** (compras 2,5%, servicios 4%, honorarios 10%); no se evalúan bases mínimas en UVT ni se deriva la tarifa de `Tercero.tipoPersona` / `responsabilidadesFiscales`. Validar con el contador antes de depender de esos valores
+- [ ] Retención: el concepto se elige a mano en cada orden; no se deriva automáticamente de `Tercero.tipoPersona` / `responsabilidadesFiscales` (declarante / no declarante, RST). El tope en UVT se mide **por orden**, sin acumular los pagos del mes o del año al mismo proveedor. Validar los conceptos y tarifas del catálogo con el contador
 - [ ] AIU en órdenes: igual que en cotizaciones, no admite mezclar ítems exentos/Impoconsumo con IVA sobre la base AIU (el Impoconsumo de los ítems se suma aparte; el IVA individual de los ítems se ignora)
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 

@@ -242,19 +242,41 @@ async function cargar() {
       );
       if (c.impoconsumo > 0) filas.push(f('Impoconsumo', formatoDineroDec(c.impoconsumo)));
       filas.push(f('Total', formatoDineroDec(c.total), 'total-final'));
-      if (c.aplicaRetencion) {
-        filas.push(
-          f(
-            `Retención en la fuente${orden.retencionConcepto && orden.retencionConcepto !== 'Otro' ? ' (' + orden.retencionConcepto + ')' : ''} ${c.retencionPorcentaje}%`,
-            '− ' + formatoDineroDec(c.retencionValor)
-          )
+      if (c.retencionModo === 'aplica') {
+        const practicadas = c.retenciones.filter((l) => l.aplica);
+        const sinEfecto = c.retenciones.filter((l) => !l.aplica);
+        practicadas.forEach((l) =>
+          filas.push(f(`Retención: ${l.nombre} (${l.tarifa}%)`, '− ' + formatoDineroDec(l.valor)))
         );
-        filas.push(f('Neto a pagar al proveedor', formatoDineroDec(c.netoAPagar), 'total-final'));
+        if (practicadas.length > 0) {
+          filas.push(f('Neto a pagar al proveedor', formatoDineroDec(c.netoAPagar), 'total-final'));
+          avisoRetencion = `<p class="aviso-retencion">
+            <strong>Retención en la fuente:</strong> al momento del pago se practicarán las siguientes retenciones:
+            ${practicadas
+              .map(
+                (l) =>
+                  `${l.nombre} al ${l.tarifa}% sobre ${formatoDineroDec(l.base)}${
+                    l.sobre === 'iva' ? ' (valor del IVA)' : l.sobre === 'aiu' ? ' (AIU)' : ' (antes de impuestos)'
+                  } = ${formatoDineroDec(l.valor)}`
+              )
+              .join('; ')}.
+            Total retenido: ${formatoDineroDec(c.retencionValor)}; valor neto a pagar: ${formatoDineroDec(c.netoAPagar)}.
+            Al aceptar esta orden, el proveedor declara conocer esta retención.
+            ${
+              sinEfecto.length > 0
+                ? `<br>No se practica: ${sinEfecto.map((l) => l.nombre).join('; ')}, por no alcanzar la base mínima (tope) o no tener base de cálculo.`
+                : ''
+            }
+          </p>`;
+        } else {
+          avisoRetencion = `<p class="aviso-retencion">
+            <strong>Retención en la fuente:</strong> no se practica retención en esta orden
+            (${sinEfecto.map((l) => l.nombre).join('; ')}: la base no alcanza el tope mínimo o no hay base de cálculo).
+          </p>`;
+        }
+      } else if (c.retencionModo === 'no_aplica') {
         avisoRetencion = `<p class="aviso-retencion">
-          <strong>Retención en la fuente:</strong> al momento del pago se practicará una retención del
-          ${c.retencionPorcentaje}% sobre la base de ${formatoDineroDec(c.base)} (antes de impuestos), equivalente a
-          ${formatoDineroDec(c.retencionValor)}, por lo que el valor neto a pagar es ${formatoDineroDec(c.netoAPagar)}.
-          Al aceptar esta orden, el proveedor declara conocer esta retención.
+          <strong>Retención en la fuente:</strong> no aplica — ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}.
         </p>`;
       }
       filasTotales = filas.join('');
