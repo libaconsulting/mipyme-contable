@@ -89,6 +89,14 @@ nuevo no responde, pero el código se ve bien), lo primero a probar es
 una recarga forzada (Ctrl+Shift+R) o una ventana de incógnito antes de
 asumir que el código tiene un error real.
 
+**Versión en la URL de los archivos (`?v=`)**: aun con `Cache-Control: no-cache`, el CDN de Hostinger o el
+navegador pueden seguir entregando un `app.js` o `style.css` viejo con un `index.html` nuevo (pasó el
+12/oct/2026: el formulario mostraba el bloque nuevo de retención pero el JS era el anterior, así que la
+retención "no hacía nada"). Por eso `public/contable/index.html` pide los archivos con `?v=AAAAMMDD-n`.
+**Cada vez que cambie `app.js`, `style.css`, `calculoOrden.js` o `retencionesCatalogo.js`, subir ese valor
+en `index.html`.** Para comprobar qué versión está sirviendo producción, abrir
+`/contable/app.js?v=<valor>` y buscar un texto que solo exista en la versión nueva.
+
 ## Mi Empresa
 
 Pestaña nueva en el tablero (al final del menú, como una sección de

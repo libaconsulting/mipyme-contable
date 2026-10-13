@@ -2488,7 +2488,7 @@ cat > public/contable/index.html << 'SCRIPTEOF'
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css">
+<link rel="stylesheet" href="/contable/style.css?v=20261012-3">
 </head>
 <body>
 
@@ -3121,9 +3121,10 @@ cat > public/contable/index.html << 'SCRIPTEOF'
   </main>
 </div>
 
-<script src="/contable/retencionesCatalogo.js"></script>
-<script src="/contable/calculoOrden.js"></script>
-<script src="/contable/app.js"></script>
+<!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
+<script src="/contable/retencionesCatalogo.js?v=20261012-3"></script>
+<script src="/contable/calculoOrden.js?v=20261012-3"></script>
+<script src="/contable/app.js?v=20261012-3"></script>
 </body>
 </html>
 SCRIPTEOF
@@ -4909,6 +4910,14 @@ nuevo no responde, pero el código se ve bien), lo primero a probar es
 una recarga forzada (Ctrl+Shift+R) o una ventana de incógnito antes de
 asumir que el código tiene un error real.
 
+**Versión en la URL de los archivos (`?v=`)**: aun con `Cache-Control: no-cache`, el CDN de Hostinger o el
+navegador pueden seguir entregando un `app.js` o `style.css` viejo con un `index.html` nuevo (pasó el
+12/oct/2026: el formulario mostraba el bloque nuevo de retención pero el JS era el anterior, así que la
+retención "no hacía nada"). Por eso `public/contable/index.html` pide los archivos con `?v=AAAAMMDD-n`.
+**Cada vez que cambie `app.js`, `style.css`, `calculoOrden.js` o `retencionesCatalogo.js`, subir ese valor
+en `index.html`.** Para comprobar qué versión está sirviendo producción, abrir
+`/contable/app.js?v=<valor>` y buscar un texto que solo exista en la versión nueva.
+
 ## Mi Empresa
 
 Pestaña nueva en el tablero (al final del menú, como una sección de
@@ -5103,3 +5112,5 @@ echo "Siguiente paso:"
 echo "  git add ."
 echo "  git commit -m \"Orden de adquisición: Impoconsumo, AIU, retención por concepto 2026, ID de proyecto y edición de proyectos\""
 echo "  git push"
+echo ""
+echo "Después del despliegue abre /contable con Ctrl+F5. Los archivos ahora se piden con ?v=... para saltarse cualquier caché vieja."
