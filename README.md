@@ -307,6 +307,36 @@ mostrarlo. Pruebas: `node --test tests/facturaElectronica.test.js` (lector y dat
 Lo que **no** hace todavía: notas crédito/débito, facturas en moneda extranjera, cruce de anticipos, ni los
 eventos RADIAN (acuse de recibo, recibo del bien, aceptación expresa) — ver pendientes.
 
+## Factura de venta desde el XML de Siigo
+
+Mientras no tengamos integración directa ni proveedor tecnológico propio, las facturas de venta se expiden
+en **Siigo** (o el proveedor que tenga contratado la empresa) y aquí solo se **cargan y contabilizan**.
+Facturas de venta → **+ Cargar factura emitida (XML)**: sirve el `.xml` o el `.zip` que descarga Siigo
+(trae el `AttachedDocument` con la factura y la respuesta de la DIAN; se probó con una factura real).
+
+- Dos pasos, como en compras: `POST /api/ventas/facturas/xml/previsualizar` (lee, no guarda) y
+  `POST /api/ventas/facturas/xml` (vuelve a leer el archivo, valida, guarda y contabiliza en una
+  transacción). Detalle: `GET /api/ventas/facturas/:id`; XML guardado: `GET /api/ventas/facturas/:id/xml`.
+  Código: `src/modules/ventas/services/facturaVentaXml.service.js`; asiento compartido con el navegador en
+  `public/contable/asientoVenta.js`.
+- **Asiento**: Db 1305 Clientes (total) / Cr cuenta de ingreso por línea (base; por defecto la de la regla
+  `factura_venta_credito`, se puede cambiar por línea o crear una nueva con "+ Crear cuenta nueva…") /
+  Cr 2408 IVA por pagar. Siempre a crédito (1305): el recaudo se registra en Tesorería.
+- **Cliente**: se busca por NIT en Terceros; si no existe se crea con los datos del XML (casilla de la pantalla).
+- **Cotizaciones**: ya no se convierten en factura desde aquí (se quitó el botón). Al cargar el XML se puede
+  vincular una cotización **aceptada** del mismo cliente (se sugiere la citada en el XML o la del mismo valor);
+  queda `facturada`. Si el total difiere hay que confirmar.
+- **Se bloquea** (con mensaje claro): que el emisor no sea la propia empresa (si es una factura de compra se
+  indica que va en Facturas de compra; y al revés, Facturas de compra rechaza facturas propias), CUFE o número
+  ya cargados, notas crédito/débito, e impuesto al consumo/otros impuestos distintos de IVA. Pide confirmar si
+  la factura trae IVA y la empresa figura como no responsable de IVA.
+- Empresa nueva sin plan de cuentas: se aprovisiona la contabilidad base igual que en compras.
+- Pruebas: `node --test tests/asientoVenta.test.js`.
+
+Lo que **no** hace todavía: retenciones que practica el cliente (se registrarán al recibir el pago, en
+Tesorería), notas crédito/débito, costo de ventas de bienes (inventarios), impoconsumo en ventas, ni el
+**documento soporte** emitido por Siigo (pendiente de ver un XML real para validar los roles de las partes).
+
 ## Frontend
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
@@ -395,6 +425,7 @@ qué contabilizar.
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
 - [ ] Plan de cuentas: no hay pantalla para editar las **reglas de contabilización** (qué cuenta usa cada evento); solo se ven en el bloqueo al desactivar. Tampoco hay importación masiva del plan desde Excel ni cuentas de orden (clases 8 y 9). La cuenta 1355 se usa como "IVA descontable" (en el PUC el IVA descontable es una subcuenta de 2408): validar con el contador si se prefiere la estructura del PUC
+- [ ] Facturas de venta desde XML (Siigo): retenciones practicadas por el cliente al pago, notas crédito/débito, costo de ventas e inventario, impoconsumo, y cargar el documento soporte desde su XML. Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
 - [ ] Facturas de compra desde XML: notas crédito/débito de proveedores (descuentos y devoluciones posteriores), documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`

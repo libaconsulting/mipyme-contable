@@ -136,6 +136,7 @@ async function listarCotizaciones(usuario) {
 async function listarFacturas(usuario) {
   return FacturaVenta.findAll({
     where: { empresaId: usuario.empresaId },
+    attributes: { exclude: ['xmlContenido', 'detalle'] }, // pesados: se piden en el detalle
     order: [['fecha', 'DESC']],
   });
 }

@@ -8,6 +8,19 @@ router.get('/cotizaciones', ventasController.listarCotizaciones);
 // GET /api/ventas/facturas
 router.get('/facturas', ventasController.listarFacturas);
 
+// Factura de venta emitida en otro sistema (Siigo): se carga su XML para contabilizarla
+// POST /api/ventas/facturas/xml/previsualizar
+router.post('/facturas/xml/previsualizar', ventasController.previsualizarFacturaVentaXml);
+
+// POST /api/ventas/facturas/xml
+router.post('/facturas/xml', ventasController.registrarFacturaVentaXml);
+
+// GET /api/ventas/facturas/:id/xml
+router.get('/facturas/:id/xml', ventasController.descargarXmlFactura);
+
+// GET /api/ventas/facturas/:id
+router.get('/facturas/:id', ventasController.obtenerFactura);
+
 // GET /api/ventas/cotizaciones/:id (detalle con ítems)
 router.get('/cotizaciones/:id', ventasController.obtenerCotizacion);
 

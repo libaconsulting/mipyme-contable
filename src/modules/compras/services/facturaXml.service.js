@@ -33,45 +33,13 @@ const calcularOrden = require('../../../../public/contable/calculoOrden');
 const { armarAsientoCompra, repartir } = require('../../../../public/contable/asientoCompra');
 const retencionesCatalogo = require('../../../../public/contable/retencionesCatalogo');
 const planCuentasReglas = require('../../../../public/contable/planCuentas');
+const { partesNit, mismoNit, decodificarArchivo } = require('../../../integrations/dian/utilDian');
 
-const MAX_ARCHIVO_BYTES = 3.5 * 1024 * 1024; // el límite de JSON del servidor es 5 MB (base64 pesa ~33% más)
 const ESTADOS_ORDEN_FACTURABLE = ['aprobada', 'recibida_parcial', 'recibida_total'];
 
 // --- utilidades ------------------------------------------------------
 
 const centavos = (n) => Math.round((Number(n) + Number.EPSILON) * 100);
-
-// "900.123.456-1" -> { base: '900123456', tieneDv: true }
-function partesNit(nit) {
-  const crudo = String(nit || '').trim();
-  const tieneDv = crudo.includes('-');
-  const base = (tieneDv ? crudo.split('-')[0] : crudo).replace(/\D/g, '');
-  return { base, tieneDv };
-}
-
-// Compara NITs aunque uno traiga el dígito de verificación pegado y el otro no.
-function mismoNit(a, b) {
-  const x = partesNit(a);
-  const y = partesNit(b);
-  if (!x.base || !y.base) return false;
-  if (x.base === y.base) return true;
-  if (!x.tieneDv && x.base.slice(0, -1) === y.base) return true;
-  if (!y.tieneDv && y.base.slice(0, -1) === x.base) return true;
-  return false;
-}
-
-function decodificarArchivo(archivoBase64) {
-  if (typeof archivoBase64 !== 'string' || archivoBase64.length === 0) {
-    throw new Error('Selecciona el archivo XML (o ZIP) de la factura.');
-  }
-  const limpio = archivoBase64.replace(/^data:[^,]*,/, '');
-  const buffer = Buffer.from(limpio, 'base64');
-  if (buffer.length === 0) throw new Error('El archivo está vacío.');
-  if (buffer.length > MAX_ARCHIVO_BYTES) {
-    throw new Error('El archivo es demasiado grande (máximo 3,5 MB). Sube solo el XML de la factura.');
-  }
-  return buffer;
-}
 
 // Las cuentas a las que se puede llevar el gasto/costo/activo de una compra.
 async function cuentasDestinoDe(empresaId) {
@@ -154,6 +122,14 @@ async function analizar(datos, usuario) {
         ? 'Es una nota débito: todavía no se pueden cargar notas débito desde XML.'
         : `Es un documento de tipo "${factura.tipoNombre}", que no se carga como factura de compra.`;
     advertencias.push({ nivel: 'bloqueo', texto: motivo });
+  }
+
+  // Una factura que emitió la propia empresa es una venta, no una compra.
+  if (factura.emisor && factura.emisor.nit && mismoNit(empresa.nit, factura.emisor.nit)) {
+    advertencias.push({
+      nivel: 'bloqueo',
+      texto: 'Esta factura la emitió tu propia empresa: es una factura de venta. Cárgala en "Facturas de venta".',
+    });
   }
 
   // ¿Está a nombre de nuestra empresa?

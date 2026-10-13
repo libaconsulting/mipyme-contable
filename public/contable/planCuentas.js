@@ -104,6 +104,11 @@
     return /^(14|15|16|17)/.test(String(cuenta.codigo));
   }
 
+  // ¿Sirve como cuenta de ingreso de una venta? (ingresos: clase 4, naturaleza crédito)
+  function esDestinoVenta(cuenta) {
+    return !!cuenta && cuenta.naturaleza === 'credito' && cuenta.elementoNiif === 'ingreso';
+  }
+
   // --- Catálogo -----------------------------------------------------------
   // Pocas cuentas, las que de verdad usa una mipyme de servicios o comercio.
   // `recomendada`: se sugiere activarla desde el inicio.
@@ -193,6 +198,7 @@
     clasificarCodigo,
     validarNombre,
     esDestinoCompra,
+    esDestinoVenta,
     datosDeCatalogo,
   };
 });

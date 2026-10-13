@@ -780,3 +780,6 @@ td.num, th.num {
 #tabla-plan-cuentas th:nth-child(5) { text-align: right; }
 #tabla-plan-cuentas tr.aux td:nth-child(2) { padding-left: 52px; }
 .mono { font-family: var(--font-mono); }
+
+/* Texto de ayuda dentro de una celda de acciones (ej.: cotización aceptada) */
+.texto-suave { color: #6b7280; font-size: 0.85em; }

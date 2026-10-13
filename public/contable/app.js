@@ -632,7 +632,7 @@ function renderCotizaciones(lista) {
         acciones +=
           botonAccion('Aceptar', { accion: 'aceptar-cotizacion', id: c.id }) +
           botonAccion('Rechazar', { accion: 'rechazar-cotizacion', id: c.id }, true);
-      else if (c.estado === 'aceptada') acciones += botonAccion('Convertir en factura', { accion: 'convertir-cotizacion', id: c.id });
+      else if (c.estado === 'aceptada') acciones += '<span class="texto-suave">Se factura en Siigo: carga el XML en Facturas de venta</span>';
 
       return `<tr data-fila-cotizacion="${c.id}"><td>${c.consecutivo || '—'}</td><td>${formatoFecha(
         c.fecha
@@ -645,14 +645,18 @@ function renderCotizaciones(lista) {
 
 function renderFacturasVenta(lista) {
   document.querySelector('#tabla-facturas-venta thead').innerHTML =
-    '<tr><th>Fecha</th><th>Cliente</th><th>DIAN</th><th class="num">Total</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-facturas-venta', 4, 'Todavía no hay facturas de venta.');
+    '<tr><th>Fecha</th><th>Número</th><th>Cliente</th><th>DIAN</th><th class="num">Total</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-facturas-venta', 6, 'Todavía no hay facturas de venta. Carga el XML de la primera con el botón de arriba.');
   document.querySelector('#tabla-facturas-venta tbody').innerHTML = lista
     .map(
       (f) =>
-        `<tr><td>${formatoFecha(f.fecha)}</td><td>${nombreTercero(f.terceroId)}</td><td>${badge(
+        `<tr><td>${formatoFecha(f.fecha)}</td><td>${escHtml(f.numero || '—')}</td><td>${escHtml(nombreTercero(f.terceroId))}</td><td>${badge(
           f.estadoSincronizacion
-        )}</td><td class="num">${formatoDinero(f.total)}</td></tr>`
+        )}</td><td class="num">${formatoDineroDec(f.total)}</td><td class="acciones">${
+          f.origen === 'xml'
+            ? botonAccion('Ver', { accion: 'ver-factura-venta', id: f.id }) + botonAccion('XML', { accion: 'xml-factura-venta', id: f.id })
+            : '—'
+        }</td></tr>`
     )
     .join('');
 }
@@ -1791,18 +1795,19 @@ function planActualizarBotonActivar() {
 }
 
 // --- Diálogo para crear / renombrar una cuenta (también lo usa la factura XML) ---
-const dc = { modo: 'crear', id: null, paraCompra: false, alTerminar: null, creada: false };
+const dc = { modo: 'crear', id: null, paraCompra: false, paraVenta: false, alTerminar: null, creada: false };
 const dialogoCuenta = document.getElementById('dialogo-cuenta');
 
 async function abrirDialogoCuenta(opciones = {}) {
   dc.modo = opciones.id ? 'editar' : 'crear';
   dc.id = opciones.id || null;
   dc.paraCompra = !!opciones.paraCompra;
+  dc.paraVenta = !!opciones.paraVenta;
   dc.alTerminar = opciones.alTerminar || null;
   dc.creada = false;
 
   const editar = dc.modo === 'editar';
-  document.getElementById('titulo-cuenta').textContent = editar ? 'Renombrar cuenta' : dc.paraCompra ? 'Crear cuenta para esta compra' : 'Crear cuenta';
+  document.getElementById('titulo-cuenta').textContent = editar ? 'Renombrar cuenta' : dc.paraCompra ? 'Crear cuenta para esta compra' : dc.paraVenta ? 'Crear cuenta de ingreso' : 'Crear cuenta';
   document.getElementById('btn-guardar-cuenta').textContent = editar ? 'Guardar nombre' : 'Crear cuenta';
   document.getElementById('dc-codigo').value = opciones.codigo || '';
   document.getElementById('dc-codigo').readOnly = editar;
@@ -1826,7 +1831,7 @@ async function abrirDialogoCuenta(opciones = {}) {
 }
 
 function dcPoblarCatalogo() {
-  const disponibles = plan.catalogo.cuentas.filter((c) => c.estado !== 'activa' && (!dc.paraCompra || c.destinoCompra));
+  const disponibles = plan.catalogo.cuentas.filter((c) => c.estado !== 'activa' && (!dc.paraCompra || c.destinoCompra) && (!dc.paraVenta || c.destinoVenta));
   const sel = document.getElementById('dc-catalogo');
   sel.innerHTML =
     '<option value="">— Escribir una cuenta nueva —</option>' +
@@ -1868,6 +1873,9 @@ function dcActualizarTipo() {
   if (dc.paraCompra && !planCuentas.esDestinoCompra({ codigo: t.codigo, naturaleza: t.naturaleza, elementoNiif: t.elementoNiif })) {
     el.textContent = 'Para una compra elige una cuenta de costo o gasto (5, 6, 7), inventarios (14), activos fijos (15), intangibles (16) o diferidos (17).';
     el.classList.add('mal');
+  } else if (dc.paraVenta && !planCuentas.esDestinoVenta({ naturaleza: t.naturaleza, elementoNiif: t.elementoNiif })) {
+    el.textContent = 'Para una venta elige una cuenta de ingresos (códigos que empiezan por 4).';
+    el.classList.add('mal');
   } else if (t.aviso) {
     el.textContent = texto + ' ' + t.aviso;
     el.classList.add('aviso');
@@ -1896,7 +1904,7 @@ async function guardarDialogoCuenta(e) {
     } else {
       resultado = await api('/plan-cuentas', {
         method: 'POST',
-        body: JSON.stringify({ codigo: document.getElementById('dc-codigo').value, nombre, paraCompra: dc.paraCompra }),
+        body: JSON.stringify({ codigo: document.getElementById('dc-codigo').value, nombre, paraCompra: dc.paraCompra, uso: dc.paraVenta ? 'venta' : undefined }),
       });
       resultado.mensaje = `Cuenta ${resultado.cuenta.codigo} — ${resultado.cuenta.nombre} creada.${resultado.aviso ? ' ' + resultado.aviso : ''}`;
     }
@@ -2602,11 +2610,13 @@ document.getElementById('btn-agregar-retencion-fx').addEventListener('click', ()
 // --- Detalle de una factura registrada ---
 const dialogoDetalle = document.getElementById('dialogo-factura-detalle');
 let facturaDetalleId = null;
+let facturaDetalleModulo = 'compras';
 
 async function abrirDetalleFactura(id, avisos, mensajeOk) {
   try {
     const f = await api(`/compras/facturas/${id}`);
     facturaDetalleId = id;
+    facturaDetalleModulo = 'compras';
     const det = f.detalle || {};
     const lineas = det.lineas || [];
     const retenciones = Array.isArray(f.retenciones) ? f.retenciones : [];
@@ -2675,9 +2685,9 @@ async function abrirDetalleFactura(id, avisos, mensajeOk) {
   }
 }
 
-async function descargarXmlFactura(id) {
+async function descargarXmlFactura(id, modulo = 'compras') {
   try {
-    const res = await fetch(`${API}/compras/facturas/${id}/xml`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const res = await fetch(`${API}/${modulo}/facturas/${id}/xml`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || 'No se pudo descargar el XML.');
@@ -2698,7 +2708,465 @@ async function descargarXmlFactura(id) {
 
 document.getElementById('btn-cerrar-factura-detalle').addEventListener('click', () => dialogoDetalle.close());
 document.getElementById('btn-listo-factura-detalle').addEventListener('click', () => dialogoDetalle.close());
-document.getElementById('btn-xml-factura-detalle').addEventListener('click', () => facturaDetalleId && descargarXmlFactura(facturaDetalleId));
+document.getElementById('btn-xml-factura-detalle').addEventListener('click', () => facturaDetalleId && descargarXmlFactura(facturaDetalleId, facturaDetalleModulo));
+
+// --- FACTURAS DE VENTA: CARGA DEL XML QUE EXPIDE SIIGO ---
+// Mismo flujo que la factura de compra, más corto: elegir archivo -> el servidor lo
+// lee (sin guardar nada) -> se revisa (cliente, cotización, cuenta de ingreso, asiento)
+// -> confirmar. El servidor vuelve a leer el XML al registrar.
+
+const vx = {
+  base64: null,
+  nombre: '',
+  preview: null,
+  cotizacionId: '',
+  enviando: false,
+};
+
+const dialogoVx = document.getElementById('dialogo-venta-xml');
+
+function vxReiniciar() {
+  vx.base64 = null;
+  vx.nombre = '';
+  vx.preview = null;
+  vx.cotizacionId = '';
+  vx.enviando = false;
+  document.getElementById('vx-archivo').value = '';
+  document.getElementById('vx-paso-archivo').hidden = false;
+  document.getElementById('vx-revision').hidden = true;
+  document.getElementById('vx-estado-lectura').textContent = '';
+  document.getElementById('vx-estado-lectura').classList.remove('error');
+  document.getElementById('vx-zona-archivo').classList.remove('error', 'arrastrando');
+  document.getElementById('vx-error').hidden = true;
+  document.getElementById('vx-ayuda').textContent = '';
+  document.getElementById('btn-registrar-venta-xml').disabled = true;
+  document.getElementById('vx-aceptar').checked = false;
+}
+
+function abrirDialogoVentaXml() {
+  vxReiniciar();
+  if (typeof dialogoVx.showModal === 'function') dialogoVx.showModal();
+  else dialogoVx.setAttribute('open', '');
+}
+
+function cerrarDialogoVentaXml() {
+  if (vx.enviando) return;
+  dialogoVx.close();
+}
+
+function vxMostrarEstado(texto, esError) {
+  const el = document.getElementById('vx-estado-lectura');
+  el.textContent = texto;
+  el.classList.toggle('error', !!esError);
+  document.getElementById('vx-zona-archivo').classList.toggle('error', !!esError);
+}
+
+async function procesarArchivoVenta(archivo) {
+  if (!archivo) return;
+  if (archivo.size > TAMANO_MAX_XML) {
+    vxMostrarEstado('El archivo pesa demasiado (máximo 3,5 MB). Sube solo el XML o el .zip de la factura.', true);
+    return;
+  }
+  vxMostrarEstado('Leyendo la factura...');
+  try {
+    vx.base64 = await archivoABase64(archivo);
+    vx.nombre = archivo.name;
+    vx.preview = await api('/ventas/facturas/xml/previsualizar', {
+      method: 'POST',
+      body: JSON.stringify({ archivoBase64: vx.base64 }),
+    });
+    vxMostrarRevision();
+  } catch (err) {
+    vx.base64 = null;
+    vx.preview = null;
+    vxMostrarEstado(err.message, true);
+  }
+}
+
+function vxOpcionesCuentas(seleccionada) {
+  return (
+    vx.preview.cuentasIngreso
+      .map((c) => `<option value="${escHtml(c.codigo)}"${c.codigo === seleccionada ? ' selected' : ''}>${escHtml(c.codigo)} — ${escHtml(c.nombre)}</option>`)
+      .join('') + (puedeEditarPlan() ? `<option value="${FX_OPCION_NUEVA}">+ Crear cuenta nueva…</option>` : '')
+  );
+}
+
+function vxRefrescarOpcionesCuentas() {
+  document.querySelectorAll('.vx-cuenta-linea').forEach((sel) => {
+    const v = sel.value;
+    sel.innerHTML = '<option value="">Elegir cuenta...</option>' + vxOpcionesCuentas(v);
+    sel.value = v;
+  });
+  document.getElementById('vx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + vxOpcionesCuentas('');
+}
+
+function vxCrearCuentaDesde(sel) {
+  const esTodas = sel.id === 'vx-cuenta-todas';
+  sel.value = sel.dataset.prev || '';
+  abrirDialogoCuenta({
+    paraVenta: true,
+    alTerminar: (cuenta) => {
+      if (!cuenta || !vx.preview) return;
+      vx.preview.cuentasIngreso.push({ codigo: cuenta.codigo, nombre: cuenta.nombre });
+      vx.preview.cuentasIngreso.sort((a, b) => a.codigo.localeCompare(b.codigo));
+      vxRefrescarOpcionesCuentas();
+      const destinos = esTodas ? Array.from(document.querySelectorAll('.vx-cuenta-linea')) : [sel];
+      destinos.forEach((d) => (d.value = cuenta.codigo));
+      recalcularVenta();
+    },
+  });
+}
+
+function vxLeerCuentasLineas() {
+  const cuentas = {};
+  document.querySelectorAll('.vx-cuenta-linea').forEach((sel) => (cuentas[Number(sel.dataset.linea)] = sel.value));
+  return cuentas;
+}
+
+function vxNombreCuenta(codigo) {
+  const c = vx.preview.cuentasIngreso.find((x) => x.codigo === codigo);
+  return c ? c.nombre : NOMBRES_CUENTAS_VENTA[codigo] || '';
+}
+
+const NOMBRES_CUENTAS_VENTA = { 1305: 'Clientes', 2408: 'IVA por pagar' };
+
+function vxRenderAdvertencias() {
+  const lista = vx.preview.advertencias;
+  const etiqueta = { bloqueo: 'No se puede registrar', confirmar: 'Revisa', info: 'Aviso' };
+  document.getElementById('vx-advertencias').innerHTML = lista
+    .map((a) => `<div class="fx-aviso ${a.nivel}"><strong>${etiqueta[a.nivel] || ''}:</strong> ${escHtml(a.texto)}</div>`)
+    .join('');
+  const hayConfirmar = lista.some((a) => a.nivel === 'confirmar');
+  document.getElementById('vx-aceptar-fila').hidden = !hayConfirmar;
+  if (!hayConfirmar) document.getElementById('vx-aceptar').checked = false;
+}
+
+function vxRenderResumen() {
+  const p = vx.preview;
+  const f = p.factura;
+  const dian = f.validacionDian.disponible
+    ? f.validacionDian.validada
+      ? '<span class="badge libre aceptada">Validada por la DIAN</span>'
+      : '<span class="badge libre rechazada">No validada</span>'
+    : '<span class="badge libre pendiente">Sin respuesta de la DIAN en el archivo</span>';
+  const filas = [
+    ['Documento', `${escHtml(f.tipoNombre)} <strong>${escHtml(f.numero || '—')}</strong>`],
+    ['Fecha de emisión', escHtml(formatoFecha(f.fechaEmision))],
+    ['Forma de pago', f.formaPago === 'credito' ? `Crédito${f.fechaVencimiento ? ' · vence ' + escHtml(formatoFecha(f.fechaVencimiento)) : ''}` : f.formaPago === 'contado' ? 'Contado' : '—'],
+    ['Cliente', `${escHtml(f.receptor.nombre)}<br>NIT ${escHtml(f.receptor.nit)}${f.receptor.dv ? '-' + escHtml(f.receptor.dv) : ''}`],
+    ['Total factura', `<strong>${escHtml(formatoDineroDec(f.totales.conImpuestos))}</strong>`],
+    ['Validación', dian],
+    [
+      'CUFE',
+      `<span class="mono" title="${escHtml(f.cufe)}">${escHtml(f.cufe.slice(0, 18))}…${escHtml(f.cufe.slice(-8))}</span>` +
+        (p.verificacionDianUrl ? `<br><a href="${escHtml(p.verificacionDianUrl)}" target="_blank" rel="noopener noreferrer">Verificar en la DIAN</a>` : ''),
+    ],
+    ['Archivo', `${escHtml(vx.nombre)}<br><a href="#" id="vx-otro-archivo">Cargar otro archivo</a>`],
+  ];
+  document.getElementById('vx-resumen').innerHTML = filas.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+}
+
+function vxRenderCliente() {
+  const p = vx.preview;
+  const r = p.factura.receptor;
+  const el = document.getElementById('vx-cliente');
+  const fila = document.getElementById('vx-crear-cliente-fila');
+  if (p.cliente) {
+    el.innerHTML = `✔ <strong>${escHtml(p.cliente.nombre)}</strong> (${escHtml(p.cliente.identificacion)}) ya está en Terceros.`;
+    fila.hidden = true;
+  } else {
+    el.innerHTML = `<strong>${escHtml(r.nombre)}</strong> · NIT ${escHtml(r.nit)}${r.dv ? '-' + escHtml(r.dv) : ''} no está en Terceros.`;
+    fila.hidden = false;
+  }
+}
+
+function vxRenderCotizaciones() {
+  const p = vx.preview;
+  const sel = document.getElementById('vx-cotizacion');
+  sel.innerHTML =
+    '<option value="">Sin cotización</option>' +
+    p.cotizacionesCandidatas
+      .map(
+        (c) =>
+          `<option value="${escHtml(c.id)}"${c.id === vx.cotizacionId ? ' selected' : ''}>${escHtml(c.consecutivo)} · ${escHtml(formatoDineroDec(c.total))}${
+            c.coincideReferencia ? ' · citada' : c.sugerida ? ' · mismo valor' : ''
+          }</option>`
+      )
+      .join('');
+  document.getElementById('vx-cotizacion-nota').textContent = p.cotizacionesCandidatas.length
+    ? 'Vincula la factura a la cotización aceptada: queda “facturada”.'
+    : p.cliente
+    ? 'Este cliente no tiene cotizaciones aceptadas pendientes de facturar.'
+    : '';
+}
+
+function vxRenderProyectos() {
+  document.getElementById('vx-proyecto').innerHTML =
+    '<option value="">Sin proyecto</option>' +
+    listaProyectos.filter((x) => x.activo).map((x) => `<option value="${escHtml(x.id)}">${escHtml(etiquetaProyecto(x))}</option>`).join('');
+}
+
+function vxRenderLineas() {
+  const p = vx.preview;
+  document.querySelector('#vx-tabla-lineas tbody').innerHTML = p.factura.lineas
+    .map(
+      (l, i) =>
+        `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}${l.gratuita ? ' <span class="badge">sin costo</span>' : ''}</td>` +
+        `<td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td>` +
+        `<td class="num">${escHtml(formatoDineroDec(l.iva))}</td>` +
+        `<td><select class="vx-cuenta-linea" data-linea="${i}"><option value="">Elegir cuenta...</option>${vxOpcionesCuentas(p.ingresoSugerido)}</select></td></tr>`
+    )
+    .join('');
+  document.getElementById('vx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + vxOpcionesCuentas('');
+}
+
+function vxMostrarRevision() {
+  document.getElementById('vx-paso-archivo').hidden = true;
+  document.getElementById('vx-revision').hidden = false;
+  document.getElementById('vx-error').hidden = true;
+  // Si hay una sola cotización sugerida (citada o del mismo valor), se propone de entrada.
+  const sugerida = vx.preview.cotizacionesCandidatas.find((c) => c.sugerida);
+  vx.cotizacionId = sugerida ? sugerida.id : '';
+  vxRenderAdvertencias();
+  vxRenderResumen();
+  vxRenderCliente();
+  vxRenderCotizaciones();
+  vxRenderProyectos();
+  vxRenderLineas();
+  recalcularVenta();
+}
+
+// Vuelve a dibujar el asiento y decide si ya se puede registrar.
+function recalcularVenta() {
+  if (!vx.preview) return;
+  const p = vx.preview;
+  const c = p.contable;
+  const cuentasPorLinea = vxLeerCuentasLineas();
+  document.querySelectorAll('.vx-cuenta-linea').forEach((sel) => {
+    if (sel.value !== FX_OPCION_NUEVA) sel.dataset.prev = sel.value;
+  });
+
+  const proyecto = listaProyectos.find((x) => x.id === document.getElementById('vx-proyecto').value);
+  let asiento = null;
+  if (p.factura.lineas.every((_, i) => cuentasPorLinea[i] && cuentasPorLinea[i] !== FX_OPCION_NUEVA)) {
+    try {
+      asiento = asientoVenta.armarAsientoVenta({
+        lineas: p.factura.lineas,
+        base: c.base,
+        iva: c.iva,
+        total: c.total,
+        cuentasLinea: p.factura.lineas.map((_, i) => cuentasPorLinea[i]),
+        centroCosto: proyecto ? proyecto.codigo || proyecto.nombre : null,
+      });
+    } catch (_) {
+      asiento = null;
+    }
+  }
+  const tbody = document.querySelector('#vx-tabla-asiento tbody');
+  const tfoot = document.querySelector('#vx-tabla-asiento tfoot');
+  if (asiento) {
+    tbody.innerHTML = asiento.lineas
+      .map(
+        (l) =>
+          `<tr><td class="${l.credito ? 'indentar' : ''}">${escHtml(l.cuentaCodigo)} <span class="cuenta-nombre">${escHtml(vxNombreCuenta(l.cuentaCodigo))}</span>${
+            l.centroCosto ? ` <span class="badge">${escHtml(l.centroCosto)}</span>` : ''
+          }</td><td class="num">${l.debito ? escHtml(formatoDineroDec(l.debito)) : ''}</td><td class="num">${l.credito ? escHtml(formatoDineroDec(l.credito)) : ''}</td></tr>`
+      )
+      .join('');
+    tfoot.innerHTML = `<tr><td>Sumas iguales${asiento.cuadra ? '' : ' — NO CUADRA'}</td><td class="num">${escHtml(formatoDineroDec(asiento.totalDebito))}</td><td class="num">${escHtml(
+      formatoDineroDec(asiento.totalCredito)
+    )}</td></tr>`;
+  } else {
+    tbody.innerHTML = '<tr><td colspan="3" class="vacio">Elige la cuenta de ingreso de cada línea.</td></tr>';
+    tfoot.innerHTML = '';
+  }
+
+  document.getElementById('vx-totales').innerHTML =
+    `<span>Base: <strong>${escHtml(formatoDineroDec(c.base))}</strong></span>` +
+    `<span>IVA: <strong>${escHtml(formatoDineroDec(c.iva))}</strong></span>` +
+    `<span>Total a cobrar: <strong class="neto">${escHtml(formatoDineroDec(c.total))}</strong></span>`;
+
+  const pendientes = [];
+  if (p.advertencias.some((a) => a.nivel === 'bloqueo')) pendientes.push('La factura tiene errores que impiden registrarla.');
+  if (!p.cuentasIngreso.length) pendientes.push('Tu empresa no tiene cuentas de ingreso. Créalas en el plan de cuentas.');
+  else if (p.factura.lineas.some((_, i) => !cuentasPorLinea[i] || cuentasPorLinea[i] === FX_OPCION_NUEVA)) pendientes.push('Elige la cuenta de ingreso de cada línea.');
+  if (!p.cliente && !document.getElementById('vx-crear-cliente').checked) pendientes.push('Marca “Crear este cliente” (o créalo antes en Terceros).');
+  if (p.advertencias.some((a) => a.nivel === 'confirmar') && !document.getElementById('vx-aceptar').checked) pendientes.push('Acepta las advertencias para continuar.');
+  if (asiento && !asiento.cuadra) pendientes.push('El asiento no cuadra.');
+
+  document.getElementById('vx-ayuda').textContent = pendientes[0] || 'Todo listo para contabilizar.';
+  document.getElementById('btn-registrar-venta-xml').disabled = pendientes.length > 0 || vx.enviando;
+}
+
+// Cambió la cotización elegida: el servidor puede avisar si el valor no coincide.
+async function vxAlCambiarCotizacion() {
+  vx.cotizacionId = document.getElementById('vx-cotizacion').value;
+  try {
+    const nuevo = await api('/ventas/facturas/xml/previsualizar', {
+      method: 'POST',
+      body: JSON.stringify({ archivoBase64: vx.base64, cotizacionId: vx.cotizacionId || undefined }),
+    });
+    vx.preview.advertencias = nuevo.advertencias;
+    vxRenderAdvertencias();
+  } catch (err) {
+    document.getElementById('vx-error').textContent = err.message;
+    document.getElementById('vx-error').hidden = false;
+  }
+  recalcularVenta();
+}
+
+async function registrarVentaXml() {
+  if (vx.enviando) return;
+  recalcularVenta();
+  const p = vx.preview;
+  const errorEl = document.getElementById('vx-error');
+  errorEl.hidden = true;
+
+  const cuerpo = {
+    archivoBase64: vx.base64,
+    cotizacionId: vx.cotizacionId || undefined,
+    terceroId: p.cliente ? p.cliente.id : undefined,
+    crearCliente: !p.cliente && document.getElementById('vx-crear-cliente').checked,
+    proyectoId: document.getElementById('vx-proyecto').value || undefined,
+    cuentasLineas: vxLeerCuentasLineas(),
+    aceptarAdvertencias: document.getElementById('vx-aceptar').checked,
+  };
+
+  const boton = document.getElementById('btn-registrar-venta-xml');
+  vx.enviando = true;
+  boton.disabled = true;
+  boton.textContent = 'Registrando...';
+  try {
+    const resultado = await api('/ventas/facturas/xml', { method: 'POST', body: JSON.stringify(cuerpo) });
+    vx.enviando = false;
+    dialogoVx.close();
+    await cargarTodo();
+    const avisos = [];
+    if (!resultado.contabilizada) avisos.push('La factura quedó registrada, pero SIN asiento: la regla contable de este evento está en nivel manual. Contabilízala desde el módulo contable.');
+    if (resultado.periodoAjustado) avisos.push('La fecha de la factura no cae en un periodo contable abierto; el asiento quedó con la fecha de hoy en el periodo vigente.');
+    await abrirDetalleFacturaVenta(resultado.factura.id, avisos, 'Factura registrada y contabilizada.');
+  } catch (err) {
+    vx.enviando = false;
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    boton.textContent = 'Registrar y contabilizar';
+    if (vx.preview) recalcularVenta();
+  }
+}
+
+document.getElementById('btn-cargar-venta-xml').addEventListener('click', abrirDialogoVentaXml);
+document.getElementById('btn-cerrar-venta-xml').addEventListener('click', cerrarDialogoVentaXml);
+document.getElementById('btn-cancelar-venta-xml').addEventListener('click', cerrarDialogoVentaXml);
+document.getElementById('btn-registrar-venta-xml').addEventListener('click', registrarVentaXml);
+dialogoVx.addEventListener('cancel', (e) => {
+  if (vx.enviando) e.preventDefault();
+});
+
+const zonaArchivoVx = document.getElementById('vx-zona-archivo');
+document.getElementById('vx-archivo').addEventListener('change', (e) => procesarArchivoVenta(e.target.files[0]));
+['dragenter', 'dragover'].forEach((ev) =>
+  zonaArchivoVx.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zonaArchivoVx.classList.add('arrastrando');
+  })
+);
+['dragleave', 'drop'].forEach((ev) =>
+  zonaArchivoVx.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zonaArchivoVx.classList.remove('arrastrando');
+  })
+);
+zonaArchivoVx.addEventListener('drop', (e) => procesarArchivoVenta(e.dataTransfer.files[0]));
+
+document.getElementById('vx-resumen').addEventListener('click', (e) => {
+  if (e.target.id !== 'vx-otro-archivo') return;
+  e.preventDefault();
+  vxReiniciar();
+});
+document.getElementById('vx-cotizacion').addEventListener('change', vxAlCambiarCotizacion);
+document.getElementById('vx-proyecto').addEventListener('change', recalcularVenta);
+document.getElementById('vx-crear-cliente').addEventListener('change', recalcularVenta);
+document.getElementById('vx-aceptar').addEventListener('change', recalcularVenta);
+dialogoVx.addEventListener('focusin', (e) => {
+  if (e.target.classList && (e.target.classList.contains('vx-cuenta-linea') || e.target.id === 'vx-cuenta-todas')) e.target.dataset.prev = e.target.value;
+});
+document.getElementById('vx-tabla-lineas').addEventListener('change', (e) => {
+  if (!e.target.classList.contains('vx-cuenta-linea')) return;
+  if (e.target.value === FX_OPCION_NUEVA) return vxCrearCuentaDesde(e.target);
+  recalcularVenta();
+});
+document.getElementById('vx-cuenta-todas').addEventListener('change', (e) => {
+  if (e.target.value === FX_OPCION_NUEVA) return vxCrearCuentaDesde(e.target);
+  if (!e.target.value) return;
+  document.querySelectorAll('.vx-cuenta-linea').forEach((sel) => (sel.value = e.target.value));
+  e.target.value = '';
+  recalcularVenta();
+});
+
+// Detalle de una factura de venta registrada (reutiliza la ventana de detalle).
+async function abrirDetalleFacturaVenta(id, avisos, mensajeOk) {
+  try {
+    const f = await api(`/ventas/facturas/${id}`);
+    facturaDetalleId = id;
+    facturaDetalleModulo = 'ventas';
+    const det = f.detalle || {};
+    const lineas = det.lineas || [];
+    const cuentaTxt = (codigo, nombre) => `${escHtml(codigo)} <span class="cuenta-nombre">${escHtml(nombre || '')}</span>`;
+
+    document.getElementById('titulo-factura-detalle').textContent = `Factura de venta ${f.numero || ''}`.trim();
+    document.getElementById('btn-xml-factura-detalle').hidden = !f.xmlDisponible;
+    document.getElementById('fd-cuerpo').innerHTML =
+      (mensajeOk ? `<div class="fd-aviso">${escHtml(mensajeOk)}</div>` : '') +
+      (avisos || []).map((a) => `<div class="fd-aviso alerta">${escHtml(a)}</div>`).join('') +
+      `<dl class="fx-resumen">` +
+      [
+        ['Cliente', `${escHtml(f.receptorNombre || nombreTercero(f.terceroId))}${f.receptorNit ? '<br>NIT ' + escHtml(f.receptorNit) : ''}`],
+        ['Fecha', escHtml(formatoFecha(f.fecha))],
+        ['Forma de pago', f.formaPago === 'credito' ? `Crédito${f.fechaVencimiento ? ' · vence ' + escHtml(formatoFecha(f.fechaVencimiento)) : ''}` : f.formaPago === 'contado' ? 'Contado' : '—'],
+        ['Cotización', f.cotizacionOrigenId ? 'Vinculada' : 'Sin cotización'],
+        ['Proyecto', escHtml(nombreProyecto(f.proyectoId))],
+        ['DIAN', badge(f.estadoSincronizacion)],
+        ['Base', escHtml(formatoDineroDec(f.subtotal))],
+        ['IVA', escHtml(formatoDineroDec(f.iva))],
+        ['Total', `<strong>${escHtml(formatoDineroDec(f.total))}</strong>`],
+        ['CUFE', f.cufe ? `<span class="mono" title="${escHtml(f.cufe)}">${escHtml(f.cufe.slice(0, 18))}…${escHtml(f.cufe.slice(-8))}</span>` : '—'],
+      ]
+        .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`)
+        .join('') +
+      `</dl>` +
+      (lineas.length
+        ? `<h4>Detalle</h4><table class="tabla-items-detalle"><thead><tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Valor</th><th class="num">IVA</th><th>Cuenta</th></tr></thead><tbody>` +
+          lineas
+            .map(
+              (l) =>
+                `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}</td><td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td><td class="num">${escHtml(
+                  formatoDineroDec(l.iva)
+                )}</td><td>${escHtml(l.cuentaCodigo)}</td></tr>`
+            )
+            .join('') +
+          `</tbody></table>`
+        : '') +
+      `<h4>Asiento contable</h4>` +
+      (f.asiento && f.asiento.length
+        ? `<table class="tabla-items-detalle"><thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>` +
+          f.asiento
+            .map(
+              (m) =>
+                `<tr><td class="${m.credito ? 'indentar' : ''}">${cuentaTxt(m.cuentaCodigo, m.cuentaNombre)}${m.centroCosto ? ` <span class="badge">${escHtml(m.centroCosto)}</span>` : ''}</td><td class="num">${
+                  m.debito ? escHtml(formatoDineroDec(m.debito)) : ''
+                }</td><td class="num">${m.credito ? escHtml(formatoDineroDec(m.credito)) : ''}</td></tr>`
+            )
+            .join('') +
+          `</tbody></table>`
+        : '<p class="fx-texto">Esta factura no tiene asiento (está pendiente de contabilizar).</p>');
+
+    if (typeof dialogoDetalle.showModal === 'function') dialogoDetalle.showModal();
+    else dialogoDetalle.setAttribute('open', '');
+  } catch (err) {
+    alert(err.message);
+  }
+}
 
 // --- ACCIONES POR FILA (delegación de eventos sobre todo el tablero) ---
 document.getElementById('vista-dashboard').addEventListener('click', async (e) => {
@@ -2731,6 +3199,12 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
     case 'xml-factura-compra':
       return descargarXmlFactura(id);
 
+    case 'ver-factura-venta':
+      return abrirDetalleFacturaVenta(id);
+
+    case 'xml-factura-venta':
+      return descargarXmlFactura(id, 'ventas');
+
     case 'ver-items-cotizacion':
       return verItemsCotizacion(id);
 
@@ -2754,8 +3228,6 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
     case 'rechazar-cotizacion':
       if (confirm('¿Rechazar esta cotización?')) return accion(`/ventas/cotizaciones/${id}/rechazar`, { method: 'PATCH' });
       return;
-    case 'convertir-cotizacion':
-      return accion(`/ventas/cotizaciones/${id}/convertir`, { method: 'POST' });
 
     case 'ver-items-orden':
       return verItemsOrden(id);

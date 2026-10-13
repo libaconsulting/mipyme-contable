@@ -94,6 +94,7 @@ async function catalogo(empresaId) {
         ...c,
         estado: !existente ? 'disponible' : existente.activa ? 'activa' : 'inactiva',
         destinoCompra: reglas.esDestinoCompra(reglas.datosDeCatalogo(c)),
+        destinoVenta: reglas.esDestinoVenta(reglas.datosDeCatalogo(c)),
       };
     }),
   };
@@ -125,6 +126,9 @@ async function crear(empresaId, usuarioId, datos) {
   const tipo = reglas.clasificarCodigo(codigoNormal, padre);
   if (!tipo.ok) throw new Error(tipo.error);
 
+  if (datos.uso === 'venta' && !reglas.esDestinoVenta({ naturaleza: tipo.naturaleza, elementoNiif: tipo.elementoNiif })) {
+    throw new Error('Para contabilizar una venta elige una cuenta de ingresos (códigos que empiezan por 4).');
+  }
   if (datos.paraCompra && !reglas.esDestinoCompra({ codigo: tipo.codigo, naturaleza: tipo.naturaleza, elementoNiif: tipo.elementoNiif })) {
     throw new Error('Para contabilizar una compra elige una cuenta de costo o gasto (clases 5, 6 o 7), de inventarios (14), activos fijos (15), intangibles (16) o diferidos (17).');
   }

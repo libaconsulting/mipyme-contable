@@ -1,5 +1,6 @@
 const { mensajeError } = require('../../../core/utils/mensajeError');
 const ventasService = require('../services/ventas.service');
+const facturaVentaXmlService = require('../services/facturaVentaXml.service');
 
 async function crearCotizacion(req, res) {
   try {
@@ -87,7 +88,49 @@ async function actualizarCotizacion(req, res) {
   }
 }
 
+async function previsualizarFacturaVentaXml(req, res) {
+  try {
+    res.json(await facturaVentaXmlService.previsualizarFacturaVentaXml(req.body, req.usuario));
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function registrarFacturaVentaXml(req, res) {
+  try {
+    res.status(201).json(await facturaVentaXmlService.registrarFacturaVentaXml(req.body, req.usuario));
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function obtenerFactura(req, res) {
+  try {
+    const factura = await facturaVentaXmlService.obtenerFactura(req.params.id, req.usuario);
+    if (!factura) return res.status(404).json({ error: 'Factura no encontrada.' });
+    res.json(factura);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function descargarXmlFactura(req, res) {
+  try {
+    const xml = await facturaVentaXmlService.obtenerXml(req.params.id, req.usuario);
+    if (!xml) return res.status(404).json({ error: 'Esta factura no tiene un XML guardado.' });
+    res.set('Content-Type', 'application/xml; charset=utf-8');
+    res.set('Content-Disposition', `attachment; filename="${xml.nombre}"`);
+    res.send(xml.contenido);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
 module.exports = {
+  previsualizarFacturaVentaXml,
+  registrarFacturaVentaXml,
+  obtenerFactura,
+  descargarXmlFactura,
   crearCotizacion,
   enviarCotizacion,
   aceptarCotizacion,

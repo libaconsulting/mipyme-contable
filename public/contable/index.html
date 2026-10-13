@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261013-3">
+<link rel="stylesheet" href="/contable/style.css?v=20261013-4">
 </head>
 <body>
 
@@ -337,8 +337,11 @@
     </section>
 
     <section id="panel-facturas-venta" class="panel" hidden>
-      <header class="panel-header"><h2>Facturas de venta</h2></header>
-      <p class="nota-panel">Se generan al convertir una cotización aceptada — no se crean directo aquí.</p>
+      <header class="panel-header">
+        <h2>Facturas de venta</h2>
+        <button class="btn-primario" id="btn-cargar-venta-xml">+ Cargar factura emitida (XML)</button>
+      </header>
+      <p class="nota-panel">Las facturas se expiden en Siigo. Aquí cargas el XML (o el .zip) que te entrega Siigo: se lee, se revisa y recién ahí se contabiliza. Si el cliente tenía una cotización aceptada, la factura se vincula y la cotización queda “facturada”.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-facturas-venta"><thead></thead><tbody></tbody></table>
       </div>
@@ -812,10 +815,98 @@
     </div>
   </dialog>
 
+  <!-- Carga de una factura de venta desde el XML que expide Siigo -->
+  <dialog id="dialogo-venta-xml" class="dialogo-factura" aria-labelledby="titulo-venta-xml">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-venta-xml">Cargar factura de venta (XML)</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-venta-xml" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="dialogo-cuerpo">
+      <div id="vx-paso-archivo">
+        <label class="zona-archivo" id="vx-zona-archivo">
+          <input type="file" id="vx-archivo" accept=".xml,.zip,application/xml,text/xml,application/zip">
+          <strong>Elige el XML de la factura</strong>
+          <span>o arrástralo hasta aquí. También sirve el .zip que descargas de Siigo.</span>
+        </label>
+        <p class="nota-aiu" id="vx-estado-lectura"></p>
+      </div>
+
+      <div id="vx-revision" hidden>
+        <div id="vx-advertencias"></div>
+
+        <div id="vx-resumen" class="fx-resumen"></div>
+
+        <div class="fx-rejilla">
+          <div class="fx-bloque">
+            <h4>Cliente</h4>
+            <p id="vx-cliente" class="fx-texto"></p>
+            <label id="vx-crear-cliente-fila" class="fx-check" hidden>
+              <input type="checkbox" id="vx-crear-cliente" checked>
+              <span>Crear este cliente en Terceros con los datos del XML</span>
+            </label>
+          </div>
+          <div class="fx-bloque">
+            <h4>Cotización</h4>
+            <select id="vx-cotizacion"></select>
+            <p class="nota-aiu" id="vx-cotizacion-nota"></p>
+          </div>
+          <div class="fx-bloque">
+            <h4>Proyecto / centro de costo</h4>
+            <select id="vx-proyecto"></select>
+          </div>
+        </div>
+
+        <div class="fx-bloque fx-ancho">
+          <div class="fx-titulo-con-accion">
+            <h4>Detalle y cuenta de ingreso</h4>
+            <label class="fx-todas">
+              <span>Llevar todo a:</span>
+              <select id="vx-cuenta-todas"></select>
+            </label>
+          </div>
+          <div class="tabla-envoltorio">
+            <table class="tabla-items-detalle" id="vx-tabla-lineas">
+              <thead>
+                <tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Valor</th><th class="num">IVA</th><th>Cuenta de ingreso</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="fx-bloque fx-ancho">
+          <h4>Asiento que se va a contabilizar</h4>
+          <div class="tabla-envoltorio">
+            <table class="tabla-items-detalle" id="vx-tabla-asiento">
+              <thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+          <div class="resumen-totales" id="vx-totales"></div>
+          <p class="nota-aiu">Las retenciones que te practique el cliente se registran al recibir el pago.</p>
+        </div>
+
+        <label id="vx-aceptar-fila" class="fx-check fx-aceptar" hidden>
+          <input type="checkbox" id="vx-aceptar">
+          <span>Revisé las advertencias de arriba y quiero registrar la factura de todos modos</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="dialogo-pie">
+      <p class="fx-error" id="vx-error" hidden></p>
+      <span class="fx-ayuda" id="vx-ayuda"></span>
+      <button type="button" class="btn-secundario" id="btn-cancelar-venta-xml">Cancelar</button>
+      <button type="button" class="btn-primario" id="btn-registrar-venta-xml" disabled>Registrar y contabilizar</button>
+    </div>
+  </dialog>
+
   <!-- Detalle de una factura de compra ya registrada -->
   <dialog id="dialogo-factura-detalle" class="dialogo-factura" aria-labelledby="titulo-factura-detalle">
     <div class="dialogo-cabecera">
-      <h3 id="titulo-factura-detalle">Factura de compra</h3>
+      <h3 id="titulo-factura-detalle">Factura</h3>
       <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-factura-detalle" aria-label="Cerrar">×</button>
     </div>
     <div class="dialogo-cuerpo" id="fd-cuerpo"></div>
@@ -860,10 +951,11 @@
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261013-3"></script>
-<script src="/contable/calculoOrden.js?v=20261013-3"></script>
-<script src="/contable/asientoCompra.js?v=20261013-3"></script>
-<script src="/contable/planCuentas.js?v=20261013-3"></script>
-<script src="/contable/app.js?v=20261013-3"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261013-4"></script>
+<script src="/contable/calculoOrden.js?v=20261013-4"></script>
+<script src="/contable/asientoCompra.js?v=20261013-4"></script>
+<script src="/contable/asientoVenta.js?v=20261013-4"></script>
+<script src="/contable/planCuentas.js?v=20261013-4"></script>
+<script src="/contable/app.js?v=20261013-4"></script>
 </body>
 </html>
