@@ -24,9 +24,12 @@ const OrdenCompra = require('../../modules/compras/models/OrdenCompra');
 const OrdenCompraItem = require('../../modules/compras/models/OrdenCompraItem');
 const FacturaCompra = require('../../modules/compras/models/FacturaCompra');
 const DocumentoSoporteAdquisicion = require('../../modules/compras/models/DocumentoSoporteAdquisicion');
-const PeriodoNomina = require('../../modules/nomina/models/PeriodoNomina');
-const NominaEmpleado = require('../../modules/nomina/models/NominaEmpleado');
-const NovedadNomina = require('../../modules/nomina/models/NovedadNomina');
+const ConfigNomina = require('../../modules/nomina/models/ConfigNomina');
+const ContratoLaboral = require('../../modules/nomina/models/ContratoLaboral');
+const AusenciaNomina = require('../../modules/nomina/models/AusenciaNomina');
+const ConceptoNomina = require('../../modules/nomina/models/ConceptoNomina');
+const NominaPeriodo = require('../../modules/nomina/models/NominaPeriodo');
+const NominaLiquidacion = require('../../modules/nomina/models/NominaLiquidacion');
 const Producto = require('../../modules/inventarios/models/Producto');
 const MovimientoInventario = require('../../modules/inventarios/models/MovimientoInventario');
 const ActivoFijo = require('../../modules/activosFijos/models/ActivoFijo');
@@ -52,9 +55,12 @@ module.exports = {
   OrdenCompraItem,
   FacturaCompra,
   DocumentoSoporteAdquisicion,
-  PeriodoNomina,
-  NominaEmpleado,
-  NovedadNomina,
+  ConfigNomina,
+  ContratoLaboral,
+  AusenciaNomina,
+  ConceptoNomina,
+  NominaPeriodo,
+  NominaLiquidacion,
   Producto,
   MovimientoInventario,
   ActivoFijo,

@@ -1,0 +1,20 @@
+body { font: 13px/1.45 Arial, sans-serif; color: #222; margin: 0; background: #eef1ee; }
+.barra-acciones { background: #1F4D38; padding: 12px 24px; display: flex; gap: 14px; align-items: center; }
+.barra-acciones a { color: #fff; text-decoration: none; }
+.barra-acciones button { margin-left: auto; padding: 8px 14px; font-size: 14px; cursor: pointer; }
+#contenido { max-width: 720px; margin: 24px auto; padding: 24px 28px; background: #fff; }
+h1 { font-size: 18px; margin: 0 0 2px; }
+h2 { font-size: 14px; margin: 18px 0 6px; border-bottom: 1px solid #999; padding-bottom: 3px; }
+table { width: 100%; border-collapse: collapse; }
+td { padding: 3px 6px; border-bottom: 1px solid #eee; }
+.n { text-align: right; font-variant-numeric: tabular-nums; }
+.cab { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; margin: 10px 0; }
+.tot td { font-weight: bold; border-top: 1px solid #333; }
+.firma { margin-top: 48px; display: flex; gap: 40px; }
+.firma div { flex: 1; border-top: 1px solid #333; padding-top: 4px; font-size: 12px; }
+.error { color: #a33; }
+@media print {
+  body { background: #fff; }
+  .barra-acciones { display: none; }
+  #contenido { margin: 0 auto; padding: 0; }
+}

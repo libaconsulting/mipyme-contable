@@ -137,19 +137,34 @@ async function resolverPeriodoParaFecha(empresaId, fecha, transaction) {
   return { periodo: vigente, fecha: new Date().toISOString().slice(0, 10), ajustada: !!fecha };
 }
 
+// Definición de una cuenta que el sistema sabe crear sola: las del catálogo
+// base (seedService.CUENTAS) y las de nómina (asientoNomina.CATALOGO, que
+// incluye subcuentas de 6 dígitos con su cuenta padre).
+function definicionCuentaBase(codigo) {
+  // require diferido: seedService requiere modelos, no queremos ciclos al cargar.
+  const base = require('./seedService').CUENTAS.find((c) => c.codigo === codigo);
+  if (base) return { ...base, padre: null };
+  return require('../../../public/contable/asientoNomina').CATALOGO.find((c) => c.codigo === codigo) || null;
+}
+
 // Cuentas por código. Si falta una de las cuentas base del sistema
-// (empresas creadas antes de que existiera, ej. 2365 retención), se crea
-// al vuelo; cualquier otro código inexistente es un error.
+// (empresas creadas antes de que existiera, ej. 2365 retención, o las de
+// nómina), se crea al vuelo con su cuenta padre; cualquier otro código
+// inexistente es un error.
 async function cuentasPorCodigo(empresaId, codigos, transaction) {
   const unicos = Array.from(new Set(codigos));
   const existentes = await PlanCuentas.findAll({ where: { empresaId, codigo: { [Op.in]: unicos } }, transaction });
   const mapa = Object.fromEntries(existentes.map((c) => [c.codigo, c]));
 
-  for (const codigo of unicos) {
-    if (mapa[codigo]) continue;
-    // require diferido: seedService requiere modelos, no queremos ciclos al cargar.
-    const base = require('./seedService').CUENTAS.find((c) => c.codigo === codigo);
+  const asegurar = async (codigo) => {
+    if (mapa[codigo]) return mapa[codigo];
+    const base = definicionCuentaBase(codigo);
     if (!base) throw new Error(`La cuenta ${codigo} no existe en el plan de cuentas.`);
+    let padre = null;
+    if (base.padre) {
+      padre = await PlanCuentas.findOne({ where: { empresaId, codigo: base.padre }, transaction });
+      if (!padre) padre = await asegurar(base.padre);
+    }
     mapa[codigo] = await PlanCuentas.create(
       {
         id: uuidv4(),
@@ -157,12 +172,16 @@ async function cuentasPorCodigo(empresaId, codigos, transaction) {
         codigo: base.codigo,
         nombre: base.nombre,
         naturaleza: base.naturaleza,
-        nivel: 1,
+        nivel: base.codigo.length === 8 ? 3 : base.codigo.length === 6 ? 2 : 1,
+        cuentaPadreId: padre ? padre.id : null,
         elementoNiif: base.elementoNiif,
       },
       { transaction }
     );
-  }
+    return mapa[codigo];
+  };
+
+  for (const codigo of unicos) await asegurar(codigo);
   return mapa;
 }
 
@@ -248,4 +267,4 @@ async function contabilizarAsientoCompuesto(evento) {
   return { requiereRevision: asiento.estado === 'borrador', regla, asiento, periodoAjustado: ajustada };
 }
 
-module.exports = { contabilizarEvento, contabilizarAsientoCompuesto };
+module.exports = { contabilizarEvento, contabilizarAsientoCompuesto, cuentasPorCodigo };

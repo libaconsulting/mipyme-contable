@@ -563,7 +563,7 @@ td.num, th.num {
   color: var(--ink-soft);
   text-transform: capitalize;
 }
-.badge.aceptada, .badge.aceptado, .badge.contabilizado, .badge.liquidada, .badge.aprobada, .badge.conciliado { border-color: var(--accent); color: var(--accent); }
+.badge.aceptada, .badge.aceptado, .badge.contabilizado, .badge.contabilizada, .badge.pagada, .badge.liquidada, .badge.aprobada, .badge.conciliado { border-color: var(--accent); color: var(--accent); }
 .badge.rechazada, .badge.rechazado, .badge.objetada { border-color: var(--danger); color: var(--danger); }
 .badge.pendiente, .badge.borrador, .badge.enviada, .badge.enviado { border-color: var(--warn); color: var(--warn); }
 
@@ -795,3 +795,47 @@ td.num, th.num {
 #ds-tabla-lineas .ds-cant { min-width: 70px; }
 #ds-tabla-lineas .ds-unit { min-width: 120px; }
 .fx-bloque input[type="file"] { margin-bottom: 6px; }
+
+/* --- Nómina --- */
+.subtabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 18px;
+  border-bottom: 1px solid var(--rule);
+}
+.subtabs button {
+  background: none;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 9px 14px;
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin-bottom: -1px;
+}
+.subtabs button:hover { color: var(--ink); }
+.subtabs button.activo { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+.nom-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; margin-bottom: 14px; }
+.nom-barra h3 { font-family: var(--font-serif); font-size: 20px; margin: 0; }
+.nom-barra .nota-panel { flex: 1 1 420px; margin: 0; }
+
+.nom-tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.nom-tarjeta { background: var(--surface); border: 1px solid var(--rule); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.nom-tarjeta span { font-size: 12px; color: var(--ink-soft); }
+.nom-tarjeta strong { font-family: var(--font-mono); font-size: 16px; font-variant-numeric: tabular-nums; }
+.nom-tarjeta.destacada { border-color: var(--accent); }
+.nom-tarjeta.destacada strong { color: var(--accent); }
+
+.nom-acciones { display: flex; flex-wrap: wrap; gap: 10px; margin: 16px 0; }
+.nom-detalles { margin: 10px 0; border: 1px solid var(--rule); background: var(--surface); padding: 8px 14px; }
+.nom-detalles summary { cursor: pointer; font-weight: 600; font-size: 14px; }
+.nom-simulacion .tabla-items-detalle { margin: 0 0 8px; }
+.nom-anio { max-width: 200px; }
+.nom-lista { padding-left: 18px; font-size: 13px; line-height: 1.5; color: var(--ink-soft); }
+.nom-lista li { margin-bottom: 6px; }
+.fila-error td { background: #FBEFEC; }
+.check-linea { display: flex; gap: 8px; align-items: flex-start; margin: 8px 0; font-size: 13px; }
+.check-linea input { margin-top: 3px; }
+#nom-dialogo-extra { display: inline-flex; gap: 8px; }
+.nom-titulo-sep { margin-top: 22px; }

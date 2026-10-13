@@ -51,8 +51,6 @@ const REGLAS = [
   { eventoOrigen: 'factura_compra_con_orden', debito: '1435', credito: '2205', nivel: 'automatico' },
   { eventoOrigen: 'factura_compra_sin_orden', debito: '5195', credito: '2205', nivel: 'asistido' },
   { eventoOrigen: 'documento_soporte_compra', debito: '5195', credito: '2335', nivel: 'asistido' },
-  { eventoOrigen: 'nomina_devengado', debito: '5105', credito: '2505', nivel: 'automatico' },
-  { eventoOrigen: 'provision_prestaciones', debito: '5105', credito: '2610', nivel: 'automatico' },
   { eventoOrigen: 'salida_inventario_venta', debito: '6135', credito: '1435', nivel: 'automatico' },
   { eventoOrigen: 'ajuste_inventario', debito: '5199', credito: '1435', nivel: 'manual' },
   { eventoOrigen: 'compra_activo_fijo', debito: '1524', credito: '2205', nivel: 'asistido' },

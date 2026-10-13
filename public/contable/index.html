@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261013-5">
+<link rel="stylesheet" href="/contable/style.css?v=20261013-7">
 </head>
 <body>
 
@@ -486,17 +486,9 @@
     <section id="panel-nomina" class="panel" hidden>
       <header class="panel-header">
         <h2>Nómina</h2>
-        <button class="btn-primario" id="btn-nuevo-periodo">+ Nuevo periodo</button>
       </header>
-      <form id="form-periodo" class="form-inline" hidden>
-        <input type="date" id="periodo-inicio" required title="Fecha de inicio">
-        <input type="date" id="periodo-fin" required title="Fecha de fin">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-periodo">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-nomina"><thead></thead><tbody></tbody></table>
-      </div>
+      <nav id="nom-subtabs" class="subtabs" aria-label="Secciones de nómina"></nav>
+      <div id="nom-contenido"></div>
     </section>
 
     <section id="panel-inventarios" class="panel" hidden>
@@ -1080,14 +1072,32 @@
       </div>
     </form>
   </dialog>
+  <!-- Diálogo genérico de nómina (contratos, novedades, pagos, desprendibles) -->
+  <dialog id="dialogo-nom" class="dialogo-factura" aria-labelledby="titulo-nom">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-nom">Nómina</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-nom" aria-label="Cerrar">×</button>
+    </div>
+    <div class="dialogo-cuerpo" id="nom-dialogo-cuerpo"></div>
+    <div class="dialogo-pie">
+      <p class="fx-error" id="nom-dialogo-error" hidden></p>
+      <span class="fx-ayuda" id="nom-dialogo-ayuda"></span>
+      <span id="nom-dialogo-extra"></span>
+      <button type="button" class="btn-secundario" id="btn-nom-cancelar">Cerrar</button>
+      <button type="button" class="btn-primario" id="btn-nom-guardar">Guardar</button>
+    </div>
+  </dialog>
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261013-5"></script>
-<script src="/contable/calculoOrden.js?v=20261013-5"></script>
-<script src="/contable/asientoCompra.js?v=20261013-5"></script>
-<script src="/contable/asientoVenta.js?v=20261013-5"></script>
-<script src="/contable/planCuentas.js?v=20261013-5"></script>
-<script src="/contable/app.js?v=20261013-5"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261013-7"></script>
+<script src="/contable/calculoOrden.js?v=20261013-7"></script>
+<script src="/contable/asientoCompra.js?v=20261013-7"></script>
+<script src="/contable/asientoVenta.js?v=20261013-7"></script>
+<script src="/contable/planCuentas.js?v=20261013-7"></script>
+<script src="/contable/parametrosLaborales.js?v=20261013-7"></script>
+<script src="/contable/liquidacionNomina.js?v=20261013-7"></script>
+<script src="/contable/app.js?v=20261013-7"></script>
+<script src="/contable/nomina.js?v=20261013-7"></script>
 </body>
 </html>

@@ -280,6 +280,7 @@ function mostrarDashboard() {
   document.getElementById('usuario-nombre').textContent = usuario.nombre;
   document.getElementById('usuario-rol').textContent = usuario.rol;
   document.getElementById('inicio-usuario-nombre').textContent = usuario.nombre;
+  if (window.nominaConfigurarAcceso) window.nominaConfigurarAcceso();
   cargarTodo();
   cargarNombreEmpresa();
 }
@@ -380,6 +381,7 @@ function irATab(tab) {
   const navItem = document.querySelector(`.nav-item[data-tab="${tab}"]`);
   if (navItem) navItem.classList.add('activo');
   document.getElementById('panel-' + tab).hidden = false;
+  if (tab === 'nomina' && window.nominaAlMostrar) window.nominaAlMostrar();
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -409,7 +411,6 @@ document.getElementById('btn-nuevo-tercero').addEventListener('click', () => {
 conectarToggle('btn-nuevo-proyecto', 'form-proyecto', 'btn-cancelar-proyecto');
 conectarToggle('btn-nueva-cotizacion', 'form-cotizacion', 'btn-cancelar-cotizacion');
 conectarToggle('btn-nueva-orden', 'form-orden', 'btn-cancelar-orden');
-conectarToggle('btn-nuevo-periodo', 'form-periodo', 'btn-cancelar-periodo');
 conectarToggle('btn-nuevo-producto', 'form-producto', 'btn-cancelar-producto');
 conectarToggle('btn-nuevo-activo', 'form-activo', 'btn-cancelar-activo');
 conectarToggle('btn-nueva-cuenta', 'form-cuenta', 'btn-cancelar-cuenta');
@@ -432,13 +433,12 @@ async function cargarTodo() {
     renderProyectos(proyectos);
     poblarSelectProyectos(proyectos);
 
-    const [cotizaciones, facturasVenta, ordenes, facturasCompra, documentosSoporte, periodos, productos, activos, cuentas, movBancarios] = await Promise.all([
+    const [cotizaciones, facturasVenta, ordenes, facturasCompra, documentosSoporte, productos, activos, cuentas, movBancarios] = await Promise.all([
       api('/ventas/cotizaciones'),
       api('/ventas/facturas'),
       api('/compras/ordenes'),
       api('/compras/facturas'),
       api('/compras/documentos-soporte'),
-      api('/nomina/periodos'),
       api('/inventarios/productos'),
       api('/activos-fijos'),
       api('/tesoreria/cuentas'),
@@ -450,7 +450,6 @@ async function cargarTodo() {
     renderOrdenes(ordenes);
     renderFacturasCompra(facturasCompra);
     renderDocumentosSoporte(documentosSoporte);
-    renderNomina(periodos);
     renderProductos(productos);
     renderActivos(activos);
     renderCuentas(cuentas);
@@ -706,25 +705,6 @@ function renderFacturasCompra(lista) {
           f.emisorNit ? botonAccion('XML', { accion: 'xml-factura-compra', id: f.id }) : ''
         }</td></tr>`
       );
-    })
-    .join('');
-}
-
-// --- RENDER: NÓMINA ---
-function renderNomina(lista) {
-  document.querySelector('#tabla-nomina thead').innerHTML = '<tr><th>Periodo</th><th>Estado</th><th>Acciones</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-nomina', 3, 'Todavía no hay periodos de nómina.');
-  document.querySelector('#tabla-nomina tbody').innerHTML = lista
-    .map((p) => {
-      let acciones = '—';
-      if (p.estado === 'borrador')
-        acciones =
-          botonAccion('Agregar empleado', { accion: 'agregar-empleado', id: p.id }) +
-          botonAccion('Liquidar', { accion: 'liquidar-periodo', id: p.id });
-
-      return `<tr><td>${formatoFecha(p.fechaInicio)} — ${formatoFecha(p.fechaFin)}</td><td>${badge(
-        p.estado
-      )}</td><td class="acciones">${acciones}</td></tr>`;
     })
     .join('');
 }
@@ -1629,16 +1609,6 @@ function resumenTotalesOrdenHtml(orden) {
   }
   return `<p class="nota-aiu">${partes.join(' · ')}</p>`;
 }
-
-conectarFormulario('form-periodo', () =>
-  api('/nomina/periodos', {
-    method: 'POST',
-    body: JSON.stringify({
-      fechaInicio: document.getElementById('periodo-inicio').value,
-      fechaFin: document.getElementById('periodo-fin').value,
-    }),
-  })
-);
 
 conectarFormulario('form-producto', () =>
   api('/inventarios/productos', {
@@ -3682,13 +3652,6 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
     case 'convertir-orden':
       return accion(`/compras/ordenes/${id}/convertir`, { method: 'POST' });
 
-    case 'agregar-empleado':
-      return agregarEmpleadoAPeriodo(id);
-    case 'liquidar-periodo':
-      if (confirm('¿Liquidar este periodo? Se emitirá el documento soporte de cada empleado agregado.'))
-        return accion(`/nomina/periodos/${id}/liquidar`, { method: 'POST' });
-      return;
-
     case 'entrada-inventario':
       return movimientoInventario('entradas', id, true);
     case 'salida-inventario':
@@ -3709,27 +3672,6 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
 // Prompts sencillos para acciones que necesitan un dato adicional puntual.
 // Es deliberadamente básico — reemplazar por un formulario modal real
 // queda como mejora pendiente, ver README.
-
-async function agregarEmpleadoAPeriodo(periodoId) {
-  const empleados = listaTerceros.filter((t) => t.tipo === 'empleado');
-  if (empleados.length === 0) {
-    alert('Primero crea un tercero de tipo "empleado" en la pestaña Terceros.');
-    return;
-  }
-  const opciones = empleados.map((e, i) => `${i + 1}. ${e.nombre}`).join('\n');
-  const seleccion = prompt(`¿Qué empleado? Escribe el número:\n${opciones}`);
-  const empleado = empleados[Number(seleccion) - 1];
-  if (!empleado) return;
-
-  const devengado = prompt(`Devengado de ${empleado.nombre} ($):`);
-  if (!devengado) return;
-  const deducciones = prompt('Deducciones ($) — Enter para 0:') || '0';
-
-  await accion(`/nomina/periodos/${periodoId}/empleados`, {
-    method: 'POST',
-    body: JSON.stringify({ empleadoId: empleado.id, devengado: Number(devengado), deducciones: Number(deducciones) }),
-  });
-}
 
 async function movimientoInventario(tipo, productoId, pideCosto, pideObservacion) {
   const cantidad = prompt('Cantidad:');

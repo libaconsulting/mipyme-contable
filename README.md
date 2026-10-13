@@ -34,7 +34,7 @@ src/
 ├── modules/                  # Módulos operativos (capa transaccional) — TODOS completos
 │   ├── ventas/                 Cotización → factura, patrón de referencia
 │   ├── compras/                Factura recibida + documento soporte, orden de compra
-│   ├── nomina/                 Periodo → empleados → liquidar → documento soporte
+│   ├── nomina/                 Contratos → liquidación mensual → contabilizar → pagar → planilla de aportes
 │   ├── inventarios/            Kardex simplificado: entradas, salidas, ajustes
 │   ├── activosFijos/           Registro, depreciación mensual (cron), baja
 │   └── tesoreria/               Cuentas bancarias, movimientos, conciliación
@@ -360,6 +360,55 @@ Lo que **no** hace todavía: leer el PDF automáticamente (se digita), IVA teór
 al documento soporte, ni pagar el documento (el pago se cruzará contra 2335 cuando exista el cruce en Tesorería).
 Cuando haya proveedor tecnológico propio, el flujo `POST /api/compras/documento-soporte` (emisión) sigue disponible.
 
+## Nómina (NIIF Grupo 3, Colombia)
+
+Pestaña **Nómina**: contratos, novedades, liquidación mensual, deducciones, provisiones de prestaciones,
+contabilización, pago de salarios y planilla de aportes a seguridad social. La **nómina electrónica la sigue
+emitiendo Siigo**; este módulo calcula, contabiliza y organiza lo de seguridad social (por eso se eliminó el
+webhook/adaptador de nómina del proveedor tecnológico).
+
+**Flujo:** Configuración (ARL, caja, exoneración art. 114-1) → Empleados y contratos → Novedades (ausencias y
+conceptos del mes) → Liquidación mensual (borrador, recalculable) → **Contabilizar** (asientos de liquidación y
+provisiones, fechados fin de mes) → **Pagar** (salarios por caja o banco) → Planilla de aportes (resumen + CSV).
+Una nómina contabilizada puede **reabrirse** (solo si el período contable sigue abierto, con motivo; los asientos quedan `anulado`).
+
+**Código:** cálculo en archivos compartidos navegador/servidor (`public/contable/`): `parametrosLaborales.js`
+(parámetros 2023–2026, tarifas, festivos, jornada), `liquidacionNomina.js` (motor), `asientoNomina.js` (asientos).
+Servicio en `src/modules/nomina/services/nomina.service.js`; rutas bajo `/api/nomina`. Pesos enteros; mes comercial de 30 días.
+Pruebas: `node --test tests/parametrosLaborales.test.js tests/liquidacionNomina.test.js tests/asientoNomina.test.js`.
+
+**Qué calcula:** sueldo por días; auxilio de transporte/conectividad (hasta 2 SMMLV); horas extras y recargos
+(Ley 2466: dominical/festivo 80 % desde 1-jul-2025, 90 % desde 1-jul-2026, 100 % desde 1-jul-2027; jornada 42 h desde 15-jul-2026);
+comisiones, bonificaciones y auxilios (salariales o no); salario integral (IBC 70 %); salud 4 %/8,5 %, pensión 4 %/12 %,
+fondo de solidaridad pensional (desde 4 SMMLV), ARL por clase de riesgo, caja 4 %, SENA 2 %, ICBF 3 % (con exoneración);
+IBC con mínimo 1 y máximo 25 SMMLV y regla del 40 % de pagos no salariales; incapacidad general (tramos y piso del SMMLV),
+laboral, licencias de maternidad/paternidad, vacaciones y licencia no remunerada; préstamos, libranzas, embargos y aportes
+voluntarios; retención en la fuente (art. 383 procedimiento 1, tabla en UVT); provisiones mensuales de cesantías, intereses,
+prima y vacaciones. La liquidación guarda su cálculo completo: cambiar parámetros o el contrato después no altera una nómina ya contabilizada.
+
+**Cuentas** (se crean solas la primera vez, con su cuenta padre): gastos 5105xx (administración) o 5205xx (ventas) según el área
+del contrato; 2505 salarios por pagar y 2510/2515/2520/2525 prestaciones (por empleado como tercero); 236505 retención;
+237005 EPS, 237006 ARL, 237010 caja/SENA/ICBF, 238030 pensiones, 237025/237030/237045/237095 descuentos; 1365 préstamos a empleados;
+138095 incapacidades por cobrar a EPS/ARL. Reglas `nomina_liquidacion`, `nomina_provisiones` y `nomina_pago` se crean al primer uso.
+
+**Planilla de aportes:** resumen por empleado y por entidad (EPS, AFP, ARL, CCF, SENA, ICBF) con novedades PILA
+(ING, RET, VAC, IGE, IRL, LMA, SLN) y aproximación de cada aporte al múltiplo de 100 hacia arriba, como exige la PILA.
+Se descarga en CSV (`;`, UTF-8 con BOM). **No es el archivo plano** que se carga en el operador de información.
+
+**Supuestos a validar con el contador antes de usar en producción:**
+- ARL durante vacaciones se cotiza por los días trabajados + vacaciones.
+- La licencia de maternidad no entra a la base de retención en la fuente.
+- Licencia no remunerada (SLN): el módulo no calcula ningún aporte por esos días (en la práctica la pensión y la salud durante la SLN tienen reglas propias que conviene confirmar).
+- Vacaciones: se provisionan sobre el salario sin horas extras (base/24) y las disfrutadas se descargan de 2525.
+- La regla del 40 % se calcula sobre pagos no salariales sin contar el auxilio de transporte.
+- La retención no aplica los 72 UVT adicionales de dependientes; los dependientes se capturan como deducción.
+- Fechas y porcentajes de las Leyes 2466 de 2025 y 2101 de 2021 tal como están en `parametrosLaborales.js`; años sin parámetros usan el último con aviso "estimado".
+- Los asientos `anulado` por una reapertura deben excluirse de los reportes que se construyan después.
+
+**Lo que no hace todavía (fase 2):** pagos de prima, cesantías, intereses y vacaciones (cruce contra 2510–2525);
+liquidación final de contrato; archivo plano PILA; pago de la planilla con su ajuste de aproximación; saldos iniciales de
+provisiones para empresas con nómina previa; cambio de salario a mitad de mes; reversión de un pago.
+
 ## Frontend
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
@@ -391,7 +440,7 @@ borrado de nada, solo creación y transiciones hacia adelante.
    Solo lo hacen cuando se convierten en factura.
 3. **Nunca hardcodear UVT, tarifas de retención, RST o ICA.** Viven en
    `ParametroTributario`, versionado por año gravable.
-4. **La lógica del proveedor tecnológico de facturación/nómina/documento
+4. **La lógica del proveedor tecnológico de facturación/documento
    soporte vive únicamente en `src/integrations/adapters/`.** Cambiar de
    proveedor no debe tocar ningún módulo operativo.
 5. **Un periodo `cerrado_certificado` es inmutable** salvo por el
@@ -455,11 +504,9 @@ qué contabilizar.
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
-- [ ] Reemplazar `FACTOR_PRESTACIONES` (21.83% fijo) en `nomina.service.js` por el cálculo exacto de cesantías, intereses, prima y vacaciones según la normativa laboral vigente y el tipo de contrato
-- [ ] Integrar `NovedadNomina` con el cálculo del devengado (hoy es solo un registro informativo, no ajusta nada automáticamente)
 - [ ] Tesorería: cruzar movimientos de tipo ingreso/egreso contra la factura, orden o nómina específica que pagan (hoy solo "comisión" se contabiliza sola al conciliar; el resto solo queda marcado como conciliado, sin generar el asiento de pago)
 - [ ] Bancos: dirigir al auxiliar de cada cuenta bancaria los pagos y recaudos (hoy solo la comisión lo hace), con conciliación por cuenta contra el extracto; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
-- [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni la nómina ni los activos fijos
+- [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni los activos fijos (la nómina ya usa `contabilizarAsientoCompuesto`)
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
 - [ ] `DELETE` de terceros (crear, listar y editar ya existen; falta borrar)
@@ -467,11 +514,11 @@ qué contabilizar.
 - [ ] Cuadre global de débitos vs. créditos del periodo como validación bloqueante del cierre (ver TODO en `cierrePeriodo.validarPeriodo`)
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
 - [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
-- [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
+- [ ] Reemplazar los `prompt()` del navegador (entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
 - [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
 - [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma
 - [x] ~~Fase 2, parte 2~~ — Órdenes de Adquisición ya tiene ítems dinámicos, "Ver ítems" y "Editar" (solo en borrador), igual que Cotizaciones
-- [ ] Aplicar `mensajeError()` (`src/core/utils/mensajeError.js`) en los demás controladores — hoy `ventas.controller.js` y `compras.controller.js` lo usan; nómina, inventarios, activos fijos y tesorería todavía devuelven el mensaje genérico de Sequelize
+- [ ] Aplicar `mensajeError()` (`src/core/utils/mensajeError.js`) en los demás controladores — hoy `ventas.controller.js` y `compras.controller.js` lo usan; inventarios, activos fijos y tesorería todavía devuelven el mensaje genérico de Sequelize
 - [ ] La opción "Otro (definir %)" de impuesto en el ítem se guarda como `tipoImpuesto: 'iva'` con el porcentaje manual — no distingue si en realidad era un Impoconsumo con tarifa distinta a 4/8/16%. Si eso resulta ser un caso frecuente, vale la pena dejar elegir tipo Y porcentaje por separado en vez de un solo desplegable combinado
 - [ ] El cálculo de IVA cuando `aplicaAiu = true` sigue asumiendo 19% general sobre (subtotal + AIU) sin importar el `tipoImpuesto` real de los ítems — no contempla todavía una cotización con AIU que mezcle ítems de Impoconsumo o exentos
 - [x] ~~Fase 3, parte 2~~ — `orden-imprimir.html` ya existe: mismo patrón que cotización, con los datos del proveedor (incluida su cuenta bancaria) en vez del cliente, y el proyecto resuelto desde el catálogo
