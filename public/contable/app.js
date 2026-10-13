@@ -1680,6 +1680,328 @@ document.getElementById('btn-depreciar').addEventListener('click', async () => {
   await accion('/activos-fijos/depreciar', { method: 'POST' });
 });
 
+// --- MI EMPRESA: PLAN DE CUENTAS ---
+const plan = { cuentas: [], catalogo: null, verInactivas: false, filtro: '', seleccion: new Set() };
+const puedeEditarPlan = () => !!usuario && ['contador', 'dueño'].includes(usuario.rol);
+const ETIQUETA_ELEMENTO = { activo: 'Activo', pasivo: 'Pasivo', patrimonio: 'Patrimonio', ingreso: 'Ingreso', gasto: 'Gasto', costo: 'Costo' };
+const ETIQUETA_ORIGEN = { sistema: 'Base', catalogo: 'Catálogo', usuario: 'Creada por ti' };
+const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+function planMensaje(texto, esError) {
+  const el = document.getElementById('plan-resultado');
+  el.textContent = texto || '';
+  el.hidden = !texto;
+  el.classList.toggle('error', !!esError);
+}
+
+async function planCargar() {
+  try {
+    plan.cuentas = await api('/plan-cuentas');
+    planRender();
+    if (!document.getElementById('plan-catalogo').hidden) await planCargarCatalogo();
+  } catch (err) {
+    planMensaje(err.message, true);
+  }
+}
+
+function planRender() {
+  const editable = puedeEditarPlan();
+  document.getElementById('btn-plan-nueva').hidden = !editable;
+  document.getElementById('btn-plan-catalogo').hidden = !editable;
+
+  const filtro = sinTildes(plan.filtro).trim();
+  const filas = plan.cuentas.filter((c) => {
+    if (!c.activa && !plan.verInactivas) return false;
+    return !filtro || sinTildes(c.codigo + ' ' + c.nombre).includes(filtro);
+  });
+
+  document.querySelector('#tabla-plan-cuentas tbody').innerHTML = filas.length
+    ? filas
+        .map((c) => {
+          let acciones = '';
+          if (editable) {
+            acciones += `<button type="button" class="btn-accion" data-accion="plan-renombrar" data-id="${escHtml(c.id)}">Renombrar</button>`;
+            if (!c.activa) {
+              acciones += `<button type="button" class="btn-accion" data-accion="plan-activar" data-id="${escHtml(c.id)}">Activar</button>`;
+            } else {
+              const motivo = c.esencial
+                ? 'La usa el sistema en las compras (IVA, retenciones, proveedores).'
+                : c.reglas.length
+                ? 'La usan las reglas de contabilización: ' + c.reglas.join(', ')
+                : '';
+              acciones += `<button type="button" class="btn-accion destructivo" data-accion="plan-desactivar" data-id="${escHtml(c.id)}"${
+                motivo ? ` disabled title="${escHtml(motivo)}"` : ''
+              }>Desactivar</button>`;
+            }
+          }
+          return (
+            `<tr class="${c.nivel === 2 ? 'sub' : ''} ${c.activa ? '' : 'inactiva'}">` +
+            `<td>${escHtml(c.codigo)}</td>` +
+            `<td>${escHtml(c.nombre)}${c.activa ? '' : ' <span class="badge libre">Inactiva</span>'}</td>` +
+            `<td>${escHtml(ETIQUETA_ELEMENTO[c.elementoNiif] || c.elementoNiif)} · ${c.naturaleza === 'debito' ? 'débito' : 'crédito'}</td>` +
+            `<td>${escHtml(ETIQUETA_ORIGEN[c.origen] || c.origen)}</td>` +
+            `<td class="num">${escHtml(c.movimientos)}</td>` +
+            `<td class="plan-acciones">${acciones}</td></tr>`
+          );
+        })
+        .join('')
+    : '<tr><td colspan="6" class="vacio">No hay cuentas que coincidan.</td></tr>';
+}
+
+async function planCargarCatalogo() {
+  plan.catalogo = await api('/plan-cuentas/catalogo');
+  planRenderCatalogo();
+}
+
+function planRenderCatalogo() {
+  const cat = plan.catalogo;
+  if (!cat) return;
+  document.getElementById('plan-catalogo-lista').innerHTML = cat.grupos
+    .map((grupo) => {
+      const items = cat.cuentas.filter((c) => c.grupo === grupo);
+      if (!items.length) return '';
+      return (
+        `<fieldset class="plan-grupo"><legend>${escHtml(grupo)}</legend>` +
+        items
+          .map((c) => {
+            const yaActiva = c.estado === 'activa';
+            const nota = yaActiva ? ' <span class="badge libre">Ya activa</span>' : c.estado === 'inactiva' ? ' <span class="badge libre">Inactiva: se reactiva</span>' : '';
+            return (
+              `<label class="plan-item${yaActiva ? ' ya-activa' : ''}">` +
+              `<input type="checkbox" value="${escHtml(c.codigo)}"${yaActiva ? ' disabled' : ''}${plan.seleccion.has(c.codigo) ? ' checked' : ''}>` +
+              `<span><span class="plan-item-codigo">${escHtml(c.codigo)}</span> ${escHtml(c.nombre)}${nota}` +
+              `<span class="plan-item-uso">${escHtml(c.uso)}</span></span></label>`
+            );
+          })
+          .join('') +
+        '</fieldset>'
+      );
+    })
+    .join('');
+  planActualizarBotonActivar();
+}
+
+function planActualizarBotonActivar() {
+  const n = plan.seleccion.size;
+  const b = document.getElementById('btn-plan-activar');
+  b.disabled = n === 0;
+  b.textContent = n ? `Activar seleccionadas (${n})` : 'Activar seleccionadas';
+}
+
+// --- Diálogo para crear / renombrar una cuenta (también lo usa la factura XML) ---
+const dc = { modo: 'crear', id: null, paraCompra: false, alTerminar: null, creada: false };
+const dialogoCuenta = document.getElementById('dialogo-cuenta');
+
+async function abrirDialogoCuenta(opciones = {}) {
+  dc.modo = opciones.id ? 'editar' : 'crear';
+  dc.id = opciones.id || null;
+  dc.paraCompra = !!opciones.paraCompra;
+  dc.alTerminar = opciones.alTerminar || null;
+  dc.creada = false;
+
+  const editar = dc.modo === 'editar';
+  document.getElementById('titulo-cuenta').textContent = editar ? 'Renombrar cuenta' : dc.paraCompra ? 'Crear cuenta para esta compra' : 'Crear cuenta';
+  document.getElementById('btn-guardar-cuenta').textContent = editar ? 'Guardar nombre' : 'Crear cuenta';
+  document.getElementById('dc-codigo').value = opciones.codigo || '';
+  document.getElementById('dc-codigo').readOnly = editar;
+  document.getElementById('dc-nombre').value = opciones.nombre || '';
+  document.getElementById('dc-error').hidden = true;
+  document.getElementById('dc-catalogo-fila').hidden = editar;
+  document.getElementById('dc-ayuda').hidden = editar;
+  dcActualizarTipo();
+
+  if (!editar) {
+    try {
+      if (!plan.catalogo) plan.catalogo = await api('/plan-cuentas/catalogo');
+      dcPoblarCatalogo();
+    } catch (err) {
+      document.getElementById('dc-catalogo-fila').hidden = true;
+    }
+  }
+  if (typeof dialogoCuenta.showModal === 'function') dialogoCuenta.showModal();
+  else dialogoCuenta.setAttribute('open', '');
+  document.getElementById(editar ? 'dc-nombre' : 'dc-codigo').focus();
+}
+
+function dcPoblarCatalogo() {
+  const disponibles = plan.catalogo.cuentas.filter((c) => c.estado !== 'activa' && (!dc.paraCompra || c.destinoCompra));
+  const sel = document.getElementById('dc-catalogo');
+  sel.innerHTML =
+    '<option value="">— Escribir una cuenta nueva —</option>' +
+    plan.catalogo.grupos
+      .map((g) => {
+        const items = disponibles.filter((c) => c.grupo === g);
+        return items.length
+          ? `<optgroup label="${escHtml(g)}">` + items.map((c) => `<option value="${escHtml(c.codigo)}">${escHtml(c.codigo)} — ${escHtml(c.nombre)}</option>`).join('') + '</optgroup>'
+          : '';
+      })
+      .join('');
+  document.getElementById('dc-catalogo-fila').hidden = disponibles.length === 0;
+}
+
+// Muestra al instante de qué tipo es la cuenta según el código que se escribe.
+function dcActualizarTipo() {
+  const el = document.getElementById('dc-tipo');
+  el.className = 'dc-tipo';
+  if (dc.modo === 'editar') {
+    el.textContent = 'El código no se puede cambiar; si está mal, crea la cuenta correcta y desactiva esta.';
+    return;
+  }
+  const codigo = planCuentas.normalizarCodigo(document.getElementById('dc-codigo').value);
+  if (!codigo) {
+    el.textContent = '';
+    return;
+  }
+  const t = planCuentas.clasificarCodigo(codigo);
+  if (!t.ok) {
+    if (codigo.length >= 4 || !/^\d+$/.test(codigo) || !/^[1-7]/.test(codigo)) {
+      el.textContent = t.error;
+      el.classList.add('mal');
+    } else {
+      el.textContent = '';
+    }
+    return;
+  }
+  const texto = `${t.nivel === 2 ? 'Subcuenta' : 'Cuenta'} de ${t.claseNombre.toLowerCase()} · naturaleza ${t.naturaleza === 'debito' ? 'débito' : 'crédito'}.`;
+  if (dc.paraCompra && !planCuentas.esDestinoCompra({ codigo: t.codigo, naturaleza: t.naturaleza, elementoNiif: t.elementoNiif })) {
+    el.textContent = 'Para una compra elige una cuenta de costo o gasto (5, 6, 7), inventarios (14), activos fijos (15), intangibles (16) o diferidos (17).';
+    el.classList.add('mal');
+  } else if (t.aviso) {
+    el.textContent = texto + ' ' + t.aviso;
+    el.classList.add('aviso');
+  } else {
+    el.textContent = texto;
+    el.classList.add('ok');
+  }
+}
+
+function cerrarDialogoCuenta() {
+  dialogoCuenta.close();
+}
+
+async function guardarDialogoCuenta(e) {
+  e.preventDefault();
+  const errorEl = document.getElementById('dc-error');
+  errorEl.hidden = true;
+  const boton = document.getElementById('btn-guardar-cuenta');
+  boton.disabled = true;
+  try {
+    const nombre = document.getElementById('dc-nombre').value;
+    let resultado;
+    if (dc.modo === 'editar') {
+      const cuenta = await api(`/plan-cuentas/${dc.id}`, { method: 'PATCH', body: JSON.stringify({ nombre }) });
+      resultado = { cuenta, mensaje: `Cuenta ${cuenta.codigo} renombrada.` };
+    } else {
+      resultado = await api('/plan-cuentas', {
+        method: 'POST',
+        body: JSON.stringify({ codigo: document.getElementById('dc-codigo').value, nombre, paraCompra: dc.paraCompra }),
+      });
+      resultado.mensaje = `Cuenta ${resultado.cuenta.codigo} — ${resultado.cuenta.nombre} creada.${resultado.aviso ? ' ' + resultado.aviso : ''}`;
+    }
+    dc.creada = true;
+    plan.catalogo = null; // el estado de las entradas cambió
+    dialogoCuenta.close();
+    if (dc.alTerminar) dc.alTerminar(resultado.cuenta);
+    planCargar().then(() => planMensaje(resultado.mensaje));
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    boton.disabled = false;
+  }
+}
+
+dialogoCuenta.addEventListener('close', () => {
+  if (!dc.creada && dc.alTerminar) dc.alTerminar(null);
+  dc.alTerminar = null;
+});
+document.getElementById('form-dialogo-cuenta').addEventListener('submit', guardarDialogoCuenta);
+document.getElementById('btn-cerrar-cuenta').addEventListener('click', cerrarDialogoCuenta);
+document.getElementById('btn-dc-cancelar').addEventListener('click', cerrarDialogoCuenta);
+document.getElementById('dc-codigo').addEventListener('input', dcActualizarTipo);
+document.getElementById('dc-catalogo').addEventListener('change', (e) => {
+  const c = plan.catalogo && plan.catalogo.cuentas.find((x) => x.codigo === e.target.value);
+  if (!c) return;
+  document.getElementById('dc-codigo').value = c.codigo;
+  document.getElementById('dc-nombre').value = c.nombre;
+  dcActualizarTipo();
+});
+
+// --- Pestaña "Plan de cuentas" dentro de Mi Empresa ---
+document.querySelectorAll('.subtab').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const cual = btn.dataset.subtab;
+    document.querySelectorAll('.subtab').forEach((b) => {
+      const activo = b === btn;
+      b.classList.toggle('activo', activo);
+      b.setAttribute('aria-selected', activo ? 'true' : 'false');
+    });
+    document.getElementById('mi-empresa-sub-datos').hidden = cual !== 'datos';
+    document.getElementById('mi-empresa-sub-plan').hidden = cual !== 'plan';
+    if (cual === 'plan') planCargar();
+  });
+});
+
+document.getElementById('btn-plan-nueva').addEventListener('click', () => abrirDialogoCuenta());
+document.getElementById('btn-plan-catalogo').addEventListener('click', async () => {
+  const panel = document.getElementById('plan-catalogo');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) {
+    try {
+      await planCargarCatalogo();
+    } catch (err) {
+      planMensaje(err.message, true);
+    }
+  }
+});
+document.getElementById('btn-plan-cerrar-catalogo').addEventListener('click', () => (document.getElementById('plan-catalogo').hidden = true));
+document.getElementById('plan-filtro').addEventListener('input', (e) => {
+  plan.filtro = e.target.value;
+  planRender();
+});
+document.getElementById('plan-ver-inactivas').addEventListener('change', (e) => {
+  plan.verInactivas = e.target.checked;
+  planRender();
+});
+document.getElementById('plan-catalogo-lista').addEventListener('change', (e) => {
+  if (e.target.type !== 'checkbox') return;
+  if (e.target.checked) plan.seleccion.add(e.target.value);
+  else plan.seleccion.delete(e.target.value);
+  planActualizarBotonActivar();
+});
+document.getElementById('btn-plan-recomendadas').addEventListener('click', () => {
+  if (!plan.catalogo) return;
+  plan.catalogo.cuentas.filter((c) => c.recomendada && c.estado !== 'activa').forEach((c) => plan.seleccion.add(c.codigo));
+  planRenderCatalogo();
+});
+document.getElementById('btn-plan-activar').addEventListener('click', async () => {
+  const boton = document.getElementById('btn-plan-activar');
+  boton.disabled = true;
+  try {
+    const r = await api('/plan-cuentas/catalogo/activar', { method: 'POST', body: JSON.stringify({ codigos: Array.from(plan.seleccion) }) });
+    plan.seleccion.clear();
+    const partes = [];
+    if (r.creadas.length) partes.push(`${r.creadas.length} creada(s)`);
+    if (r.reactivadas.length) partes.push(`${r.reactivadas.length} reactivada(s)`);
+    await planCargar();
+    planMensaje('Catálogo: ' + (partes.join(' y ') || 'sin cambios') + '.');
+  } catch (err) {
+    planMensaje(err.message, true);
+    planActualizarBotonActivar();
+  }
+});
+
+async function planCambiarEstado(id, activa) {
+  try {
+    const c = await api(`/plan-cuentas/${id}`, { method: 'PATCH', body: JSON.stringify({ activa }) });
+    plan.catalogo = null;
+    await planCargar();
+    planMensaje(`Cuenta ${c.codigo} ${activa ? 'activada' : 'desactivada'}.`);
+  } catch (err) {
+    planMensaje(err.message, true);
+  }
+}
+
 // --- FACTURAS DE COMPRA: CARGA DEL XML DEL PROVEEDOR ---
 // Flujo: elegir archivo -> el servidor lo lee (sin guardar nada) -> se revisa
 // en pantalla (proveedor, orden, cuentas, retención, asiento) -> confirmar.
@@ -1797,10 +2119,45 @@ function fxCuentaPorDefecto() {
   return orden && orden.tipo === 'bienes' ? sug.bienes : sug.gasto;
 }
 
+const FX_OPCION_NUEVA = '__nueva__';
+
 function fxOpcionesCuentas(seleccionada) {
-  return fx.preview.cuentasDestino
-    .map((c) => `<option value="${escHtml(c.codigo)}"${c.codigo === seleccionada ? ' selected' : ''}>${escHtml(c.codigo)} — ${escHtml(c.nombre)}</option>`)
-    .join('');
+  return (
+    fx.preview.cuentasDestino
+      .map((c) => `<option value="${escHtml(c.codigo)}"${c.codigo === seleccionada ? ' selected' : ''}>${escHtml(c.codigo)} — ${escHtml(c.nombre)}</option>`)
+      .join('') + (puedeEditarPlan() ? `<option value="${FX_OPCION_NUEVA}">+ Crear cuenta nueva…</option>` : '')
+  );
+}
+
+// Vuelve a dibujar las opciones de todos los selectores de cuenta conservando lo elegido.
+function fxRefrescarOpcionesCuentas() {
+  document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => {
+    const v = sel.value;
+    sel.innerHTML = '<option value="">Elegir cuenta...</option>' + fxOpcionesCuentas(v);
+    sel.value = v;
+  });
+  document.getElementById('fx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + fxOpcionesCuentas('');
+}
+
+// "+ Crear cuenta nueva…" en un selector: abre el diálogo y, si se crea, la deja elegida.
+function fxCrearCuentaDesde(sel) {
+  const esTodas = sel.id === 'fx-cuenta-todas';
+  sel.value = sel.dataset.prev || ''; // mientras tanto, se queda como estaba
+  abrirDialogoCuenta({
+    paraCompra: true,
+    alTerminar: (cuenta) => {
+      if (!cuenta || !fx.preview) return;
+      fx.preview.cuentasDestino.push({ codigo: cuenta.codigo, nombre: cuenta.nombre });
+      fx.preview.cuentasDestino.sort((a, b) => a.codigo.localeCompare(b.codigo));
+      fxRefrescarOpcionesCuentas();
+      const destinos = esTodas ? Array.from(document.querySelectorAll('.fx-cuenta-linea')) : [sel];
+      destinos.forEach((d) => {
+        d.value = cuenta.codigo;
+        fx.tocado.cuentas.add(Number(d.dataset.linea));
+      });
+      recalcularFactura();
+    },
+  });
 }
 
 function fxRenderAdvertencias() {
@@ -2052,6 +2409,10 @@ function recalcularFactura() {
   const proyectoSel = document.getElementById('fx-proyecto');
   const proyecto = listaProyectos.find((x) => x.id === proyectoSel.value);
   const cuentasPorLinea = fxLeerCuentasLineas();
+  // Guarda lo elegido en cada selector, para volver a ello si cancela "+ Crear cuenta nueva…".
+  document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => {
+    if (sel.value !== FX_OPCION_NUEVA) sel.dataset.prev = sel.value;
+  });
   let asiento;
   try {
     asiento = asientoCompra.armarAsientoCompra({
@@ -2205,12 +2566,18 @@ document.getElementById('fx-proyecto').addEventListener('change', () => {
 });
 document.getElementById('fx-crear-proveedor').addEventListener('change', recalcularFactura);
 document.getElementById('fx-aceptar').addEventListener('change', recalcularFactura);
+// Recuerda lo que había elegido antes de tocar el selector (para volver si cancela "Crear cuenta nueva").
+dialogoFx.addEventListener('focusin', (e) => {
+  if (e.target.classList && (e.target.classList.contains('fx-cuenta-linea') || e.target.id === 'fx-cuenta-todas')) e.target.dataset.prev = e.target.value;
+});
 document.getElementById('fx-tabla-lineas').addEventListener('change', (e) => {
   if (!e.target.classList.contains('fx-cuenta-linea')) return;
+  if (e.target.value === FX_OPCION_NUEVA) return fxCrearCuentaDesde(e.target);
   fx.tocado.cuentas.add(Number(e.target.dataset.linea));
   recalcularFactura();
 });
 document.getElementById('fx-cuenta-todas').addEventListener('change', (e) => {
+  if (e.target.value === FX_OPCION_NUEVA) return fxCrearCuentaDesde(e.target);
   if (!e.target.value) return;
   document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => {
     sel.value = e.target.value;
@@ -2344,6 +2711,17 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
 
     case 'editar-proyecto':
       return abrirEdicionProyecto(id);
+
+    case 'plan-renombrar': {
+      const c = plan.cuentas.find((x) => x.id === id);
+      return c && abrirDialogoCuenta({ id: c.id, codigo: c.codigo, nombre: c.nombre });
+    }
+
+    case 'plan-desactivar':
+      return planCambiarEstado(id, false);
+
+    case 'plan-activar':
+      return planCambiarEstado(id, true);
 
     case 'ver-factura-compra':
       return abrirDetalleFactura(id);

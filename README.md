@@ -102,7 +102,7 @@ asumir que el código tiene un error real.
 navegador pueden seguir entregando un `app.js` o `style.css` viejo con un `index.html` nuevo (pasó el
 12/oct/2026: el formulario mostraba el bloque nuevo de retención pero el JS era el anterior, así que la
 retención "no hacía nada"). Por eso `public/contable/index.html` pide los archivos con `?v=AAAAMMDD-n`.
-**Cada vez que cambie `app.js`, `style.css`, `calculoOrden.js`, `asientoCompra.js` o `retencionesCatalogo.js`, subir ese valor
+**Cada vez que cambie `app.js`, `style.css`, `calculoOrden.js`, `asientoCompra.js`, `planCuentas.js` o `retencionesCatalogo.js`, subir ese valor
 en `index.html`.** Para comprobar qué versión está sirviendo producción, abrir
 `/contable/app.js?v=<valor>` y buscar un texto que solo exista en la versión nueva.
 
@@ -113,6 +113,45 @@ configuración) donde se edita el perfil completo de la empresa —todos
 los campos que ya existían en el registro inicial, incluido el logo—
 usando `PATCH /api/empresas/:id`. Si no se elige un archivo nuevo al
 guardar, el logo actual se conserva (no se borra por accidente).
+
+### Plan de cuentas (subpestaña de Mi Empresa)
+
+Mi Empresa tiene dos subpestañas: **Datos de la empresa** y **Plan de cuentas**.
+La segunda lista las cuentas de la empresa (código, nombre, tipo, origen y
+cantidad de movimientos) y permite:
+
+- **Crear una cuenta** (`POST /api/plan-cuentas`): código de 4 dígitos (cuenta) o
+  6 (subcuenta) y nombre. El tipo y la naturaleza se deducen del primer dígito
+  (1 activo, 2 pasivo, 3 patrimonio, 4 ingreso, 5 gasto, 6 y 7 costos; 8 y 9 no
+  se admiten). Las cuentas que restan del activo (1399, 1499, 1592, 1599, 1698,
+  1699) son de naturaleza crédito, y una subcuenta hereda la de su cuenta padre
+  (que debe existir y estar activa). El código no se cambia nunca.
+- **Catálogo de cuentas comunes** (`GET /api/plan-cuentas/catalogo`,
+  `POST /api/plan-cuentas/catalogo/activar`): unas 50 cuentas del PUC que usa una
+  mipyme (gastos de administración y ventas, financieros, costos, inventarios y
+  activos, ingresos, ICA/renta por pagar), con casillas y un botón "Marcar las
+  recomendadas". Es una guía: la cuenta que corresponde a cada gasto depende de la
+  actividad; confirmarla con el contador. Los nombres y códigos siguen el PUC
+  (Decreto 2650 de 1993); el marco NIIF Grupo 3 no lo obliga, pero es el que
+  reconocen contadores, bancos y la DIAN, y facilita la información exógena.
+- **Renombrar, desactivar y reactivar** (`PATCH /api/plan-cuentas/:id`). Nada se
+  borra. No se puede desactivar una cuenta esencial del sistema (1355, 2205, 2365,
+  2367), una que use una regla de contabilización, ni una con subcuentas activas.
+  Las cuentas inactivas no se ofrecen como destino de una compra.
+- Solo **contador** y **dueño** pueden modificar el plan; los demás roles lo ven
+  en solo lectura (el API responde 403). Cada cambio queda en `logs_auditoria`.
+
+Desde la ventana de **factura de compra (XML)**, cada selector de "Cuenta destino"
+(y "Llevar todo a") termina en **+ Crear cuenta nueva…**: abre el mismo diálogo (con
+el catálogo de cuentas válidas para una compra) y deja la cuenta elegida en la
+línea. Si se cancela, el selector vuelve a lo que tenía. Una cuenta que no sirve
+como destino de compra (por ejemplo un pasivo) se rechaza.
+
+Reglas compartidas navegador/backend en `public/contable/planCuentas.js`;
+servicio en `src/core/services/planCuentasService.js`; rutas en
+`src/routes/planCuentas.routes.js`. Las columnas nuevas `plan_cuentas.activa` y
+`plan_cuentas.origen` ('sistema' | 'catalogo' | 'usuario') se crean solas con
+`sync({ alter: true })`; las cuentas existentes quedan activas y con origen 'sistema'.
 
 ## Logo de empresa
 
@@ -322,6 +361,7 @@ qué contabilizar.
 - [ ] AIU en órdenes: igual que en cotizaciones, no admite mezclar ítems exentos/Impoconsumo con IVA sobre la base AIU (el Impoconsumo de los ítems se suma aparte; el IVA individual de los ítems se ignora)
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
+- [ ] Plan de cuentas: no hay pantalla para editar las **reglas de contabilización** (qué cuenta usa cada evento); solo se ven en el bloqueo al desactivar. Tampoco hay importación masiva del plan desde Excel ni cuentas de orden (clases 8 y 9). La cuenta 1355 se usa como "IVA descontable" (en el PUC el IVA descontable es una subcuenta de 2408): validar con el contador si se prefiere la estructura del PUC
 - [ ] Facturas de compra desde XML: notas crédito/débito de proveedores (descuentos y devoluciones posteriores), documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`

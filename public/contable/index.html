@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261013-1">
+<link rel="stylesheet" href="/contable/style.css?v=20261013-2">
 </head>
 <body>
 
@@ -564,6 +564,12 @@
 
     <section id="panel-mi-empresa" class="panel" hidden>
       <header class="panel-header"><h2>Mi Empresa</h2></header>
+      <div class="subtabs" role="tablist" aria-label="Configuración de la empresa">
+        <button type="button" class="subtab activo" role="tab" data-subtab="datos" aria-selected="true">Datos de la empresa</button>
+        <button type="button" class="subtab" role="tab" data-subtab="plan" aria-selected="false">Plan de cuentas</button>
+      </div>
+
+      <div id="mi-empresa-sub-datos">
       <p class="nota-panel">Estos datos aparecen en el encabezado de las cotizaciones y órdenes de adquisición en PDF.</p>
       <form id="form-mi-empresa" class="form-grande">
         <div class="fila-campos">
@@ -639,6 +645,42 @@
         </div>
         <p id="miempresa-resultado" class="mensaje-exito" hidden></p>
       </form>
+      </div>
+
+      <div id="mi-empresa-sub-plan" hidden>
+        <p class="nota-panel">
+          Las cuentas donde se contabilizan tus compras, ventas y demás operaciones. Usamos los códigos del PUC
+          (4 dígitos para la cuenta, 6 para una subcuenta), que son los que reconocen contadores, bancos y la DIAN.
+          Una cuenta que ya tiene movimientos no se borra: se desactiva.
+        </p>
+        <div class="plan-barra">
+          <button type="button" class="btn-primario" id="btn-plan-nueva">+ Crear cuenta</button>
+          <button type="button" class="btn-secundario" id="btn-plan-catalogo">Catálogo de cuentas comunes</button>
+          <input type="search" id="plan-filtro" placeholder="Buscar por código o nombre" aria-label="Buscar cuenta">
+          <label class="check-aiu"><input type="checkbox" id="plan-ver-inactivas"> Mostrar inactivas</label>
+        </div>
+        <p id="plan-resultado" class="mensaje-exito" hidden></p>
+
+        <div id="plan-catalogo" class="plan-catalogo" hidden>
+          <div class="plan-catalogo-cab">
+            <h3>Catálogo de cuentas comunes</h3>
+            <p>Pocas cuentas, las que usa una mipyme de servicios o comercio. Marca las que necesites y actívalas; es una guía, confirma con tu contador la cuenta que corresponde a tu actividad.</p>
+            <div class="fila-botones">
+              <button type="button" class="btn-secundario" id="btn-plan-recomendadas">Marcar las recomendadas</button>
+              <button type="button" class="btn-primario" id="btn-plan-activar" disabled>Activar seleccionadas</button>
+              <button type="button" class="btn-secundario" id="btn-plan-cerrar-catalogo">Cerrar</button>
+            </div>
+          </div>
+          <div id="plan-catalogo-lista"></div>
+        </div>
+
+        <div class="tabla-envoltorio">
+          <table id="tabla-plan-cuentas">
+            <thead><tr><th>Código</th><th>Nombre</th><th>Tipo</th><th>Origen</th><th>Movimientos</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
     </section>
   </main>
 
@@ -776,12 +818,46 @@
       <button type="button" class="btn-primario" id="btn-listo-factura-detalle">Cerrar</button>
     </div>
   </dialog>
+
+  <!-- Crear o renombrar una cuenta del plan -->
+  <dialog id="dialogo-cuenta" class="dialogo-factura dialogo-chico" aria-labelledby="titulo-cuenta">
+    <form id="form-dialogo-cuenta" novalidate>
+      <div class="dialogo-cabecera">
+        <h3 id="titulo-cuenta">Crear cuenta</h3>
+        <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-cuenta" aria-label="Cerrar">×</button>
+      </div>
+      <div class="dialogo-cuerpo">
+        <label class="campo-etiquetado" id="dc-catalogo-fila">
+          <span>Elegir del catálogo (opcional)</span>
+          <select id="dc-catalogo"></select>
+        </label>
+        <div class="fila-campos">
+          <label class="campo-etiquetado">
+            <span>Código</span>
+            <input type="text" id="dc-codigo" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Ej.: 5135">
+          </label>
+          <label class="campo-etiquetado dc-nombre">
+            <span>Nombre</span>
+            <input type="text" id="dc-nombre" maxlength="100" autocomplete="off" placeholder="Ej.: Servicios públicos">
+          </label>
+        </div>
+        <p id="dc-tipo" class="dc-tipo"></p>
+        <p class="nota-aiu" id="dc-ayuda">4 dígitos para una cuenta (5135), 6 para una subcuenta (513525). El primer dígito define el tipo: 1 activo, 2 pasivo, 3 patrimonio, 4 ingreso, 5 gasto, 6 y 7 costos.</p>
+      </div>
+      <div class="dialogo-pie">
+        <p class="fx-error" id="dc-error" hidden></p>
+        <button type="button" class="btn-secundario" id="btn-dc-cancelar">Cancelar</button>
+        <button type="submit" class="btn-primario" id="btn-guardar-cuenta">Crear cuenta</button>
+      </div>
+    </form>
+  </dialog>
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261013-1"></script>
-<script src="/contable/calculoOrden.js?v=20261013-1"></script>
-<script src="/contable/asientoCompra.js?v=20261013-1"></script>
-<script src="/contable/app.js?v=20261013-1"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261013-2"></script>
+<script src="/contable/calculoOrden.js?v=20261013-2"></script>
+<script src="/contable/asientoCompra.js?v=20261013-2"></script>
+<script src="/contable/planCuentas.js?v=20261013-2"></script>
+<script src="/contable/app.js?v=20261013-2"></script>
 </body>
 </html>

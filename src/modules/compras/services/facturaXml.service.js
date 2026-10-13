@@ -32,6 +32,7 @@ const { leerFacturaElectronica } = require('../../../integrations/dian/facturaEl
 const calcularOrden = require('../../../../public/contable/calculoOrden');
 const { armarAsientoCompra, repartir } = require('../../../../public/contable/asientoCompra');
 const retencionesCatalogo = require('../../../../public/contable/retencionesCatalogo');
+const planCuentasReglas = require('../../../../public/contable/planCuentas');
 
 const MAX_ARCHIVO_BYTES = 3.5 * 1024 * 1024; // el límite de JSON del servidor es 5 MB (base64 pesa ~33% más)
 const ESTADOS_ORDEN_FACTURABLE = ['aprobada', 'recibida_parcial', 'recibida_total'];
@@ -73,15 +74,9 @@ function decodificarArchivo(archivoBase64) {
 }
 
 // Las cuentas a las que se puede llevar el gasto/costo/activo de una compra.
-function esCuentaDestino(c) {
-  if (c.naturaleza !== 'debito') return false;
-  if (['costo', 'gasto'].includes(c.elementoNiif)) return true;
-  return /^(14|15|17)/.test(c.codigo) && !/^1592/.test(c.codigo);
-}
-
 async function cuentasDestinoDe(empresaId) {
-  const cuentas = await PlanCuentas.findAll({ where: { empresaId }, order: [['codigo', 'ASC']] });
-  return cuentas.filter(esCuentaDestino).map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
+  const cuentas = await PlanCuentas.findAll({ where: { empresaId, activa: true }, order: [['codigo', 'ASC']] });
+  return cuentas.filter(planCuentasReglas.esDestinoCompra).map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
 }
 
 // Cuenta de débito que hoy usan las reglas de compra (valor por defecto del destino).

@@ -6,6 +6,7 @@ const seedRoutes = require('./seed.routes');
 const empresasRoutes = require('./empresas.routes');
 const tercerosRoutes = require('./terceros.routes');
 const proyectosRoutes = require('./proyectos.routes');
+const planCuentasRoutes = require('./planCuentas.routes');
 const ventasRoutes = require('../modules/ventas/routes/ventas.routes');
 const comprasRoutes = require('../modules/compras/routes/compras.routes');
 const nominaRoutes = require('../modules/nomina/routes/nomina.routes');
@@ -20,6 +21,7 @@ router.use('/empresas', empresasRoutes); // público por ahora, ver TODO en el a
 
 router.use('/terceros', authenticate, tercerosRoutes); // requiere sesión
 router.use('/proyectos', authenticate, proyectosRoutes); // requiere sesión
+router.use('/plan-cuentas', authenticate, planCuentasRoutes); // requiere sesión; modificar: contador o dueño
 router.use('/ventas', authenticate, ventasRoutes); // requiere sesión
 router.use('/compras', authenticate, comprasRoutes); // requiere sesión
 router.use('/nomina', authenticate, nominaRoutes); // requiere sesión
