@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261013-2">
+<link rel="stylesheet" href="/contable/style.css?v=20261013-3">
 </head>
 <body>
 
@@ -531,9 +531,15 @@
         <h3 class="subseccion">Cuentas bancarias</h3>
         <button class="btn-primario btn-chico" id="btn-nueva-cuenta">+ Nueva cuenta</button>
       </div>
+      <p class="nota-panel">Cada cuenta bancaria se contabiliza en su propio auxiliar del plan de cuentas (11100501, 11100502…), dentro de 1110 Bancos. Con el NIT del banco queda además como tercero en los movimientos.</p>
       <form id="form-cuenta" class="form-inline" hidden>
-        <input type="text" id="cuenta-banco" placeholder="Banco" required>
-        <input type="text" id="cuenta-numero" placeholder="Número" required>
+        <input type="text" id="cuenta-banco" placeholder="Banco" required maxlength="100">
+        <select id="cuenta-tipo" aria-label="Tipo de cuenta">
+          <option value="corriente">Corriente</option>
+          <option value="ahorros">Ahorros</option>
+        </select>
+        <input type="text" id="cuenta-numero" placeholder="Número de cuenta" required maxlength="30">
+        <input type="text" id="cuenta-nit" placeholder="NIT del banco (opcional)" maxlength="20">
         <button type="submit" class="btn-primario">Guardar</button>
         <button type="button" class="btn-secundario" id="btn-cancelar-cuenta">Cancelar</button>
       </form>
@@ -650,7 +656,7 @@
       <div id="mi-empresa-sub-plan" hidden>
         <p class="nota-panel">
           Las cuentas donde se contabilizan tus compras, ventas y demás operaciones. Usamos los códigos del PUC
-          (4 dígitos para la cuenta, 6 para una subcuenta), que son los que reconocen contadores, bancos y la DIAN.
+          (4 dígitos para la cuenta, 6 para una subcuenta, 8 para un auxiliar), que son los que reconocen contadores, bancos y la DIAN.
           Una cuenta que ya tiene movimientos no se borra: se desactiva.
         </p>
         <div class="plan-barra">
@@ -834,7 +840,7 @@
         <div class="fila-campos">
           <label class="campo-etiquetado">
             <span>Código</span>
-            <input type="text" id="dc-codigo" inputmode="numeric" maxlength="6" autocomplete="off" placeholder="Ej.: 5135">
+            <input type="text" id="dc-codigo" inputmode="numeric" maxlength="8" autocomplete="off" placeholder="Ej.: 5135">
           </label>
           <label class="campo-etiquetado dc-nombre">
             <span>Nombre</span>
@@ -842,7 +848,7 @@
           </label>
         </div>
         <p id="dc-tipo" class="dc-tipo"></p>
-        <p class="nota-aiu" id="dc-ayuda">4 dígitos para una cuenta (5135), 6 para una subcuenta (513525). El primer dígito define el tipo: 1 activo, 2 pasivo, 3 patrimonio, 4 ingreso, 5 gasto, 6 y 7 costos.</p>
+        <p class="nota-aiu" id="dc-ayuda">4 dígitos para una cuenta (5135), 6 para una subcuenta (513525) y 8 para un auxiliar (51352505); cada nivel cuelga del anterior. El primer dígito define el tipo: 1 activo, 2 pasivo, 3 patrimonio, 4 ingreso, 5 gasto, 6 y 7 costos.</p>
       </div>
       <div class="dialogo-pie">
         <p class="fx-error" id="dc-error" hidden></p>
@@ -854,10 +860,10 @@
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261013-2"></script>
-<script src="/contable/calculoOrden.js?v=20261013-2"></script>
-<script src="/contable/asientoCompra.js?v=20261013-2"></script>
-<script src="/contable/planCuentas.js?v=20261013-2"></script>
-<script src="/contable/app.js?v=20261013-2"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261013-3"></script>
+<script src="/contable/calculoOrden.js?v=20261013-3"></script>
+<script src="/contable/asientoCompra.js?v=20261013-3"></script>
+<script src="/contable/planCuentas.js?v=20261013-3"></script>
+<script src="/contable/app.js?v=20261013-3"></script>
 </body>
 </html>

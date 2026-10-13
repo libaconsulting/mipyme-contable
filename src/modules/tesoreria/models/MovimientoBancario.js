@@ -1,10 +1,8 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('../../../config/database');
 
-// NOTA: todas las cuentas bancarias de la empresa se contabilizan hoy
-// contra el mismo código de PUC (1110 Bancos) — mapear cada
-// CuentaBancaria a su propia subcuenta contable queda como mejora
-// pendiente para cuando haya más de una cuenta real en uso.
+// Cada CuentaBancaria tiene su propio auxiliar contable (11100501...),
+// ver tesoreria/services/contabilidadBancaria.js.
 const MovimientoBancario = sequelize.define('MovimientoBancario', {
   id: {
     type: DataTypes.UUID,

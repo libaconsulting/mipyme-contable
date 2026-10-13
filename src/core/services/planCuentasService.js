@@ -21,6 +21,18 @@ async function conteoMovimientos(ids) {
   return Object.fromEntries(filas.map((f) => [f.cuentaId, Number(f.n)]));
 }
 
+// Cuentas bancarias que usan cada cuenta contable (id -> ['Banco · número']).
+async function bancosPorCuenta(empresaId) {
+  const CuentaBancaria = require('../../modules/tesoreria/models/CuentaBancaria'); // diferido: evita ciclos al cargar
+  const lista = await CuentaBancaria.findAll({ where: { empresaId } });
+  const mapa = {};
+  for (const b of lista) {
+    if (!b.cuentaContableId) continue;
+    (mapa[b.cuentaContableId] = mapa[b.cuentaContableId] || []).push(`${b.banco} ${b.numero}`);
+  }
+  return mapa;
+}
+
 // Reglas de contabilización que usan cada cuenta (id -> [eventoOrigen]).
 async function reglasPorCuenta(empresaId) {
   const lista = await ReglaContabilizacion.findAll({ where: { empresaId } });
@@ -34,9 +46,17 @@ async function reglasPorCuenta(empresaId) {
   return mapa;
 }
 
-function resumen(c, movs, usosRegla) {
+function resumen(c, movs, usosRegla, bancos) {
   const esencial = reglas.CUENTAS_ESENCIALES.includes(c.codigo);
   const reglasUsadas = Array.from(new Set(usosRegla || []));
+  const bancosUsados = bancos || [];
+  const bloqueo = esencial
+    ? 'La usa el sistema en las compras (IVA, retenciones, proveedores).'
+    : reglasUsadas.length
+    ? 'La usan las reglas de contabilización: ' + reglasUsadas.join(', ')
+    : bancosUsados.length
+    ? 'Es la cuenta contable de la cuenta bancaria: ' + bancosUsados.join(', ')
+    : '';
   return {
     id: c.id,
     codigo: c.codigo,
@@ -50,14 +70,16 @@ function resumen(c, movs, usosRegla) {
     movimientos: movs || 0,
     esencial,
     reglas: reglasUsadas,
-    sePuedeDesactivar: !esencial && reglasUsadas.length === 0,
+    bancos: bancosUsados,
+    bloqueo,
+    sePuedeDesactivar: !bloqueo,
   };
 }
 
 async function listar(empresaId) {
   const cuentas = await PlanCuentas.findAll({ where: { empresaId }, order: [['codigo', 'ASC']] });
-  const [movs, usos] = await Promise.all([conteoMovimientos(cuentas.map((c) => c.id)), reglasPorCuenta(empresaId)]);
-  return cuentas.map((c) => resumen(c, movs[c.id], usos[c.id]));
+  const [movs, usos, bancos] = await Promise.all([conteoMovimientos(cuentas.map((c) => c.id)), reglasPorCuenta(empresaId), bancosPorCuenta(empresaId)]);
+  return cuentas.map((c) => resumen(c, movs[c.id], usos[c.id], bancos[c.id]));
 }
 
 // Catálogo + estado de cada entrada en el plan de la empresa.
@@ -77,14 +99,17 @@ async function catalogo(empresaId) {
   };
 }
 
+// Subcuenta (6) cuelga de una cuenta (4); auxiliar (8) cuelga de una subcuenta (6).
 async function buscarPadre(empresaId, codigo) {
-  if (codigo.length !== 6) return null;
-  const prefijo = codigo.slice(0, 4);
+  if (codigo.length !== 6 && codigo.length !== 8) return null;
+  const prefijo = codigo.slice(0, codigo.length - 2);
+  const nombrePadre = codigo.length === 6 ? 'cuenta' : 'subcuenta';
+  const digitos = codigo.length === 6 ? 4 : 6;
   const padre = await PlanCuentas.findOne({ where: { empresaId, codigo: prefijo } });
   if (!padre) {
-    throw new Error(`Para crear la subcuenta ${codigo} primero necesitas la cuenta ${prefijo} (4 dígitos). Créala o actívala desde el catálogo.`);
+    throw new Error(`Para crear ${codigo} primero necesitas la ${nombrePadre} ${prefijo} (${digitos} dígitos). Créala o actívala antes.`);
   }
-  if (!padre.activa) throw new Error(`La cuenta ${prefijo}, de la que depende ${codigo}, está inactiva. Actívala primero.`);
+  if (!padre.activa) throw new Error(`La ${nombrePadre} ${prefijo}, de la que depende ${codigo}, está inactiva. Actívala primero.`);
   return padre;
 }
 
@@ -201,6 +226,10 @@ async function actualizar(empresaId, usuarioId, id, datos) {
       if (usos && usos.length) {
         throw new Error(`La cuenta ${cuenta.codigo} la usan las reglas de contabilización: ${Array.from(new Set(usos)).join(', ')}. Cambia esas reglas antes de desactivarla.`);
       }
+      const bancos = (await bancosPorCuenta(empresaId))[cuenta.id];
+      if (bancos && bancos.length) {
+        throw new Error(`La cuenta ${cuenta.codigo} es la cuenta contable de la cuenta bancaria ${bancos.join(', ')}; no se puede desactivar.`);
+      }
       const hijas = await PlanCuentas.count({ where: { empresaId, cuentaPadreId: cuenta.id, activa: true } });
       if (hijas > 0) throw new Error(`La cuenta ${cuenta.codigo} tiene subcuentas activas. Desactívalas primero.`);
       cambios.activa = false;
@@ -223,8 +252,8 @@ async function actualizar(empresaId, usuarioId, id, datos) {
     entidadId: cuenta.id,
     detalle: `${cuenta.codigo} ${cuenta.nombre}`,
   });
-  const [movs, usos] = await Promise.all([conteoMovimientos([cuenta.id]), reglasPorCuenta(empresaId)]);
-  return resumen(cuenta, movs[cuenta.id], usos[cuenta.id]);
+  const [movs, usos, bancos] = await Promise.all([conteoMovimientos([cuenta.id]), reglasPorCuenta(empresaId), bancosPorCuenta(empresaId)]);
+  return resumen(cuenta, movs[cuenta.id], usos[cuenta.id], bancos[cuenta.id]);
 }
 
 module.exports = { listar, catalogo, crear, activarCatalogo, actualizar };

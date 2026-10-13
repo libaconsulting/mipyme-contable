@@ -475,7 +475,7 @@ function poblarSelectCuentas(cuentas) {
   const select = document.getElementById('movimiento-cuenta');
   select.innerHTML =
     '<option value="">Cuenta bancaria...</option>' +
-    cuentas.map((c) => `<option value="${c.id}">${c.banco} — ${c.numero}</option>`).join('');
+    cuentas.map((c) => `<option value="${escHtml(c.id)}">${escHtml(c.banco)} — ${escHtml(c.numero)}${c.cuentaContable ? ' (' + escHtml(c.cuentaContable.codigo) + ')' : ''}</option>`).join('');
 }
 
 // "ID — nombre": el ID (centro de costo) va primero porque es lo que
@@ -760,10 +760,14 @@ function renderActivos(lista) {
 
 // --- RENDER: TESORERÍA ---
 function renderCuentas(lista) {
-  document.querySelector('#tabla-cuentas thead').innerHTML = '<tr><th>Banco</th><th>Número</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-cuentas', 2, 'Todavía no hay cuentas bancarias registradas.');
+  document.querySelector('#tabla-cuentas thead').innerHTML = '<tr><th>Banco</th><th>Tipo</th><th>Número</th><th>Cuenta contable</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-cuentas', 4, 'Todavía no hay cuentas bancarias registradas.');
   document.querySelector('#tabla-cuentas tbody').innerHTML = lista
-    .map((c) => `<tr><td>${c.banco}</td><td>${c.numero}</td></tr>`)
+    .map((c) => {
+      const cc = c.cuentaContable ? `<span class="mono">${escHtml(c.cuentaContable.codigo)}</span> ${escHtml(c.cuentaContable.nombre)}` : '—';
+      const tipo = c.tipoCuenta === 'ahorros' ? 'Ahorros' : c.tipoCuenta === 'corriente' ? 'Corriente' : '—';
+      return `<tr><td>${escHtml(c.banco)}</td><td>${tipo}</td><td>${escHtml(c.numero)}</td><td>${cc}</td></tr>`;
+    })
     .join('');
 }
 
@@ -1657,7 +1661,9 @@ conectarFormulario('form-cuenta', () =>
     method: 'POST',
     body: JSON.stringify({
       banco: document.getElementById('cuenta-banco').value,
+      tipoCuenta: document.getElementById('cuenta-tipo').value,
       numero: document.getElementById('cuenta-numero').value,
+      nitBanco: document.getElementById('cuenta-nit').value || undefined,
     }),
   })
 );
@@ -1684,7 +1690,7 @@ document.getElementById('btn-depreciar').addEventListener('click', async () => {
 const plan = { cuentas: [], catalogo: null, verInactivas: false, filtro: '', seleccion: new Set() };
 const puedeEditarPlan = () => !!usuario && ['contador', 'dueño'].includes(usuario.rol);
 const ETIQUETA_ELEMENTO = { activo: 'Activo', pasivo: 'Pasivo', patrimonio: 'Patrimonio', ingreso: 'Ingreso', gasto: 'Gasto', costo: 'Costo' };
-const ETIQUETA_ORIGEN = { sistema: 'Base', catalogo: 'Catálogo', usuario: 'Creada por ti' };
+const ETIQUETA_ORIGEN = { sistema: 'Base', catalogo: 'Catálogo', usuario: 'Creada por ti', tesoreria: 'Tesorería' };
 const sinTildes = (t) => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
 function planMensaje(texto, esError) {
@@ -1724,18 +1730,14 @@ function planRender() {
             if (!c.activa) {
               acciones += `<button type="button" class="btn-accion" data-accion="plan-activar" data-id="${escHtml(c.id)}">Activar</button>`;
             } else {
-              const motivo = c.esencial
-                ? 'La usa el sistema en las compras (IVA, retenciones, proveedores).'
-                : c.reglas.length
-                ? 'La usan las reglas de contabilización: ' + c.reglas.join(', ')
-                : '';
+              const motivo = c.bloqueo || '';
               acciones += `<button type="button" class="btn-accion destructivo" data-accion="plan-desactivar" data-id="${escHtml(c.id)}"${
                 motivo ? ` disabled title="${escHtml(motivo)}"` : ''
               }>Desactivar</button>`;
             }
           }
           return (
-            `<tr class="${c.nivel === 2 ? 'sub' : ''} ${c.activa ? '' : 'inactiva'}">` +
+            `<tr class="${c.nivel === 2 ? 'sub' : c.nivel === 3 ? 'aux' : ''} ${c.activa ? '' : 'inactiva'}">` +
             `<td>${escHtml(c.codigo)}</td>` +
             `<td>${escHtml(c.nombre)}${c.activa ? '' : ' <span class="badge libre">Inactiva</span>'}</td>` +
             `<td>${escHtml(ETIQUETA_ELEMENTO[c.elementoNiif] || c.elementoNiif)} · ${c.naturaleza === 'debito' ? 'débito' : 'crédito'}</td>` +
@@ -1862,7 +1864,7 @@ function dcActualizarTipo() {
     }
     return;
   }
-  const texto = `${t.nivel === 2 ? 'Subcuenta' : 'Cuenta'} de ${t.claseNombre.toLowerCase()} · naturaleza ${t.naturaleza === 'debito' ? 'débito' : 'crédito'}.`;
+  const texto = `${t.nivel === 3 ? 'Auxiliar' : t.nivel === 2 ? 'Subcuenta' : 'Cuenta'} de ${t.claseNombre.toLowerCase()} · naturaleza ${t.naturaleza === 'debito' ? 'débito' : 'crédito'}.`;
   if (dc.paraCompra && !planCuentas.esDestinoCompra({ codigo: t.codigo, naturaleza: t.naturaleza, elementoNiif: t.elementoNiif })) {
     el.textContent = 'Para una compra elige una cuenta de costo o gasto (5, 6, 7), inventarios (14), activos fijos (15), intangibles (16) o diferidos (17).';
     el.classList.add('mal');

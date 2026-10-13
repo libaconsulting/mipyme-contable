@@ -778,3 +778,5 @@ td.num, th.num {
 .btn-accion:disabled { opacity: 0.4; cursor: not-allowed; }
 .btn-accion:disabled:hover { background: none; }
 #tabla-plan-cuentas th:nth-child(5) { text-align: right; }
+#tabla-plan-cuentas tr.aux td:nth-child(2) { padding-left: 52px; }
+.mono { font-family: var(--font-mono); }

@@ -25,6 +25,13 @@ async function obtenerPeriodoVigente(empresaId) {
   return periodo;
 }
 
+// Cuenta alternativa que un módulo pide usar: debe ser de la misma empresa.
+async function cuentaDeLaEmpresa(id, empresaId) {
+  const cuenta = await PlanCuentas.findOne({ where: { id, empresaId } });
+  if (!cuenta) throw new Error('La cuenta contable indicada no pertenece a la empresa.');
+  return cuenta.id;
+}
+
 /**
  * Punto de entrada único que usan TODOS los módulos operativos
  * (ventas, compras, nómina, activos fijos, tesorería) para contabilizar
@@ -39,6 +46,8 @@ async function obtenerPeriodoVigente(empresaId) {
  * @param {number} evento.valor
  * @param {string} [evento.terceroId]
  * @param {string} [evento.usuarioId]
+ * @param {string} [evento.cuentaDebitoId]  - cuenta distinta a la de la regla (ej. el auxiliar de un banco)
+ * @param {string} [evento.cuentaCreditoId] - ídem para el crédito
  */
 async function contabilizarEvento(evento) {
   const regla = await ReglaContabilizacion.findOne({
@@ -60,6 +69,11 @@ async function contabilizarEvento(evento) {
   const periodoContableId =
     evento.periodoContableId || (await obtenerPeriodoVigente(evento.empresaId)).id;
 
+  // La regla da las cuentas "por defecto"; un módulo puede afinar una de las dos
+  // (ej. tesorería usa el auxiliar del banco en vez de 1110 Bancos).
+  const cuentaDebitoId = evento.cuentaDebitoId ? await cuentaDeLaEmpresa(evento.cuentaDebitoId, evento.empresaId) : regla.cuentaDebitoId;
+  const cuentaCreditoId = evento.cuentaCreditoId ? await cuentaDeLaEmpresa(evento.cuentaCreditoId, evento.empresaId) : regla.cuentaCreditoId;
+
   const asiento = await Asiento.create({
     id: uuidv4(),
     empresaId: evento.empresaId,
@@ -75,7 +89,7 @@ async function contabilizarEvento(evento) {
     {
       id: uuidv4(),
       asientoId: asiento.id,
-      cuentaId: regla.cuentaDebitoId,
+      cuentaId: cuentaDebitoId,
       terceroId: evento.terceroId,
       debito: evento.valor,
       credito: 0,
@@ -83,7 +97,7 @@ async function contabilizarEvento(evento) {
     {
       id: uuidv4(),
       asientoId: asiento.id,
-      cuentaId: regla.cuentaCreditoId,
+      cuentaId: cuentaCreditoId,
       terceroId: evento.terceroId,
       debito: 0,
       credito: evento.valor,

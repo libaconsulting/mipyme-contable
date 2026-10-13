@@ -44,7 +44,7 @@
 
   const CUENTAS_ESENCIALES = ['1355', '2205', '2365', '2367'];
 
-  const CODIGO_RE = /^[1-7]\d{3}(\d{2})?$/;
+  const CODIGO_RE = /^[1-7]\d{3}(\d{2}(\d{2})?)?$/;
 
   function normalizarCodigo(codigo) {
     return String(codigo == null ? '' : codigo).replace(/\s+/g, '');
@@ -54,8 +54,9 @@
     return String(nombre == null ? '' : nombre).replace(/\s+/g, ' ').trim();
   }
 
-  // Qué es una cuenta según su código. `padre` (opcional) es la cuenta de 4
-  // dígitos de la que cuelga una subcuenta de 6: hereda su naturaleza.
+  // Qué es una cuenta según su código: 4 dígitos = cuenta (nivel 1), 6 =
+  // subcuenta (nivel 2), 8 = auxiliar (nivel 3). `padre` (opcional) es la
+  // cuenta de la que cuelga (la de 4 o la de 6 dígitos): hereda su naturaleza.
   // Devuelve { ok, error, codigo, nivel, naturaleza, elementoNiif, claseNombre, aviso }.
   function clasificarCodigo(codigoCrudo, padre) {
     const codigo = normalizarCodigo(codigoCrudo);
@@ -65,18 +66,18 @@
       return { ok: false, error: 'El código debe empezar por 1 (activo), 2 (pasivo), 3 (patrimonio), 4 (ingreso), 5 (gasto), 6 o 7 (costos).' };
     }
     if (!CODIGO_RE.test(codigo)) {
-      return { ok: false, error: 'El código debe tener 4 dígitos (cuenta) o 6 dígitos (subcuenta), por ejemplo 5135 o 513525.' };
+      return { ok: false, error: 'El código debe tener 4 dígitos (cuenta), 6 (subcuenta) u 8 (auxiliar), por ejemplo 5135, 513525 o 51352505.' };
     }
     const clase = CLASES[codigo[0]];
     const prefijo = codigo.slice(0, 4);
     let naturaleza = clase.naturaleza;
     if (codigo[0] === '1' && CONTRA_ACTIVO.includes(prefijo)) naturaleza = 'credito';
-    if (codigo.length === 6 && padre && padre.naturaleza) naturaleza = padre.naturaleza;
+    if (codigo.length > 4 && padre && padre.naturaleza) naturaleza = padre.naturaleza;
 
     const resultado = {
       ok: true,
       codigo,
-      nivel: codigo.length === 6 ? 2 : 1,
+      nivel: codigo.length === 8 ? 3 : codigo.length === 6 ? 2 : 1,
       naturaleza,
       elementoNiif: clase.elementoNiif,
       claseNombre: clase.nombre,

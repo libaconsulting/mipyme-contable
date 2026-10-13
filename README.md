@@ -120,12 +120,13 @@ Mi Empresa tiene dos subpestañas: **Datos de la empresa** y **Plan de cuentas**
 La segunda lista las cuentas de la empresa (código, nombre, tipo, origen y
 cantidad de movimientos) y permite:
 
-- **Crear una cuenta** (`POST /api/plan-cuentas`): código de 4 dígitos (cuenta) o
-  6 (subcuenta) y nombre. El tipo y la naturaleza se deducen del primer dígito
+- **Crear una cuenta** (`POST /api/plan-cuentas`): código de 4 dígitos (cuenta), 6
+  (subcuenta) u 8 (auxiliar) y nombre. Cada nivel cuelga del anterior (el auxiliar
+  51352505 necesita la subcuenta 513525, y esta la cuenta 5135). El tipo y la naturaleza se deducen del primer dígito
   (1 activo, 2 pasivo, 3 patrimonio, 4 ingreso, 5 gasto, 6 y 7 costos; 8 y 9 no
   se admiten). Las cuentas que restan del activo (1399, 1499, 1592, 1599, 1698,
-  1699) son de naturaleza crédito, y una subcuenta hereda la de su cuenta padre
-  (que debe existir y estar activa). El código no se cambia nunca.
+  1699) son de naturaleza crédito, y una subcuenta o auxiliar hereda la de su padre
+  (que debe existir y estar activo). El código no se cambia nunca.
 - **Catálogo de cuentas comunes** (`GET /api/plan-cuentas/catalogo`,
   `POST /api/plan-cuentas/catalogo/activar`): unas 50 cuentas del PUC que usa una
   mipyme (gastos de administración y ventas, financieros, costos, inventarios y
@@ -136,7 +137,7 @@ cantidad de movimientos) y permite:
   reconocen contadores, bancos y la DIAN, y facilita la información exógena.
 - **Renombrar, desactivar y reactivar** (`PATCH /api/plan-cuentas/:id`). Nada se
   borra. No se puede desactivar una cuenta esencial del sistema (1355, 2205, 2365,
-  2367), una que use una regla de contabilización, ni una con subcuentas activas.
+  2367), una que use una regla de contabilización, la de una cuenta bancaria, ni una con subcuentas activas.
   Las cuentas inactivas no se ofrecen como destino de una compra.
 - Solo **contador** y **dueño** pueden modificar el plan; los demás roles lo ven
   en solo lectura (el API responde 403). Cada cambio queda en `logs_auditoria`.
@@ -152,6 +153,38 @@ servicio en `src/core/services/planCuentasService.js`; rutas en
 `src/routes/planCuentas.routes.js`. Las columnas nuevas `plan_cuentas.activa` y
 `plan_cuentas.origen` ('sistema' | 'catalogo' | 'usuario') se crean solas con
 `sync({ alter: true })`; las cuentas existentes quedan activas y con origen 'sistema'.
+
+### Bancos: un auxiliar contable por cuenta bancaria
+
+Como en los programas contables tradicionales, cada cuenta bancaria de Tesorería
+tiene su propio auxiliar dentro de `1110 Bancos`:
+
+```
+1110      Bancos
+ 111005   Bancos moneda nacional        (subcuenta, se crea sola)
+  11100501 Bancolombia · Ahorros ****8901   (auxiliar: uno por cuenta bancaria)
+  11100502 Davivienda · Corriente ****5566
+```
+
+- Al registrar la cuenta bancaria (`POST /api/tesoreria/cuentas`: banco, tipo,
+  número y, opcional, NIT del banco) se crea el auxiliar con el siguiente código
+  libre (01 a 99). El número completo nunca va en el nombre: solo `****` y los
+  últimos 4 dígitos.
+- Con el NIT, el banco queda como **tercero** (tipo "otro"; si ya existe uno con ese
+  NIT, con o sin dígito de verificación, se reutiliza) y se anota en los movimientos
+  contables, para sacar el auxiliar por banco y por cuenta.
+- La **comisión bancaria** conciliada se contabiliza `Db 5305 Gastos bancarios / Cr`
+  auxiliar de ESA cuenta (el motor acepta `cuentaDebitoId`/`cuentaCreditoId`
+  alternativas a las de la regla). Si no se puede contabilizar (por ejemplo no hay
+  periodo abierto), el movimiento sigue pendiente de conciliar.
+- Las cuentas bancarias registradas antes de este cambio reciben su auxiliar la primera
+  vez que se listan. Los movimientos antiguos que ya estaban en 1110 no se reclasifican.
+- El auxiliar de una cuenta bancaria no se puede desactivar mientras esa cuenta exista;
+  sí se puede renombrar.
+- **Aún no** cruzan contra el banco los demás movimientos (ingresos y egresos solo se marcan
+  conciliados; ventas de contado y pagos siguen contra la regla genérica 1110). Hasta que
+  se cruce el pago con su factura, el auxiliar solo refleja lo que se contabiliza contra él.
+  Código en `src/modules/tesoreria/services/contabilidadBancaria.js`.
 
 ## Logo de empresa
 
@@ -371,7 +404,7 @@ qué contabilizar.
 - [ ] Reemplazar `FACTOR_PRESTACIONES` (21.83% fijo) en `nomina.service.js` por el cálculo exacto de cesantías, intereses, prima y vacaciones según la normativa laboral vigente y el tipo de contrato
 - [ ] Integrar `NovedadNomina` con el cálculo del devengado (hoy es solo un registro informativo, no ajusta nada automáticamente)
 - [ ] Tesorería: cruzar movimientos de tipo ingreso/egreso contra la factura, orden o nómina específica que pagan (hoy solo "comisión" se contabiliza sola al conciliar; el resto solo queda marcado como conciliado, sin generar el asiento de pago)
-- [ ] Mapear cada `CuentaBancaria` a su propia subcuenta contable — hoy todas comparten el código 1110 Bancos
+- [ ] Bancos: dirigir al auxiliar de cada cuenta bancaria los pagos y recaudos (hoy solo la comisión lo hace), con conciliación por cuenta contra el extracto; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
 - [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni la nómina ni los activos fijos
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`

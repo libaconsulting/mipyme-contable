@@ -36,6 +36,16 @@ test('subcuenta de 6 dígitos: nivel 2 y hereda la naturaleza de la cuenta padre
   assert.equal(hija.naturaleza, 'credito');
 });
 
+test('auxiliar de 8 dígitos: nivel 3 y hereda la naturaleza del padre', () => {
+  const r = pc.clasificarCodigo('11100501');
+  assert.equal(r.ok, true);
+  assert.equal(r.nivel, 3);
+  assert.equal(r.naturaleza, 'debito');
+  assert.equal(r.elementoNiif, 'activo');
+  assert.equal(pc.clasificarCodigo('15920501', { naturaleza: 'credito' }).naturaleza, 'credito');
+  assert.equal(pc.clasificarCodigo('51352505').nivel, 3);
+});
+
 test('rechaza códigos mal formados con mensajes claros', () => {
   assert.match(pc.clasificarCodigo('').error, /Escribe el código/);
   assert.match(pc.clasificarCodigo('51A5').error, /solo lleva números/);
@@ -43,7 +53,8 @@ test('rechaza códigos mal formados con mensajes claros', () => {
   assert.match(pc.clasificarCodigo('9105').error, /empezar por 1/);
   assert.match(pc.clasificarCodigo('513').error, /4 dígitos/);
   assert.match(pc.clasificarCodigo('51352').error, /4 dígitos/);
-  assert.match(pc.clasificarCodigo('51352512').error, /4 dígitos/);
+  assert.match(pc.clasificarCodigo('5135251').error, /4 dígitos/);
+  assert.match(pc.clasificarCodigo('513525121').error, /4 dígitos/);
   assert.match(pc.clasificarCodigo('0135').error, /empezar por 1/);
 });
 
