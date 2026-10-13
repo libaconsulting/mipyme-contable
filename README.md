@@ -61,6 +61,15 @@ editar estos datos después. Los tres endpoints quedan abiertos por
 ahora — ver el TODO en `src/routes/empresas.routes.js` antes de tener
 más de un puñado de empresas reales.
 
+**Contabilidad base.** Una empresa recién creada no trae plan de cuentas,
+reglas ni periodo contable. La primera vez que se carga una factura de
+compra desde XML, el sistema le crea (solo si no tiene ninguna cuenta) las
+24 cuentas base, las 13 reglas de contabilización y el periodo del mes en
+curso, y lo avisa en la vista previa. Si la empresa ya tiene plan de
+cuentas pero no un periodo abierto, solo se crea el periodo. Nunca se
+modifica un plan ya armado. (`aprovisionarContabilidadBase` en
+`seedService.js`.)
+
 Al iniciar sesión, el panel **Inicio** (pestaña por defecto, ya no
 Terceros) saluda por nombre, muestra la razón social de la empresa, y
 presenta los nueve módulos como tarjetas — clic en cualquiera navega

@@ -61,32 +61,20 @@ const REGLAS = [
   { eventoOrigen: 'gasto_bancario', debito: '5305', credito: '1110', nivel: 'automatico' },
 ];
 
-// Seguro de correr más de una vez: usa findOrCreate en cada paso, así
-// que repetirlo no duplica nada, solo confirma que todo sigue en su sitio.
-async function ejecutarSeed() {
-  const resultado = { empresaId: null, periodoId: null, cuentas: 0, reglas: 0 };
-
-  const [empresa] = await Empresa.findOrCreate({
-    where: { id: EMPRESA_SEED_ID },
-    defaults: {
-      id: EMPRESA_SEED_ID,
-      nit: '900123456-1',
-      razonSocial: 'Empresa de prueba S.A.S.',
-      regimenTributario: 'ordinario',
-      responsableIva: true,
-    },
-  });
-  resultado.empresaId = empresa.id;
+// Periodo del mes en curso + catálogo de cuentas + reglas por defecto de UNA
+// empresa. Seguro de correr más de una vez: usa findOrCreate en cada paso.
+async function sembrarCuentasReglasYPeriodo(empresaId) {
+  const resultado = { periodoId: null, cuentas: 0, reglas: 0 };
 
   const hoy = new Date();
   const fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
   const fechaFin = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
 
   const [periodo] = await PeriodoContable.findOrCreate({
-    where: { empresaId: empresa.id, fechaInicio },
+    where: { empresaId, fechaInicio },
     defaults: {
       id: uuidv4(),
-      empresaId: empresa.id,
+      empresaId,
       fechaInicio,
       fechaFin,
       estado: 'abierto',
@@ -97,10 +85,10 @@ async function ejecutarSeed() {
   const cuentaIdPorCodigo = {};
   for (const c of CUENTAS) {
     const [cuenta] = await PlanCuentas.findOrCreate({
-      where: { empresaId: empresa.id, codigo: c.codigo },
+      where: { empresaId, codigo: c.codigo },
       defaults: {
         id: uuidv4(),
-        empresaId: empresa.id,
+        empresaId,
         codigo: c.codigo,
         nombre: c.nombre,
         naturaleza: c.naturaleza,
@@ -114,10 +102,10 @@ async function ejecutarSeed() {
 
   for (const r of REGLAS) {
     await ReglaContabilizacion.findOrCreate({
-      where: { empresaId: empresa.id, eventoOrigen: r.eventoOrigen },
+      where: { empresaId, eventoOrigen: r.eventoOrigen },
       defaults: {
         id: uuidv4(),
-        empresaId: empresa.id,
+        empresaId,
         eventoOrigen: r.eventoOrigen,
         cuentaDebitoId: cuentaIdPorCodigo[r.debito],
         cuentaCreditoId: cuentaIdPorCodigo[r.credito],
@@ -130,4 +118,48 @@ async function ejecutarSeed() {
   return resultado;
 }
 
-module.exports = { ejecutarSeed, EMPRESA_SEED_ID, CUENTAS };
+// Seguro de correr más de una vez: usa findOrCreate en cada paso, así
+// que repetirlo no duplica nada, solo confirma que todo sigue en su sitio.
+async function ejecutarSeed() {
+  const [empresa] = await Empresa.findOrCreate({
+    where: { id: EMPRESA_SEED_ID },
+    defaults: {
+      id: EMPRESA_SEED_ID,
+      nit: '900123456-1',
+      razonSocial: 'Empresa de prueba S.A.S.',
+      regimenTributario: 'ordinario',
+      responsableIva: true,
+    },
+  });
+
+  const base = await sembrarCuentasReglasYPeriodo(empresa.id);
+  return { empresaId: empresa.id, ...base };
+}
+
+// Las empresas que se crean desde el registro nacen sin plan de cuentas, sin
+// reglas y sin periodo. Esta función les deja lo mínimo para contabilizar,
+// SOLO si la empresa no tiene ninguna cuenta (nunca pisa un plan ya armado).
+// Si ya tiene plan pero no hay periodo abierto, crea el del mes en curso.
+// Devuelve { creado, detalle } para poder avisarle al usuario.
+async function aprovisionarContabilidadBase(empresaId) {
+  const totalCuentas = await PlanCuentas.count({ where: { empresaId } });
+  if (totalCuentas === 0) {
+    const r = await sembrarCuentasReglasYPeriodo(empresaId);
+    return { creado: true, detalle: `${r.cuentas} cuentas, ${r.reglas} reglas y el periodo del mes en curso` };
+  }
+
+  const abiertos = await PeriodoContable.count({ where: { empresaId, estado: 'abierto' } });
+  if (abiertos === 0) {
+    const hoy = new Date();
+    const fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1);
+    const fechaFin = new Date(hoy.getFullYear(), hoy.getMonth() + 1, 0);
+    const [, nuevo] = await PeriodoContable.findOrCreate({
+      where: { empresaId, fechaInicio },
+      defaults: { id: uuidv4(), empresaId, fechaInicio, fechaFin, estado: 'abierto' },
+    });
+    if (nuevo) return { creado: true, detalle: 'el periodo contable del mes en curso' };
+  }
+  return { creado: false, detalle: '' };
+}
+
+module.exports = { ejecutarSeed, aprovisionarContabilidadBase, EMPRESA_SEED_ID, CUENTAS };

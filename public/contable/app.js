@@ -1889,7 +1889,7 @@ function fxRenderLineas() {
         `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}${l.gratuita ? ' <span class="badge">sin costo</span>' : ''}</td>` +
         `<td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td>` +
         `<td class="num">${escHtml(formatoDineroDec(l.iva))}</td>` +
-        `<td><select class="fx-cuenta-linea" data-linea="${i}">${fxOpcionesCuentas(defecto)}</select></td></tr>`
+        `<td><select class="fx-cuenta-linea" data-linea="${i}"><option value="">Elegir cuenta...</option>${fxOpcionesCuentas(defecto)}</select></td></tr>`
     )
     .join('');
   document.getElementById('fx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + fxOpcionesCuentas('');
@@ -1977,7 +1977,11 @@ async function fxAplicarOrden(inicial) {
   if (!fx.tocado.proyecto) document.getElementById('fx-proyecto').value = orden && orden.proyectoId ? orden.proyectoId : '';
   const defecto = fxCuentaPorDefecto();
   document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => {
-    if (!fx.tocado.cuentas.has(Number(sel.dataset.linea))) sel.value = defecto;
+    if (!fx.tocado.cuentas.has(Number(sel.dataset.linea))) {
+      sel.value = defecto || '';
+      // Si la cuenta sugerida no está en la lista, que quede "Elegir cuenta...".
+      if (sel.value !== (defecto || '')) sel.selectedIndex = 0;
+    }
   });
   if (!fx.tocado.retencion) fxPrecargarRetencion();
   recalcularFactura();
@@ -2070,7 +2074,11 @@ function recalcularFactura() {
     tbody.innerHTML = asiento.lineas
       .map(
         (l) =>
-          `<tr><td class="${l.credito ? 'indentar' : ''}">${escHtml(l.cuentaCodigo)} <span class="cuenta-nombre">${escHtml(fxNombreCuenta(l.cuentaCodigo))}</span>${
+          `<tr><td class="${l.credito ? 'indentar' : ''}">${
+            l.cuentaCodigo
+              ? `${escHtml(l.cuentaCodigo)} <span class="cuenta-nombre">${escHtml(fxNombreCuenta(l.cuentaCodigo))}</span>`
+              : '<span class="cuenta-falta">— elige la cuenta —</span>'
+          }${
             l.centroCosto ? ` <span class="badge">${escHtml(l.centroCosto)}</span>` : ''
           }</td><td class="num">${l.debito ? escHtml(formatoDineroDec(l.debito)) : ''}</td><td class="num">${l.credito ? escHtml(formatoDineroDec(l.credito)) : ''}</td></tr>`
       )
@@ -2095,6 +2103,8 @@ function recalcularFactura() {
   // ¿Ya se puede registrar?
   const pendientes = [];
   if (p.advertencias.some((a) => a.nivel === 'bloqueo')) pendientes.push('La factura tiene errores que impiden registrarla.');
+  if (!p.cuentasDestino.length) pendientes.push('Tu empresa no tiene cuentas de costo, gasto o inventario. Créalas en el plan de cuentas.');
+  else if (p.factura.lineas.some((_, i) => !cuentasPorLinea[i])) pendientes.push('Elige la cuenta destino de cada línea.');
   if (!p.proveedor && !document.getElementById('fx-crear-proveedor').checked) pendientes.push('Marca “Crear este proveedor” (o créalo antes en Terceros).');
   if (!modo) pendientes.push('Decide la retención: aplicar o no aplicar.');
   if (modo === 'aplica' && (entradas.length === 0 || entradas.some((e) => !e.codigo))) pendientes.push('Elige el concepto de la retención.');

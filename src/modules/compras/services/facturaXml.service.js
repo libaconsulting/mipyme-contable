@@ -27,6 +27,7 @@ const ReglaContabilizacion = require('../../../core/models/ReglaContabilizacion'
 const OrdenCompra = require('../models/OrdenCompra');
 const FacturaCompra = require('../models/FacturaCompra');
 const { contabilizarAsientoCompuesto } = require('../../../core/services/motorAsientos');
+const { aprovisionarContabilidadBase } = require('../../../core/services/seedService');
 const { leerFacturaElectronica } = require('../../../integrations/dian/facturaElectronica');
 const calcularOrden = require('../../../../public/contable/calculoOrden');
 const { armarAsientoCompra, repartir } = require('../../../../public/contable/asientoCompra');
@@ -137,6 +138,18 @@ async function analizar(datos, usuario) {
   if (!empresa) throw new Error('Empresa no encontrada.');
 
   const advertencias = [...factura.advertencias];
+
+  // Empresa recién creada: sin plan de cuentas no hay dónde contabilizar.
+  // Se le deja el catálogo base (idempotente; nunca toca un plan ya armado).
+  const aprovision = await aprovisionarContabilidadBase(empresa.id);
+  if (aprovision.creado) {
+    advertencias.push({
+      nivel: 'info',
+      texto:
+        `Tu empresa aún no tenía contabilidad base, así que se creó: ${aprovision.detalle}. ` +
+        'Puedes ajustar las cuentas y reglas más adelante.',
+    });
+  }
 
   if (!factura.esFactura) {
     const motivo =

@@ -712,6 +712,7 @@ td.num, th.num {
 #fx-tabla-lineas td, #fx-tabla-asiento td, #fx-tabla-asiento th, #fx-tabla-lineas th { vertical-align: top; }
 #fx-tabla-asiento tfoot td { font-weight: 600; border-top: 1px solid var(--rule-strong); }
 #fx-tabla-asiento .cuenta-nombre { color: var(--ink-soft); }
+#fx-tabla-asiento .cuenta-falta { color: var(--danger, #b42318); font-style: italic; }
 #fx-tabla-asiento .indentar { padding-left: 28px; }
 .fx-aiu { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; max-width: 360px; }
 .fx-aiu input { padding: 7px 9px; border: 1px solid var(--rule-strong); background: var(--paper); font-size: 13px; }
