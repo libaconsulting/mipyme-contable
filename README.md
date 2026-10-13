@@ -93,7 +93,7 @@ asumir que el código tiene un error real.
 navegador pueden seguir entregando un `app.js` o `style.css` viejo con un `index.html` nuevo (pasó el
 12/oct/2026: el formulario mostraba el bloque nuevo de retención pero el JS era el anterior, así que la
 retención "no hacía nada"). Por eso `public/contable/index.html` pide los archivos con `?v=AAAAMMDD-n`.
-**Cada vez que cambie `app.js`, `style.css`, `calculoOrden.js` o `retencionesCatalogo.js`, subir ese valor
+**Cada vez que cambie `app.js`, `style.css`, `calculoOrden.js`, `asientoCompra.js` o `retencionesCatalogo.js`, subir ese valor
 en `index.html`.** Para comprobar qué versión está sirviendo producción, abrir
 `/contable/app.js?v=<valor>` y buscar un texto que solo exista en la versión nueva.
 
@@ -161,6 +161,70 @@ guardar; nunca confía en totales que lleguen del cliente. Pruebas:
     sistema usa la oficial.
 - Al convertir la orden en factura de compra, `subtotal = total − iva`, de modo que el
   Impoconsumo (no descontable) queda como mayor valor del costo y `subtotal + iva = total`.
+
+## Factura de compra desde el XML del proveedor
+
+En **Facturas de compra → "+ Cargar factura (XML)"** se abre una ventana para subir el archivo que envía
+el proveedor. Acepta tres formas (la persona no tiene que saber cuál es cuál): el XML de la factura
+(`<Invoice>`), el `AttachedDocument` que mandan la mayoría de proveedores tecnológicos (trae la factura
+adentro más la respuesta de la DIAN) o el **.zip** completo. También se puede arrastrar el archivo.
+
+Son dos pasos y **nada se guarda hasta confirmar**:
+
+1. **Vista previa** — `POST /api/compras/facturas/xml/previsualizar`. El servidor lee el XML y devuelve
+   lo que hay que revisar: número, fecha, CUFE (con enlace "Verificar en la DIAN"), proveedor, líneas,
+   IVA/Impoconsumo, totales, si la DIAN la validó, las órdenes de adquisición candidatas y las advertencias.
+2. **Registro** — `POST /api/compras/facturas/xml`. El servidor **vuelve a leer el XML** (no confía en lo que
+   muestre el navegador), valida, guarda la factura y el asiento en **una sola transacción**.
+
+Qué hace al leerla / registrarla:
+
+- **Proveedor por NIT** (ignora el dígito de verificación). Si no existe en Terceros se crea con los datos
+  del XML (nombre, tipo de persona, régimen de IVA, responsabilidades RUT, correo, teléfono, dirección).
+- **Orden de adquisición**: propone las del proveedor aprobadas o recibidas (marca la que la factura cita en
+  `OrderReference` o la que tiene el mismo valor). Al vincularla la orden pasa a `facturada`, hereda el
+  proyecto (centro de costo) y precarga su retención; si el valor difiere, pide aceptar la advertencia.
+- **Retención**: la decide la persona (no se toma del XML), con el mismo catálogo 2026 y las mismas reglas
+  (topes en UVT, ReteIVA, "No aplica" con motivo) de la orden — comparten `calcularRetenciones` en
+  `calculoOrden.js`. Es obligatorio decidir. Si el XML dice que el proveedor es de Régimen Simple (O-47) o
+  autorretenedor (O-15) se **sugiere** "No aplica" con su motivo. La base es el valor antes de impuestos de la
+  factura real, no el de la orden.
+- **Cuenta destino por línea** (inventario, gasto, costo, activo). Por defecto: orden de bienes → cuenta de
+  débito de la regla `factura_compra_con_orden` (1435); servicios o sin orden → la de `factura_compra_sin_orden`
+  (5195). "Llevar todo a" aplica una cuenta a todas las líneas.
+- **Asiento de varias líneas**, mostrado antes de confirmar y guardado idéntico (módulo compartido
+  `public/contable/asientoCompra.js`, en centavos enteros para que cuadre siempre):
+
+  ```
+  Db  cuenta destino de cada línea (+ Impoconsumo y otros impuestos que no son IVA)
+  Db  1355 IVA descontable        (solo si la empresa es responsable de IVA; si no, va al gasto)
+  Cr  2365 Retención en la fuente por pagar
+  Cr  2367 ReteIVA por pagar
+  Cr  2205 Proveedores nacionales   = total − retenciones   (= "valor a pagar")
+  ```
+  Descuentos o cargos globales de la factura se reparten entre las líneas en proporción a su valor.
+  Si la factura tiene proyecto, las líneas de débito llevan `Movimiento.centroCosto` = código del proyecto.
+- El motor (`motorAsientos.contabilizarAsientoCompuesto`) respeta la **regla** del evento: `manual` registra la
+  factura **sin** asiento (queda `pendiente`); `asistido` se contabiliza porque la vista previa ya es la
+  revisión humana; `automatico` también. Si la fecha de la factura no cae en un periodo abierto, el asiento
+  va al periodo vigente con la fecha de hoy y se avisa — nunca escribe en un periodo cerrado.
+  Las cuentas 2365 y 2367 se crean solas si la empresa no las tiene (se agregaron al seed).
+- **Bloqueos** (no deja registrar): CUFE ya registrado, mismo número del mismo proveedor con otro CUFE, nota
+  crédito/débito o documento soporte, moneda distinta de COP, sin CUFE/fecha/NIT, la DIAN no la validó.
+  **Por confirmar** (checkbox): factura a nombre de otro NIT, total que no coincide con la orden, XML con
+  totales incoherentes, anticipos, CUFE con formato raro.
+- El **XML original** queda guardado en `facturas_compra.xml_contenido` y se descarga desde el detalle
+  (`GET /api/compras/facturas/:id/xml`). El listado no lo trae (pesa); el detalle
+  (`GET /api/compras/facturas/:id`) devuelve el desglose y el asiento.
+
+Seguridad: el archivo viene de un tercero. El lector (`src/integrations/dian/xmlMini.js`) no tiene
+dependencias y **rechaza cualquier DOCTYPE/ENTITY** (sin XXE ni expansión de entidades), limita la
+profundidad, limita el tamaño descomprimido de un ZIP, y el navegador escapa todo texto del XML antes de
+mostrarlo. Pruebas: `node --test tests/facturaElectronica.test.js` (lector y datos), `tests/asientoCompra.test.js`
+(asiento). Los archivos de ejemplo se generan con `tests/helpers/facturaDian.js` (datos ficticios).
+
+Lo que **no** hace todavía: notas crédito/débito, facturas en moneda extranjera, cruce de anticipos, ni los
+eventos RADIAN (acuse de recibo, recibo del bien, aceptación expresa) — ver pendientes.
 
 ## Frontend
 
@@ -237,25 +301,29 @@ públicas. Todas las demás requieren `Authorization: Bearer <token>`.
 
 `POST /api/seed` (requiere sesión con rol `contador` o `dueño`) crea:
 una empresa de prueba, el periodo contable del mes en curso, un plan de
-cuentas de 22 cuentas, y 13 reglas de contabilización — una por cada
+24 cuentas, y 13 reglas de contabilización — una por cada
 evento que disparan los seis módulos operativos. Seguro de correr más
 de una vez — no duplica nada. Sin esto, `motorAsientos` no tiene con
 qué contabilizar.
 
 ## Pendientes inmediatos
 
-- [ ] **Retención en la fuente en órdenes es solo informativa**: no genera asiento (retención por pagar) ni la usa `convertirOrdenEnFactura` / `motorAsientos`. Falta decidir si se contabiliza al causar la factura o al pagar (Tesorería)
+- [ ] **Retención en la fuente en órdenes es solo informativa**. Al registrar la factura desde XML la retención **sí** se contabiliza (2365/2367 al causar la factura), pero `convertirOrdenEnFactura` (cierre manual de una orden sin XML) sigue contabilizando el total bruto sin retención ni IVA aparte. Falta unificarlo, y decidir qué hace Tesorería al pagar (el neto a pagar ya queda en `facturas_compra.neto_a_pagar`)
 - [ ] Retención: el concepto se elige a mano en cada orden; no se deriva automáticamente de `Tercero.tipoPersona` / `responsabilidadesFiscales` (declarante / no declarante, RST). El tope en UVT se mide **por orden**, sin acumular los pagos del mes o del año al mismo proveedor. Validar los conceptos y tarifas del catálogo con el contador
 - [ ] AIU en órdenes: igual que en cotizaciones, no admite mezclar ítems exentos/Impoconsumo con IVA sobre la base AIU (el Impoconsumo de los ítems se suma aparte; el IVA individual de los ítems se ignora)
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
+- [ ] Facturas de compra desde XML: notas crédito/débito de proveedores (descuentos y devoluciones posteriores), documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
+- [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
+- [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
+- [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
 - [ ] Reemplazar `FACTOR_PRESTACIONES` (21.83% fijo) en `nomina.service.js` por el cálculo exacto de cesantías, intereses, prima y vacaciones según la normativa laboral vigente y el tipo de contrato
 - [ ] Integrar `NovedadNomina` con el cálculo del devengado (hoy es solo un registro informativo, no ajusta nada automáticamente)
 - [ ] Tesorería: cruzar movimientos de tipo ingreso/egreso contra la factura, orden o nómina específica que pagan (hoy solo "comisión" se contabiliza sola al conciliar; el resto solo queda marcado como conciliado, sin generar el asiento de pago)
 - [ ] Mapear cada `CuentaBancaria` a su propia subcuenta contable — hoy todas comparten el código 1110 Bancos
-- [ ] Soportar múltiples líneas (débito/crédito) por evento en `motorAsientos` — hoy una venta no discrimina el IVA en un renglón aparte
+- [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni la nómina ni los activos fijos
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
 - [ ] `DELETE` de terceros (crear, listar y editar ya existen; falta borrar)

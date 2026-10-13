@@ -621,3 +621,103 @@ td.num, th.num {
 .bloque-retencion .ret-nota { display: block; font-size: 11px; color: #9A5B13; margin-top: 3px; }
 .bloque-retencion .ret-sin-efecto { color: var(--ink-soft); }
 .bloque-retencion td:nth-child(2) { white-space: nowrap; }
+
+/* ---------- Facturas de compra desde XML (ventanas) ---------- */
+.dialogo-factura {
+  width: min(1060px, 96vw);
+  max-height: 94vh;
+  padding: 0;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+}
+.dialogo-factura[open] { display: flex; flex-direction: column; }
+.dialogo-factura::backdrop { background: rgba(28, 42, 36, 0.45); }
+
+.dialogo-cabecera {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--rule);
+}
+.dialogo-cabecera h3 { font-family: var(--font-serif); font-size: 18px; margin: 0; }
+.btn-cerrar-dialogo { border: none; background: none; font-size: 26px; line-height: 1; color: var(--ink-soft); padding: 0 4px; }
+.btn-cerrar-dialogo:hover { color: var(--ink); }
+.dialogo-cuerpo { padding: 18px 20px; overflow-y: auto; flex: 1; }
+.dialogo-pie {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  padding: 12px 20px;
+  border-top: 1px solid var(--rule);
+}
+.dialogo-pie .btn-primario:disabled { opacity: 0.45; cursor: not-allowed; }
+.fx-ayuda { margin-right: auto; font-size: 12px; color: var(--ink-soft); }
+.fx-error { flex-basis: 100%; margin: 0; font-size: 13px; color: var(--danger); }
+
+.zona-archivo {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 36px 16px;
+  border: 2px dashed var(--rule-strong);
+  background: var(--paper);
+  cursor: pointer;
+  text-align: center;
+  font-size: 14px;
+}
+.zona-archivo span { color: var(--ink-soft); font-size: 13px; }
+.zona-archivo.arrastrando { border-color: var(--accent); background: #EAF2EC; }
+.zona-archivo.error { border-color: var(--danger); }
+#fx-estado-lectura.error { color: var(--danger); }
+
+/* Avisos de la factura */
+.fx-aviso { padding: 8px 12px; margin: 0 0 8px; font-size: 13px; border-left: 4px solid var(--rule-strong); background: var(--paper); }
+.fx-aviso.bloqueo { border-left-color: var(--danger); background: #FBEFEC; color: #7A2D1D; }
+.fx-aviso.confirmar { border-left-color: var(--warn); background: #FBF4E6; color: #6E4E14; }
+.fx-aviso.info { border-left-color: var(--accent); background: #EDF4EF; }
+
+.fx-resumen {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px 20px;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  font-size: 13px;
+}
+.fx-resumen dt { font-size: 11px; color: var(--ink-soft); margin: 0 0 2px; }
+.fx-resumen dd { margin: 0; word-break: break-word; }
+.fx-resumen .mono { font-family: var(--font-mono); font-size: 12px; }
+.fx-resumen a { color: var(--accent); }
+
+.fx-rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin-bottom: 14px; }
+.fx-bloque h4 { font-family: var(--font-serif); font-size: 14px; margin: 0 0 8px; }
+.fx-bloque select, .dialogo-factura .bloque-retencion select { max-width: 100%; }
+.fx-bloque select { width: 100%; padding: 7px 9px; border: 1px solid var(--rule-strong); font-family: var(--font-sans); font-size: 13px; background: var(--paper); }
+.fx-ancho { margin-bottom: 16px; }
+.fx-texto { margin: 0 0 8px; font-size: 13px; }
+.fx-check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; cursor: pointer; }
+.fx-aceptar { padding: 10px 12px; border: 1px solid var(--warn); background: #FBF4E6; }
+.fx-titulo-con-accion { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+.fx-titulo-con-accion h4 { margin: 0; }
+.fx-todas { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
+.fx-todas select { width: auto; min-width: 220px; }
+#fx-tabla-lineas select { width: 100%; min-width: 200px; padding: 5px 7px; font-size: 12px; border: 1px solid var(--rule-strong); background: var(--paper); }
+#fx-tabla-lineas td, #fx-tabla-asiento td, #fx-tabla-asiento th, #fx-tabla-lineas th { vertical-align: top; }
+#fx-tabla-asiento tfoot td { font-weight: 600; border-top: 1px solid var(--rule-strong); }
+#fx-tabla-asiento .cuenta-nombre { color: var(--ink-soft); }
+#fx-tabla-asiento .indentar { padding-left: 28px; }
+.fx-aiu { margin-top: 10px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; max-width: 360px; }
+.fx-aiu input { padding: 7px 9px; border: 1px solid var(--rule-strong); background: var(--paper); font-size: 13px; }
+#fx-totales strong.neto { color: var(--accent); }
+
+.fd-aviso { padding: 10px 12px; margin-bottom: 12px; font-size: 13px; border-left: 4px solid var(--accent); background: #EDF4EF; }
+.fd-aviso.alerta { border-left-color: var(--warn); background: #FBF4E6; }
+
+.badge.libre { text-transform: none; }

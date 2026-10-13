@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261012-3">
+<link rel="stylesheet" href="/contable/style.css?v=20261012-4">
 </head>
 <body>
 
@@ -458,8 +458,11 @@
     </section>
 
     <section id="panel-facturas-compra" class="panel" hidden>
-      <header class="panel-header"><h2>Facturas de compra</h2></header>
-      <p class="nota-panel">Se generan al convertir una orden aprobada, o llegan por webhook del proveedor tecnológico.</p>
+      <header class="panel-header">
+        <h2>Facturas de compra</h2>
+        <button class="btn-primario" id="btn-cargar-factura-xml">+ Cargar factura (XML)</button>
+      </header>
+      <p class="nota-panel">Carga el XML que te envía el proveedor (o el .zip completo): se lee, se revisa y recién ahí se contabiliza. También se generan al convertir una orden aprobada o llegan por webhook del proveedor tecnológico.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-facturas-compra"><thead></thead><tbody></tbody></table>
       </div>
@@ -638,11 +641,147 @@
       </form>
     </section>
   </main>
+
+  <!-- Carga de la factura de compra desde el XML del proveedor -->
+  <dialog id="dialogo-factura-xml" class="dialogo-factura" aria-labelledby="titulo-factura-xml">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-factura-xml">Cargar factura de compra (XML)</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-factura-xml" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="dialogo-cuerpo">
+      <div id="fx-paso-archivo">
+        <label class="zona-archivo" id="fx-zona-archivo">
+          <input type="file" id="fx-archivo" accept=".xml,.zip,application/xml,text/xml,application/zip">
+          <strong>Elige el XML de la factura</strong>
+          <span>o arrástralo hasta aquí. También sirve el .zip que envía el proveedor.</span>
+        </label>
+        <p class="nota-aiu" id="fx-estado-lectura"></p>
+      </div>
+
+      <div id="fx-revision" hidden>
+        <div id="fx-advertencias"></div>
+
+        <div id="fx-resumen" class="fx-resumen"></div>
+
+        <div class="fx-rejilla">
+          <div class="fx-bloque">
+            <h4>Proveedor</h4>
+            <p id="fx-proveedor" class="fx-texto"></p>
+            <label id="fx-crear-proveedor-fila" class="fx-check" hidden>
+              <input type="checkbox" id="fx-crear-proveedor" checked>
+              <span>Crear este proveedor en Terceros con los datos del XML</span>
+            </label>
+          </div>
+          <div class="fx-bloque">
+            <h4>Orden de adquisición</h4>
+            <select id="fx-orden"></select>
+            <p class="nota-aiu" id="fx-orden-nota"></p>
+          </div>
+          <div class="fx-bloque">
+            <h4>Proyecto / centro de costo</h4>
+            <select id="fx-proyecto"></select>
+          </div>
+        </div>
+
+        <div class="fx-bloque fx-ancho">
+          <div class="fx-titulo-con-accion">
+            <h4>Detalle y destino contable</h4>
+            <label class="fx-todas">
+              <span>Llevar todo a:</span>
+              <select id="fx-cuenta-todas"></select>
+            </label>
+          </div>
+          <div class="tabla-envoltorio">
+            <table class="tabla-items-detalle" id="fx-tabla-lineas">
+              <thead>
+                <tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Valor</th><th class="num">IVA</th><th>Cuenta destino</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <fieldset class="bloque-retencion" id="fx-bloque-retencion">
+          <legend>Retención en la fuente que practicas</legend>
+          <p class="nota-aiu" id="fx-retencion-sugerencia" hidden></p>
+          <div class="opciones-retencion">
+            <label><input type="radio" name="fx-retencion-modo" value="aplica"> Aplicar retención</label>
+            <label><input type="radio" name="fx-retencion-modo" value="no_aplica"> No aplica retención</label>
+          </div>
+
+          <div id="fx-retencion-aplica" hidden>
+            <table class="tabla-items">
+              <thead>
+                <tr><th>Concepto (tipo de bien o servicio)</th><th>Tarifa</th><th class="num">Base</th><th class="num">Tope mínimo</th><th class="num">Retención</th><th></th></tr>
+              </thead>
+              <tbody id="fx-retenciones-tbody"></tbody>
+            </table>
+            <button type="button" class="btn-secundario btn-chico" id="btn-agregar-retencion-fx">+ Agregar concepto de retención</button>
+            <label class="campo-aiu fx-aiu" id="fx-aiu-fila" hidden>
+              <span>Valor del AIU de la factura (para conceptos calculados sobre el AIU)</span>
+              <input type="number" id="fx-aiu" min="0" step="0.01" placeholder="0">
+            </label>
+            <p class="nota-aiu" id="fx-nota-retencion"></p>
+          </div>
+
+          <div id="fx-retencion-no-aplica" class="fila-campos" hidden>
+            <label class="campo-aiu">
+              <span>Motivo</span>
+              <select id="fx-retencion-motivo"></select>
+            </label>
+            <label class="campo-aiu campo-ancho">
+              <span>Detalle (opcional)</span>
+              <input type="text" id="fx-retencion-detalle" maxlength="255" placeholder="Ej.: certificado RST vigente, resolución, etc.">
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="fx-bloque fx-ancho">
+          <h4>Asiento que se va a contabilizar</h4>
+          <div class="tabla-envoltorio">
+            <table class="tabla-items-detalle" id="fx-tabla-asiento">
+              <thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+          <div class="resumen-totales" id="fx-totales"></div>
+        </div>
+
+        <label id="fx-aceptar-fila" class="fx-check fx-aceptar" hidden>
+          <input type="checkbox" id="fx-aceptar">
+          <span>Revisé las advertencias de arriba y quiero registrar la factura de todos modos</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="dialogo-pie">
+      <p class="fx-error" id="fx-error" hidden></p>
+      <span class="fx-ayuda" id="fx-ayuda"></span>
+      <button type="button" class="btn-secundario" id="btn-cancelar-factura-xml">Cancelar</button>
+      <button type="button" class="btn-primario" id="btn-registrar-factura-xml" disabled>Registrar y contabilizar</button>
+    </div>
+  </dialog>
+
+  <!-- Detalle de una factura de compra ya registrada -->
+  <dialog id="dialogo-factura-detalle" class="dialogo-factura" aria-labelledby="titulo-factura-detalle">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-factura-detalle">Factura de compra</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-factura-detalle" aria-label="Cerrar">×</button>
+    </div>
+    <div class="dialogo-cuerpo" id="fd-cuerpo"></div>
+    <div class="dialogo-pie">
+      <button type="button" class="btn-secundario" id="btn-xml-factura-detalle" hidden>Descargar XML</button>
+      <button type="button" class="btn-primario" id="btn-listo-factura-detalle">Cerrar</button>
+    </div>
+  </dialog>
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261012-3"></script>
-<script src="/contable/calculoOrden.js?v=20261012-3"></script>
-<script src="/contable/app.js?v=20261012-3"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261012-4"></script>
+<script src="/contable/calculoOrden.js?v=20261012-4"></script>
+<script src="/contable/asientoCompra.js?v=20261012-4"></script>
+<script src="/contable/app.js?v=20261012-4"></script>
 </body>
 </html>

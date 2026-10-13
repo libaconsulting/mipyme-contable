@@ -22,6 +22,8 @@ const CUENTAS = [
   { codigo: '1592', nombre: 'Depreciación acumulada', naturaleza: 'credito', elementoNiif: 'activo' },
   { codigo: '2205', nombre: 'Proveedores nacionales', naturaleza: 'credito', elementoNiif: 'pasivo' },
   { codigo: '2335', nombre: 'Costos y gastos por pagar', naturaleza: 'credito', elementoNiif: 'pasivo' },
+  { codigo: '2365', nombre: 'Retención en la fuente por pagar', naturaleza: 'credito', elementoNiif: 'pasivo' },
+  { codigo: '2367', nombre: 'Impuesto a las ventas retenido (ReteIVA) por pagar', naturaleza: 'credito', elementoNiif: 'pasivo' },
   { codigo: '2370', nombre: 'Retenciones y aportes de nómina por pagar', naturaleza: 'credito', elementoNiif: 'pasivo' },
   { codigo: '2408', nombre: 'IVA por pagar', naturaleza: 'credito', elementoNiif: 'pasivo' },
   { codigo: '2505', nombre: 'Salarios por pagar', naturaleza: 'credito', elementoNiif: 'pasivo' },
@@ -128,4 +130,4 @@ async function ejecutarSeed() {
   return resultado;
 }
 
-module.exports = { ejecutarSeed, EMPRESA_SEED_ID };
+module.exports = { ejecutarSeed, EMPRESA_SEED_ID, CUENTAS };

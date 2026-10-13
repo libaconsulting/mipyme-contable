@@ -56,7 +56,11 @@ function formatoDinero(valor) {
 
 function formatoFecha(valor) {
   if (!valor) return '—';
-  return new Date(valor).toLocaleDateString('es-CO', {
+  // "2026-10-05" (fecha sin hora) se interpreta como día local; con new Date()
+  // directo se tomaría como UTC y en Colombia se vería un día antes.
+  const soloFecha = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(valor));
+  const fecha = soloFecha ? new Date(Number(soloFecha[1]), Number(soloFecha[2]) - 1, Number(soloFecha[3])) : new Date(valor);
+  return fecha.toLocaleDateString('es-CO', {
     year: 'numeric',
     month: 'short',
     day: 'numeric',
@@ -684,15 +688,19 @@ function renderOrdenes(lista) {
 
 function renderFacturasCompra(lista) {
   document.querySelector('#tabla-facturas-compra thead').innerHTML =
-    '<tr><th>Fecha</th><th>Proveedor</th><th>Conciliación</th><th class="num">Total</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-facturas-compra', 4, 'Todavía no hay facturas de compra.');
+    '<tr><th>Fecha</th><th>Número</th><th>Proveedor</th><th>Conciliación</th><th class="num">Total</th><th class="num">Retención</th><th class="num">A pagar</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-facturas-compra', 8, 'Todavía no hay facturas de compra. Carga el XML de la primera con el botón de arriba.');
   document.querySelector('#tabla-facturas-compra tbody').innerHTML = lista
-    .map(
-      (f) =>
-        `<tr><td>${formatoFecha(f.fecha)}</td><td>${nombreTercero(f.terceroId)}</td><td>${badge(
-          f.estadoConciliacion
-        )}</td><td class="num">${formatoDinero(f.total)}</td></tr>`
-    )
+    .map((f) => {
+      const neto = f.netoAPagar === null || f.netoAPagar === undefined ? f.total : f.netoAPagar;
+      return (
+        `<tr><td>${formatoFecha(f.fecha)}</td><td>${escHtml(f.numero || '—')}</td><td>${escHtml(nombreTercero(f.terceroId))}</td><td>${badge(f.estadoConciliacion)}</td>` +
+        `<td class="num">${formatoDineroDec(f.total)}</td><td class="num">${Number(f.retencionValor) ? formatoDineroDec(f.retencionValor) : '—'}</td>` +
+        `<td class="num">${formatoDineroDec(neto)}</td><td class="acciones">${botonAccion('Ver', { accion: 'ver-factura-compra', id: f.id })}${
+          f.emisorNit ? botonAccion('XML', { accion: 'xml-factura-compra', id: f.id }) : ''
+        }</td></tr>`
+      );
+    })
     .join('');
 }
 
@@ -1232,7 +1240,8 @@ function opcionesConceptoRetencionHtml() {
   return `<option value="">Elegir concepto...</option>${porGrupo}<option value="${cat.CONCEPTO_MANUAL.codigo}">${cat.CONCEPTO_MANUAL.nombre}</option>`;
 }
 
-function crearFilaRetencion(linea) {
+function crearFilaRetencion(linea, alCambiar) {
+  const avisar = alCambiar || recalcularTotalesOrden;
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td>
@@ -1252,12 +1261,12 @@ function crearFilaRetencion(linea) {
     // La tarifa sale del catálogo; solo "Otro concepto" se digita a mano.
     tarifa.readOnly = !(concepto && concepto.manual);
     tarifa.value = concepto ? (concepto.manual ? '' : concepto.tarifa) : '';
-    recalcularTotalesOrden();
+    avisar();
   });
-  tarifa.addEventListener('input', recalcularTotalesOrden);
+  tarifa.addEventListener('input', avisar);
   tr.querySelector('.btn-quitar-retencion').addEventListener('click', () => {
     tr.remove();
-    recalcularTotalesOrden();
+    avisar();
   });
 
   if (linea) {
@@ -1275,8 +1284,8 @@ function modoRetencionOrden() {
 
 // Lo que se manda al servidor por cada retención: solo el código (y la
 // tarifa si es "Otro concepto"). El servidor toma lo demás del catálogo.
-function leerRetencionesOrden() {
-  return Array.from(document.querySelectorAll('#retenciones-orden-tbody tr')).map((tr) => {
+function leerRetencionesOrden(idTbody) {
+  return Array.from(document.querySelectorAll('#' + (idTbody || 'retenciones-orden-tbody') + ' tr')).map((tr) => {
     const codigo = tr.querySelector('.item-ret-concepto').value;
     const concepto = retencionesCatalogo.porCodigo(codigo);
     return {
@@ -1671,6 +1680,647 @@ document.getElementById('btn-depreciar').addEventListener('click', async () => {
   await accion('/activos-fijos/depreciar', { method: 'POST' });
 });
 
+// --- FACTURAS DE COMPRA: CARGA DEL XML DEL PROVEEDOR ---
+// Flujo: elegir archivo -> el servidor lo lee (sin guardar nada) -> se revisa
+// en pantalla (proveedor, orden, cuentas, retención, asiento) -> confirmar.
+// El servidor vuelve a leer el XML al registrar: nada de lo que se ve aquí
+// se toma como verdad, solo las decisiones de la persona.
+
+function escHtml(valor) {
+  return String(valor === null || valor === undefined ? '' : valor)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const NOMBRES_CUENTAS_FIJAS = {
+  1355: 'IVA descontable',
+  2205: 'Proveedores nacionales',
+  2365: 'Retención en la fuente por pagar',
+  2367: 'ReteIVA por pagar',
+};
+const TAMANO_MAX_XML = 3.5 * 1024 * 1024;
+
+const fx = {
+  base64: null,
+  nombre: '',
+  preview: null,
+  ordenId: '',
+  tocado: { cuentas: new Set(), proyecto: false, retencion: false },
+  enviando: false,
+};
+
+const dialogoFx = document.getElementById('dialogo-factura-xml');
+
+function fxReiniciar() {
+  fx.base64 = null;
+  fx.nombre = '';
+  fx.preview = null;
+  fx.ordenId = '';
+  fx.tocado = { cuentas: new Set(), proyecto: false, retencion: false };
+  fx.enviando = false;
+  document.getElementById('fx-archivo').value = '';
+  document.getElementById('fx-paso-archivo').hidden = false;
+  document.getElementById('fx-revision').hidden = true;
+  document.getElementById('fx-estado-lectura').textContent = '';
+  document.getElementById('fx-estado-lectura').classList.remove('error');
+  document.getElementById('fx-zona-archivo').classList.remove('error', 'arrastrando');
+  document.getElementById('fx-error').hidden = true;
+  document.getElementById('fx-ayuda').textContent = '';
+  document.getElementById('btn-registrar-factura-xml').disabled = true;
+  document.getElementById('fx-retenciones-tbody').innerHTML = '';
+  document.getElementById('fx-aceptar').checked = false;
+  document.getElementById('fx-aiu').value = '';
+  document.querySelectorAll('input[name="fx-retencion-modo"]').forEach((r) => (r.checked = false));
+}
+
+function abrirDialogoFacturaXml() {
+  fxReiniciar();
+  if (typeof dialogoFx.showModal === 'function') dialogoFx.showModal();
+  else dialogoFx.setAttribute('open', '');
+}
+
+function cerrarDialogoFacturaXml() {
+  if (fx.enviando) return;
+  dialogoFx.close();
+}
+
+function archivoABase64(archivo) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = () => resolve(String(lector.result).split(',')[1] || '');
+    lector.onerror = () => reject(new Error('No se pudo leer el archivo.'));
+    lector.readAsDataURL(archivo);
+  });
+}
+
+function fxMostrarEstado(texto, esError) {
+  const el = document.getElementById('fx-estado-lectura');
+  el.textContent = texto;
+  el.classList.toggle('error', !!esError);
+  document.getElementById('fx-zona-archivo').classList.toggle('error', !!esError);
+}
+
+async function procesarArchivoFactura(archivo) {
+  if (!archivo) return;
+  if (archivo.size > TAMANO_MAX_XML) {
+    fxMostrarEstado('El archivo pesa demasiado (máximo 3,5 MB). Sube solo el XML de la factura.', true);
+    return;
+  }
+  fxMostrarEstado('Leyendo la factura...');
+  try {
+    fx.base64 = await archivoABase64(archivo);
+    fx.nombre = archivo.name;
+    fx.preview = await api('/compras/facturas/xml/previsualizar', {
+      method: 'POST',
+      body: JSON.stringify({ archivoBase64: fx.base64 }),
+    });
+    fxMostrarRevision();
+  } catch (err) {
+    fx.base64 = null;
+    fx.preview = null;
+    fxMostrarEstado(err.message, true);
+  }
+}
+
+// Orden candidata elegida actualmente (o null).
+function fxOrdenElegida() {
+  if (!fx.preview || !fx.ordenId) return null;
+  return fx.preview.ordenesCandidatas.find((o) => o.id === fx.ordenId) || null;
+}
+
+function fxCuentaPorDefecto() {
+  const orden = fxOrdenElegida();
+  const sug = fx.preview.destinosSugeridos;
+  return orden && orden.tipo === 'bienes' ? sug.bienes : sug.gasto;
+}
+
+function fxOpcionesCuentas(seleccionada) {
+  return fx.preview.cuentasDestino
+    .map((c) => `<option value="${escHtml(c.codigo)}"${c.codigo === seleccionada ? ' selected' : ''}>${escHtml(c.codigo)} — ${escHtml(c.nombre)}</option>`)
+    .join('');
+}
+
+function fxRenderAdvertencias() {
+  const lista = fx.preview.advertencias;
+  const etiqueta = { bloqueo: 'No se puede registrar', confirmar: 'Revisa', info: 'Aviso' };
+  document.getElementById('fx-advertencias').innerHTML = lista
+    .map((a) => `<div class="fx-aviso ${a.nivel}"><strong>${etiqueta[a.nivel] || ''}:</strong> ${escHtml(a.texto)}</div>`)
+    .join('');
+  const hayConfirmar = lista.some((a) => a.nivel === 'confirmar');
+  document.getElementById('fx-aceptar-fila').hidden = !hayConfirmar;
+  if (!hayConfirmar) document.getElementById('fx-aceptar').checked = false;
+}
+
+function fxRenderResumen() {
+  const p = fx.preview;
+  const f = p.factura;
+  const dian = f.validacionDian.disponible
+    ? f.validacionDian.validada
+      ? '<span class="badge libre aceptada">Validada por la DIAN</span>'
+      : '<span class="badge libre rechazada">No validada</span>'
+    : '<span class="badge libre pendiente">Sin respuesta de la DIAN en el archivo</span>';
+  const filas = [
+    ['Documento', `${escHtml(f.tipoNombre)} <strong>${escHtml(f.numero || '—')}</strong>`],
+    ['Fecha de emisión', escHtml(formatoFecha(f.fechaEmision))],
+    ['Forma de pago', f.formaPago === 'credito' ? `Crédito${f.fechaVencimiento ? ' · vence ' + escHtml(formatoFecha(f.fechaVencimiento)) : ''}` : f.formaPago === 'contado' ? 'Contado' : '—'],
+    ['Emisor', `${escHtml(f.emisor.nombre)}<br>NIT ${escHtml(f.emisor.nit)}${f.emisor.dv ? '-' + escHtml(f.emisor.dv) : ''}`],
+    ['Total factura', `<strong>${escHtml(formatoDineroDec(f.totales.conImpuestos))}</strong>`],
+    ['Validación', dian],
+    [
+      'CUFE',
+      `<span class="mono" title="${escHtml(f.cufe)}">${escHtml(f.cufe.slice(0, 18))}…${escHtml(f.cufe.slice(-8))}</span>` +
+        (p.verificacionDianUrl ? `<br><a href="${escHtml(p.verificacionDianUrl)}" target="_blank" rel="noopener noreferrer">Verificar en la DIAN</a>` : ''),
+    ],
+    ['Archivo', `${escHtml(fx.nombre)}<br><a href="#" id="fx-otro-archivo">Cargar otro archivo</a>`],
+  ];
+  document.getElementById('fx-resumen').innerHTML = filas.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+}
+
+function fxRenderProveedor() {
+  const p = fx.preview;
+  const e = p.factura.emisor;
+  const el = document.getElementById('fx-proveedor');
+  const fila = document.getElementById('fx-crear-proveedor-fila');
+  if (p.proveedor) {
+    el.innerHTML = `✔ <strong>${escHtml(p.proveedor.nombre)}</strong> (${escHtml(p.proveedor.identificacion)}) ya está en Terceros.`;
+    fila.hidden = true;
+  } else {
+    el.innerHTML = `<strong>${escHtml(e.nombre)}</strong> · NIT ${escHtml(e.nit)}${e.dv ? '-' + escHtml(e.dv) : ''} no está en Terceros.`;
+    fila.hidden = false;
+  }
+}
+
+function fxRenderOrdenes() {
+  const p = fx.preview;
+  const sel = document.getElementById('fx-orden');
+  sel.innerHTML =
+    '<option value="">Sin orden (compra directa)</option>' +
+    p.ordenesCandidatas
+      .map(
+        (o) =>
+          `<option value="${escHtml(o.id)}"${o.id === fx.ordenId ? ' selected' : ''}>${escHtml(o.consecutivo)} · ${escHtml(o.tipo)} · ${escHtml(
+            formatoDineroDec(o.total)
+          )}${o.coincideReferencia ? ' · citada' : o.sugerida ? ' · mismo valor' : ''}</option>`
+      )
+      .join('');
+  document.getElementById('fx-orden-nota').textContent = p.ordenesCandidatas.length
+    ? 'Vincula la factura a la orden aprobada: queda “facturada” y hereda proyecto y retención.'
+    : p.proveedor
+    ? 'Este proveedor no tiene órdenes aprobadas pendientes de facturar.'
+    : '';
+}
+
+function fxRenderProyectos() {
+  const sel = document.getElementById('fx-proyecto');
+  sel.innerHTML =
+    '<option value="">Sin proyecto</option>' +
+    listaProyectos.filter((x) => x.activo).map((x) => `<option value="${escHtml(x.id)}">${escHtml(etiquetaProyecto(x))}</option>`).join('');
+}
+
+function fxRenderLineas() {
+  const p = fx.preview;
+  const defecto = fxCuentaPorDefecto();
+  document.querySelector('#fx-tabla-lineas tbody').innerHTML = p.factura.lineas
+    .map(
+      (l, i) =>
+        `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}${l.gratuita ? ' <span class="badge">sin costo</span>' : ''}</td>` +
+        `<td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td>` +
+        `<td class="num">${escHtml(formatoDineroDec(l.iva))}</td>` +
+        `<td><select class="fx-cuenta-linea" data-linea="${i}">${fxOpcionesCuentas(defecto)}</select></td></tr>`
+    )
+    .join('');
+  document.getElementById('fx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + fxOpcionesCuentas('');
+}
+
+// Retención inicial: la de la orden si hay una; si no, lo que sugiere el XML.
+function fxPrecargarRetencion() {
+  const p = fx.preview;
+  const orden = fxOrdenElegida();
+  const sugerenciaEl = document.getElementById('fx-retencion-sugerencia');
+  let carga = null;
+  let texto = '';
+
+  if (orden && orden.retencion && ['aplica', 'no_aplica'].includes(orden.retencion.modo)) {
+    carga = orden.retencion;
+    texto = `Precargada desde la orden ${orden.consecutivo}. Se recalcula con los valores reales de la factura.`;
+  } else if (p.retencionSugerida) {
+    carga = { modo: p.retencionSugerida.modo, motivo: p.retencionSugerida.motivo, detalle: p.retencionSugerida.detalle, conceptos: [] };
+    texto = p.retencionSugerida.texto;
+  }
+
+  const tbody = document.getElementById('fx-retenciones-tbody');
+  tbody.innerHTML = '';
+  document.querySelectorAll('input[name="fx-retencion-modo"]').forEach((r) => (r.checked = !!carga && r.value === carga.modo));
+  document.getElementById('fx-retencion-motivo').value = carga ? carga.motivo : '';
+  document.getElementById('fx-retencion-detalle').value = carga ? carga.detalle : '';
+  if (carga && carga.modo === 'aplica') {
+    carga.conceptos.forEach((c) => tbody.appendChild(crearFilaRetencion(c, fxAlCambiarRetencion)));
+  }
+  if (orden && orden.aiuTotal > 0) document.getElementById('fx-aiu').value = orden.aiuTotal;
+
+  sugerenciaEl.textContent = texto;
+  sugerenciaEl.hidden = !texto;
+}
+
+function fxAlCambiarRetencion() {
+  fx.tocado.retencion = true;
+  recalcularFactura();
+}
+
+function fxModoRetencion() {
+  const marcado = document.querySelector('input[name="fx-retencion-modo"]:checked');
+  return marcado ? marcado.value : '';
+}
+
+function fxMostrarRevision() {
+  document.getElementById('fx-paso-archivo').hidden = true;
+  document.getElementById('fx-revision').hidden = false;
+  document.getElementById('fx-error').hidden = true;
+  const p = fx.preview;
+
+  // Si hay una orden claramente emparejada (la factura la cita, o mismo valor), se propone.
+  const sugerida = p.ordenesCandidatas.find((o) => o.sugerida);
+  fx.ordenId = sugerida ? sugerida.id : '';
+  fx.tocado = { cuentas: new Set(), proyecto: false, retencion: false };
+
+  fxRenderResumen();
+  fxRenderProveedor();
+  fxRenderOrdenes();
+  fxRenderProyectos();
+  fxRenderLineas();
+  document.getElementById('fx-retencion-motivo').innerHTML =
+    '<option value="">Elegir motivo...</option>' + retencionesCatalogo.MOTIVOS_NO_APLICA.map((m) => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
+  fxAplicarOrden(true);
+}
+
+// Aplica lo que hereda de la orden elegida (proyecto, cuentas, retención) y
+// refresca las advertencias (las del valor de la orden dependen de cuál se elija).
+async function fxAplicarOrden(inicial) {
+  const orden = fxOrdenElegida();
+  if (!inicial) {
+    try {
+      const nuevo = await api('/compras/facturas/xml/previsualizar', {
+        method: 'POST',
+        body: JSON.stringify({ archivoBase64: fx.base64, ordenCompraId: fx.ordenId || undefined }),
+      });
+      fx.preview.advertencias = nuevo.advertencias;
+    } catch (err) {
+      document.getElementById('fx-error').textContent = err.message;
+      document.getElementById('fx-error').hidden = false;
+    }
+  }
+  fxRenderAdvertencias();
+
+  if (!fx.tocado.proyecto) document.getElementById('fx-proyecto').value = orden && orden.proyectoId ? orden.proyectoId : '';
+  const defecto = fxCuentaPorDefecto();
+  document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => {
+    if (!fx.tocado.cuentas.has(Number(sel.dataset.linea))) sel.value = defecto;
+  });
+  if (!fx.tocado.retencion) fxPrecargarRetencion();
+  recalcularFactura();
+}
+
+function fxLeerCuentasLineas() {
+  const cuentas = {};
+  document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => (cuentas[Number(sel.dataset.linea)] = sel.value));
+  return cuentas;
+}
+
+function fxNombreCuenta(codigo) {
+  const c = fx.preview.cuentasDestino.find((x) => x.codigo === codigo);
+  return c ? c.nombre : NOMBRES_CUENTAS_FIJAS[codigo] || '';
+}
+
+// Recalcula retención, asiento y totales con lo que hay en pantalla y
+// decide si ya se puede registrar.
+function recalcularFactura() {
+  if (!fx.preview) return;
+  const p = fx.preview;
+  const c = p.contable;
+  const modo = fxModoRetencion();
+
+  document.getElementById('fx-retencion-aplica').hidden = modo !== 'aplica';
+  document.getElementById('fx-retencion-no-aplica').hidden = modo !== 'no_aplica';
+  if (modo === 'aplica' && document.getElementById('fx-retenciones-tbody').children.length === 0) {
+    document.getElementById('fx-retenciones-tbody').appendChild(crearFilaRetencion(null, fxAlCambiarRetencion));
+  }
+
+  const entradas = modo === 'aplica' ? leerRetencionesOrden('fx-retenciones-tbody') : [];
+  const hayConceptoSobreAiu = entradas.some((e) => {
+    const k = retencionesCatalogo.porCodigo(e.codigo);
+    return k && k.sobre === 'aiu';
+  });
+  document.getElementById('fx-aiu-fila').hidden = !hayConceptoSobreAiu;
+
+  const ret = calcularOrden.calcularRetenciones(
+    {
+      base: c.base,
+      iva: c.iva,
+      aiuTotal: hayConceptoSobreAiu ? Number(document.getElementById('fx-aiu').value || 0) : 0,
+      retencionModo: modo,
+      retencionMotivo: document.getElementById('fx-retencion-motivo').value,
+      retencionDetalle: document.getElementById('fx-retencion-detalle').value,
+      retenciones: entradas.map((e) => retencionesCatalogo.especificar(e, { estricto: false })),
+    },
+    false
+  );
+
+  document.querySelectorAll('#fx-retenciones-tbody tr').forEach((tr, i) => {
+    const l = ret.retenciones[i];
+    if (!l) return;
+    tr.querySelector('.ret-base').textContent = l.codigo ? formatoDineroDec(l.base) : '—';
+    tr.querySelector('.ret-tope').textContent = l.codigo ? (l.baseMinima > 0 ? formatoDineroDec(l.baseMinima) : 'Sin tope') : '—';
+    const valor = tr.querySelector('.ret-valor');
+    valor.textContent = formatoDineroDec(l.valor);
+    valor.classList.toggle('ret-sin-efecto', l.valor === 0);
+    const nota = tr.querySelector('.ret-nota');
+    nota.textContent = l.nota;
+    nota.hidden = !l.nota;
+  });
+  document.getElementById('fx-nota-retencion').textContent =
+    `Conceptos y tarifas ${retencionesCatalogo.ANIO} (UVT ${formatoDineroDec(retencionesCatalogo.UVT_VALOR)}). La base se mide antes de impuestos (${formatoDineroDec(c.base)}); ` +
+    'si no alcanza el tope mínimo, esa retención no se practica.';
+
+  // Asiento
+  const proyectoSel = document.getElementById('fx-proyecto');
+  const proyecto = listaProyectos.find((x) => x.id === proyectoSel.value);
+  const cuentasPorLinea = fxLeerCuentasLineas();
+  let asiento;
+  try {
+    asiento = asientoCompra.armarAsientoCompra({
+      lineas: p.factura.lineas,
+      base: c.base,
+      iva: c.iva,
+      impoconsumo: c.impoconsumo,
+      total: c.total,
+      ivaDescontable: c.ivaDescontable,
+      cuentasLinea: p.factura.lineas.map((_, i) => cuentasPorLinea[i]),
+      retenciones: ret.retenciones,
+      centroCosto: proyecto ? proyecto.codigo || proyecto.nombre : null,
+    });
+  } catch (_) {
+    asiento = null;
+  }
+  const tbody = document.querySelector('#fx-tabla-asiento tbody');
+  const tfoot = document.querySelector('#fx-tabla-asiento tfoot');
+  if (asiento) {
+    tbody.innerHTML = asiento.lineas
+      .map(
+        (l) =>
+          `<tr><td class="${l.credito ? 'indentar' : ''}">${escHtml(l.cuentaCodigo)} <span class="cuenta-nombre">${escHtml(fxNombreCuenta(l.cuentaCodigo))}</span>${
+            l.centroCosto ? ` <span class="badge">${escHtml(l.centroCosto)}</span>` : ''
+          }</td><td class="num">${l.debito ? escHtml(formatoDineroDec(l.debito)) : ''}</td><td class="num">${l.credito ? escHtml(formatoDineroDec(l.credito)) : ''}</td></tr>`
+      )
+      .join('');
+    tfoot.innerHTML = `<tr><td>Sumas iguales${asiento.cuadra ? '' : ' — NO CUADRA'}</td><td class="num">${escHtml(formatoDineroDec(asiento.totalDebito))}</td><td class="num">${escHtml(
+      formatoDineroDec(asiento.totalCredito)
+    )}</td></tr>`;
+  } else {
+    tbody.innerHTML = '<tr><td colspan="3" class="vacio">Elige la cuenta de cada línea.</td></tr>';
+    tfoot.innerHTML = '';
+  }
+
+  const neto = asiento ? asiento.netoAPagar : c.total - ret.retencionValor;
+  document.getElementById('fx-totales').innerHTML =
+    `<span>Base: <strong>${escHtml(formatoDineroDec(c.base))}</strong></span>` +
+    `<span>IVA${c.ivaDescontable ? '' : ' (al gasto)'}: <strong>${escHtml(formatoDineroDec(c.iva))}</strong></span>` +
+    (c.impoconsumo ? `<span>Impoconsumo: <strong>${escHtml(formatoDineroDec(c.impoconsumo))}</strong></span>` : '') +
+    `<span>Total: <strong>${escHtml(formatoDineroDec(c.total))}</strong></span>` +
+    `<span>Retención: <strong>− ${escHtml(formatoDineroDec(ret.retencionValor))}</strong></span>` +
+    `<span>A pagar al proveedor: <strong class="neto">${escHtml(formatoDineroDec(neto))}</strong></span>`;
+
+  // ¿Ya se puede registrar?
+  const pendientes = [];
+  if (p.advertencias.some((a) => a.nivel === 'bloqueo')) pendientes.push('La factura tiene errores que impiden registrarla.');
+  if (!p.proveedor && !document.getElementById('fx-crear-proveedor').checked) pendientes.push('Marca “Crear este proveedor” (o créalo antes en Terceros).');
+  if (!modo) pendientes.push('Decide la retención: aplicar o no aplicar.');
+  if (modo === 'aplica' && (entradas.length === 0 || entradas.some((e) => !e.codigo))) pendientes.push('Elige el concepto de la retención.');
+  if (modo === 'aplica' && entradas.some((e) => e.codigo === retencionesCatalogo.CONCEPTO_MANUAL.codigo && !(e.tarifa > 0))) pendientes.push('Escribe la tarifa del “Otro concepto”.');
+  if (modo === 'no_aplica' && !document.getElementById('fx-retencion-motivo').value) pendientes.push('Elige el motivo por el que no aplica la retención.');
+  if (p.advertencias.some((a) => a.nivel === 'confirmar') && !document.getElementById('fx-aceptar').checked) pendientes.push('Acepta las advertencias para continuar.');
+  if (asiento && !asiento.cuadra) pendientes.push('El asiento no cuadra.');
+
+  document.getElementById('fx-ayuda').textContent = pendientes[0] || 'Todo listo para contabilizar.';
+  document.getElementById('btn-registrar-factura-xml').disabled = pendientes.length > 0 || fx.enviando;
+  return { modo, ret, entradas };
+}
+
+async function registrarFacturaXml() {
+  if (fx.enviando) return;
+  const estado = recalcularFactura();
+  const p = fx.preview;
+  const errorEl = document.getElementById('fx-error');
+  errorEl.hidden = true;
+
+  const cargaRetenciones = estado.modo === 'aplica' ? estado.entradas.map((e) => ({ codigo: e.codigo, tarifa: e.tarifa })) : [];
+  const cuerpo = {
+    archivoBase64: fx.base64,
+    ordenCompraId: fx.ordenId || undefined,
+    terceroId: p.proveedor ? p.proveedor.id : undefined,
+    crearProveedor: !p.proveedor && document.getElementById('fx-crear-proveedor').checked,
+    proyectoId: document.getElementById('fx-proyecto').value || undefined,
+    cuentasLineas: fxLeerCuentasLineas(),
+    retencionModo: estado.modo,
+    retencionMotivo: document.getElementById('fx-retencion-motivo').value,
+    retencionDetalle: document.getElementById('fx-retencion-detalle').value,
+    retenciones: cargaRetenciones,
+    aiuTotal: Number(document.getElementById('fx-aiu').value || 0),
+    aceptarAdvertencias: document.getElementById('fx-aceptar').checked,
+  };
+
+  const boton = document.getElementById('btn-registrar-factura-xml');
+  fx.enviando = true;
+  boton.disabled = true;
+  boton.textContent = 'Registrando...';
+  try {
+    const resultado = await api('/compras/facturas/xml', { method: 'POST', body: JSON.stringify(cuerpo) });
+    fx.enviando = false;
+    dialogoFx.close();
+    await cargarTodo();
+    const avisos = [];
+    if (!resultado.contabilizada) avisos.push('La factura quedó registrada, pero SIN asiento: la regla contable de este evento está en nivel manual. Contabilízala desde el módulo contable.');
+    if (resultado.periodoAjustado) avisos.push('La fecha de la factura no cae en un periodo contable abierto; el asiento quedó con la fecha de hoy en el periodo vigente.');
+    await abrirDetalleFactura(resultado.factura.id, avisos, 'Factura registrada y contabilizada.');
+  } catch (err) {
+    fx.enviando = false;
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    boton.textContent = 'Registrar y contabilizar';
+    if (fx.preview) recalcularFactura();
+  }
+}
+
+// --- Eventos de la ventana ---
+document.getElementById('btn-cargar-factura-xml').addEventListener('click', abrirDialogoFacturaXml);
+document.getElementById('btn-cerrar-factura-xml').addEventListener('click', cerrarDialogoFacturaXml);
+document.getElementById('btn-cancelar-factura-xml').addEventListener('click', cerrarDialogoFacturaXml);
+document.getElementById('btn-registrar-factura-xml').addEventListener('click', registrarFacturaXml);
+dialogoFx.addEventListener('cancel', (e) => {
+  if (fx.enviando) e.preventDefault();
+});
+
+const zonaArchivoFx = document.getElementById('fx-zona-archivo');
+document.getElementById('fx-archivo').addEventListener('change', (e) => procesarArchivoFactura(e.target.files[0]));
+['dragenter', 'dragover'].forEach((ev) =>
+  zonaArchivoFx.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zonaArchivoFx.classList.add('arrastrando');
+  })
+);
+['dragleave', 'drop'].forEach((ev) =>
+  zonaArchivoFx.addEventListener(ev, (e) => {
+    e.preventDefault();
+    zonaArchivoFx.classList.remove('arrastrando');
+  })
+);
+zonaArchivoFx.addEventListener('drop', (e) => procesarArchivoFactura(e.dataTransfer.files[0]));
+
+document.getElementById('fx-resumen').addEventListener('click', (e) => {
+  if (e.target.id !== 'fx-otro-archivo') return;
+  e.preventDefault();
+  fxReiniciar();
+});
+
+document.getElementById('fx-orden').addEventListener('change', (e) => {
+  fx.ordenId = e.target.value;
+  fxAplicarOrden(false);
+});
+document.getElementById('fx-proyecto').addEventListener('change', () => {
+  fx.tocado.proyecto = true;
+  recalcularFactura();
+});
+document.getElementById('fx-crear-proveedor').addEventListener('change', recalcularFactura);
+document.getElementById('fx-aceptar').addEventListener('change', recalcularFactura);
+document.getElementById('fx-tabla-lineas').addEventListener('change', (e) => {
+  if (!e.target.classList.contains('fx-cuenta-linea')) return;
+  fx.tocado.cuentas.add(Number(e.target.dataset.linea));
+  recalcularFactura();
+});
+document.getElementById('fx-cuenta-todas').addEventListener('change', (e) => {
+  if (!e.target.value) return;
+  document.querySelectorAll('.fx-cuenta-linea').forEach((sel) => {
+    sel.value = e.target.value;
+    fx.tocado.cuentas.add(Number(sel.dataset.linea));
+  });
+  e.target.value = '';
+  recalcularFactura();
+});
+document.querySelectorAll('input[name="fx-retencion-modo"]').forEach((radio) => radio.addEventListener('change', fxAlCambiarRetencion));
+document.getElementById('btn-agregar-retencion-fx').addEventListener('click', () => {
+  document.getElementById('fx-retenciones-tbody').appendChild(crearFilaRetencion(null, fxAlCambiarRetencion));
+  fx.tocado.retencion = true;
+});
+['fx-retencion-motivo', 'fx-retencion-detalle', 'fx-aiu'].forEach((id) => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', fxAlCambiarRetencion);
+  el.addEventListener('change', fxAlCambiarRetencion);
+});
+
+// --- Detalle de una factura registrada ---
+const dialogoDetalle = document.getElementById('dialogo-factura-detalle');
+let facturaDetalleId = null;
+
+async function abrirDetalleFactura(id, avisos, mensajeOk) {
+  try {
+    const f = await api(`/compras/facturas/${id}`);
+    facturaDetalleId = id;
+    const det = f.detalle || {};
+    const lineas = det.lineas || [];
+    const retenciones = Array.isArray(f.retenciones) ? f.retenciones : [];
+    const cuentaTxt = (codigo, nombre) => `${escHtml(codigo)} <span class="cuenta-nombre">${escHtml(nombre || '')}</span>`;
+
+    document.getElementById('titulo-factura-detalle').textContent = `Factura de compra ${f.numero || ''}`.trim();
+    document.getElementById('btn-xml-factura-detalle').hidden = !f.emisorNit;
+    document.getElementById('fd-cuerpo').innerHTML =
+      (mensajeOk ? `<div class="fd-aviso">${escHtml(mensajeOk)}</div>` : '') +
+      (avisos || []).map((a) => `<div class="fd-aviso alerta">${escHtml(a)}</div>`).join('') +
+      `<dl class="fx-resumen">` +
+      [
+        ['Proveedor', `${escHtml(f.emisorNombre || nombreTercero(f.terceroId))}${f.emisorNit ? '<br>NIT ' + escHtml(f.emisorNit) : ''}`],
+        ['Fecha', escHtml(formatoFecha(f.fecha))],
+        ['Forma de pago', f.formaPago === 'credito' ? `Crédito${f.fechaVencimiento ? ' · vence ' + escHtml(formatoFecha(f.fechaVencimiento)) : ''}` : f.formaPago === 'contado' ? 'Contado' : '—'],
+        ['Orden de adquisición', f.ordenCompraOrigenId ? 'Vinculada' : 'Compra directa'],
+        ['Proyecto', escHtml(nombreProyecto(f.proyectoId))],
+        ['Estado', badge(f.estadoConciliacion)],
+        ['Total', `<strong>${escHtml(formatoDineroDec(f.total))}</strong>`],
+        ['Retención', escHtml(formatoDineroDec(f.retencionValor))],
+        ['A pagar al proveedor', `<strong>${escHtml(formatoDineroDec(f.netoAPagar === null || f.netoAPagar === undefined ? f.total : f.netoAPagar))}</strong>`],
+        ['CUFE', f.cufe ? `<span class="mono" title="${escHtml(f.cufe)}">${escHtml(f.cufe.slice(0, 18))}…${escHtml(f.cufe.slice(-8))}</span>` : '—'],
+      ]
+        .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`)
+        .join('') +
+      `</dl>` +
+      (lineas.length
+        ? `<h4>Detalle</h4><table class="tabla-items-detalle"><thead><tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Valor</th><th class="num">IVA</th><th>Cuenta</th></tr></thead><tbody>` +
+          lineas
+            .map(
+              (l) =>
+                `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}</td><td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td><td class="num">${escHtml(
+                  formatoDineroDec(l.iva)
+                )}</td><td>${escHtml(l.cuentaCodigo)}</td></tr>`
+            )
+            .join('') +
+          `</tbody></table>`
+        : '') +
+      (f.retencionModo === 'aplica' && retenciones.length
+        ? `<h4>Retenciones practicadas</h4><table class="tabla-items-detalle"><thead><tr><th>Concepto</th><th class="num">Tarifa</th><th class="num">Base</th><th class="num">Valor</th></tr></thead><tbody>` +
+          retenciones
+            .map((r) => `<tr><td>${escHtml(r.nombre)}</td><td class="num">${escHtml(r.tarifa)}%</td><td class="num">${escHtml(formatoDineroDec(r.base))}</td><td class="num">${escHtml(formatoDineroDec(r.valor))}</td></tr>`)
+            .join('') +
+          `</tbody></table>`
+        : f.retencionModo === 'no_aplica'
+        ? `<h4>Retención</h4><p class="fx-texto">No aplica — ${escHtml(f.retencionMotivo || '')}</p>`
+        : '') +
+      `<h4>Asiento contable</h4>` +
+      (f.asiento && f.asiento.length
+        ? `<table class="tabla-items-detalle"><thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>` +
+          f.asiento
+            .map(
+              (m) =>
+                `<tr><td class="${m.credito ? 'indentar' : ''}">${cuentaTxt(m.cuentaCodigo, m.cuentaNombre)}${m.centroCosto ? ` <span class="badge">${escHtml(m.centroCosto)}</span>` : ''}</td><td class="num">${
+                  m.debito ? escHtml(formatoDineroDec(m.debito)) : ''
+                }</td><td class="num">${m.credito ? escHtml(formatoDineroDec(m.credito)) : ''}</td></tr>`
+            )
+            .join('') +
+          `</tbody></table>`
+        : '<p class="fx-texto">Esta factura no tiene asiento (se generó antes del cargue por XML o está pendiente de contabilizar).</p>');
+
+    if (typeof dialogoDetalle.showModal === 'function') dialogoDetalle.showModal();
+    else dialogoDetalle.setAttribute('open', '');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+async function descargarXmlFactura(id) {
+  try {
+    const res = await fetch(`${API}/compras/facturas/${id}/xml`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'No se pudo descargar el XML.');
+    }
+    const blob = await res.blob();
+    const nombre = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
+    const enlace = document.createElement('a');
+    enlace.href = URL.createObjectURL(blob);
+    enlace.download = nombre ? nombre[1] : 'factura.xml';
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(enlace.href), 2000);
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+document.getElementById('btn-cerrar-factura-detalle').addEventListener('click', () => dialogoDetalle.close());
+document.getElementById('btn-listo-factura-detalle').addEventListener('click', () => dialogoDetalle.close());
+document.getElementById('btn-xml-factura-detalle').addEventListener('click', () => facturaDetalleId && descargarXmlFactura(facturaDetalleId));
+
 // --- ACCIONES POR FILA (delegación de eventos sobre todo el tablero) ---
 document.getElementById('vista-dashboard').addEventListener('click', async (e) => {
   const boton = e.target.closest('.btn-accion');
@@ -1684,6 +2334,12 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
 
     case 'editar-proyecto':
       return abrirEdicionProyecto(id);
+
+    case 'ver-factura-compra':
+      return abrirDetalleFactura(id);
+
+    case 'xml-factura-compra':
+      return descargarXmlFactura(id);
 
     case 'ver-items-cotizacion':
       return verItemsCotizacion(id);

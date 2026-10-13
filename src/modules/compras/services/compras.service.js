@@ -120,6 +120,8 @@ async function listarOrdenes(usuario) {
 async function listarFacturas(usuario) {
   return FacturaCompra.findAll({
     where: { empresaId: usuario.empresaId },
+    // El XML y el desglose pesan; solo se piden en el detalle de cada factura.
+    attributes: { exclude: ['xmlContenido', 'detalle'] },
     order: [['fecha', 'DESC']],
   });
 }

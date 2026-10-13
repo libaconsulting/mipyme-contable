@@ -8,6 +8,18 @@ router.get('/ordenes', comprasController.listarOrdenes);
 // GET /api/compras/facturas
 router.get('/facturas', comprasController.listarFacturas);
 
+// POST /api/compras/facturas/xml/previsualizar  (lee el XML, no guarda nada)
+router.post('/facturas/xml/previsualizar', comprasController.previsualizarFacturaXml);
+
+// POST /api/compras/facturas/xml  (registra y contabiliza la factura del proveedor)
+router.post('/facturas/xml', comprasController.registrarFacturaXml);
+
+// GET /api/compras/facturas/:id  (detalle + asiento)
+router.get('/facturas/:id', comprasController.obtenerFactura);
+
+// GET /api/compras/facturas/:id/xml  (descarga el XML guardado)
+router.get('/facturas/:id/xml', comprasController.descargarXmlFactura);
+
 // POST /api/compras/ordenes
 router.post('/ordenes', comprasController.crearOrden);
 

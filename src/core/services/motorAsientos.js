@@ -4,6 +4,7 @@ const Asiento = require('../models/Asiento');
 const Movimiento = require('../models/Movimiento');
 const ReglaContabilizacion = require('../models/ReglaContabilizacion');
 const PeriodoContable = require('../models/PeriodoContable');
+const PlanCuentas = require('../models/PlanCuentas');
 
 // Resuelve el periodo contable vigente de la empresa (abierto o en_cierre)
 // para que ningún módulo operativo tenga que averiguarlo por su cuenta.
@@ -92,4 +93,145 @@ async function contabilizarEvento(evento) {
   return { requiereRevision: regla.nivelAutomatizacion === 'asistido', asiento };
 }
 
-module.exports = { contabilizarEvento };
+const centavos = (n) => Math.round((Number(n) + Number.EPSILON) * 100);
+
+// Periodo abierto que contiene la fecha del documento. Si no hay (la
+// factura es de un mes ya cerrado o aún no creado), se usa el periodo
+// vigente con fecha de hoy y se avisa con `ajustada: true`: nunca se
+// escribe en un periodo cerrado.
+async function resolverPeriodoParaFecha(empresaId, fecha, transaction) {
+  if (fecha) {
+    const exacto = await PeriodoContable.findOne({
+      where: {
+        empresaId,
+        estado: { [Op.in]: ['abierto', 'en_cierre'] },
+        fechaInicio: { [Op.lte]: fecha },
+        fechaFin: { [Op.gte]: fecha },
+      },
+      transaction,
+    });
+    if (exacto) return { periodo: exacto, fecha, ajustada: false };
+  }
+  const vigente = await PeriodoContable.findOne({
+    where: { empresaId, estado: { [Op.in]: ['abierto', 'en_cierre'] } },
+    order: [['fechaInicio', 'DESC']],
+    transaction,
+  });
+  if (!vigente) {
+    throw new Error('No hay un periodo contable abierto para esta empresa. Crea uno antes de contabilizar.');
+  }
+  return { periodo: vigente, fecha: new Date().toISOString().slice(0, 10), ajustada: !!fecha };
+}
+
+// Cuentas por código. Si falta una de las cuentas base del sistema
+// (empresas creadas antes de que existiera, ej. 2365 retención), se crea
+// al vuelo; cualquier otro código inexistente es un error.
+async function cuentasPorCodigo(empresaId, codigos, transaction) {
+  const unicos = Array.from(new Set(codigos));
+  const existentes = await PlanCuentas.findAll({ where: { empresaId, codigo: { [Op.in]: unicos } }, transaction });
+  const mapa = Object.fromEntries(existentes.map((c) => [c.codigo, c]));
+
+  for (const codigo of unicos) {
+    if (mapa[codigo]) continue;
+    // require diferido: seedService requiere modelos, no queremos ciclos al cargar.
+    const base = require('./seedService').CUENTAS.find((c) => c.codigo === codigo);
+    if (!base) throw new Error(`La cuenta ${codigo} no existe en el plan de cuentas.`);
+    mapa[codigo] = await PlanCuentas.create(
+      {
+        id: uuidv4(),
+        empresaId,
+        codigo: base.codigo,
+        nombre: base.nombre,
+        naturaleza: base.naturaleza,
+        nivel: 1,
+        elementoNiif: base.elementoNiif,
+      },
+      { transaction }
+    );
+  }
+  return mapa;
+}
+
+/**
+ * Asiento de VARIAS líneas (a diferencia de contabilizarEvento, que solo
+ * hace un débito y un crédito). Lo usan los documentos que ya traen su
+ * desglose: una factura de compra con gasto + IVA descontable + proveedor
+ * + retenciones, por ejemplo.
+ *
+ * La regla del evento sigue mandando sobre el nivel de automatización:
+ *   - 'manual'    no se contabiliza; queda para el contador.
+ *   - 'asistido'  el asiento queda en borrador, salvo que quien llama ya
+ *                 revisó el desglose (`revisado: true`), como en la vista
+ *                 previa de la factura XML.
+ *   - 'automatico' se contabiliza.
+ *
+ * @param {Object} evento
+ * @param {Array<{cuentaCodigo:string, debito?:number, credito?:number, terceroId?:string, centroCosto?:string}>} evento.lineas
+ * @param {string} [evento.fecha]       'YYYY-MM-DD' del documento
+ * @param {boolean} [evento.revisado]
+ * @param {Object} [evento.transaction]
+ */
+async function contabilizarAsientoCompuesto(evento) {
+  const { transaction } = evento;
+  const regla = await ReglaContabilizacion.findOne({
+    where: { empresaId: evento.empresaId, eventoOrigen: evento.tipoEvento },
+    transaction,
+  });
+  if (!regla) {
+    throw new Error(
+      `No existe regla de contabilización para el evento "${evento.tipoEvento}". ` +
+        `Configúrala en Plan de cuentas > Reglas antes de continuar.`
+    );
+  }
+  if (regla.nivelAutomatizacion === 'manual') {
+    return { requiereRevision: true, regla, asiento: null, periodoAjustado: false };
+  }
+
+  const lineas = (evento.lineas || [])
+    .map((l) => ({ ...l, debito: centavos(l.debito || 0), credito: centavos(l.credito || 0) }))
+    .filter((l) => l.debito !== 0 || l.credito !== 0);
+  if (lineas.some((l) => l.debito < 0 || l.credito < 0 || (l.debito > 0 && l.credito > 0))) {
+    throw new Error('Cada línea del asiento debe tener solo débito o solo crédito, y no negativos.');
+  }
+  const totalDebito = lineas.reduce((s, l) => s + l.debito, 0);
+  const totalCredito = lineas.reduce((s, l) => s + l.credito, 0);
+  if (lineas.length < 2 || totalDebito !== totalCredito) {
+    throw new Error(
+      `El asiento no cuadra: débitos ${(totalDebito / 100).toFixed(2)} vs créditos ${(totalCredito / 100).toFixed(2)}.`
+    );
+  }
+
+  const cuentas = await cuentasPorCodigo(evento.empresaId, lineas.map((l) => l.cuentaCodigo), transaction);
+  const { periodo, fecha, ajustada } = await resolverPeriodoParaFecha(evento.empresaId, evento.fecha, transaction);
+
+  const asiento = await Asiento.create(
+    {
+      id: uuidv4(),
+      empresaId: evento.empresaId,
+      periodoContableId: periodo.id,
+      fecha,
+      origenModulo: evento.origenModulo,
+      origenId: evento.origenId,
+      estado: regla.nivelAutomatizacion === 'asistido' && !evento.revisado ? 'borrador' : 'contabilizado',
+      usuarioId: evento.usuarioId,
+    },
+    { transaction }
+  );
+
+  await Movimiento.bulkCreate(
+    lineas.map((l) => ({
+      id: uuidv4(),
+      asientoId: asiento.id,
+      cuentaId: cuentas[l.cuentaCodigo].id,
+      terceroId: l.terceroId || evento.terceroId,
+      debito: l.debito / 100,
+      credito: l.credito / 100,
+      centroCosto: l.centroCosto || null,
+    })),
+    { transaction }
+  );
+
+  return { requiereRevision: asiento.estado === 'borrador', regla, asiento, periodoAjustado: ajustada };
+}
+
+module.exports = { contabilizarEvento, contabilizarAsientoCompuesto };
