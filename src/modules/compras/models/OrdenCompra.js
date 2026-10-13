@@ -53,7 +53,23 @@ const OrdenCompra = sequelize.define('OrdenCompra', {
   formaPago: { type: DataTypes.TEXT },
   subtotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
   iva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  impoconsumo: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+  // AIU (Administración, Imprevistos, Utilidad): solo en órdenes de
+  // servicios. Se guardan los porcentajes; los valores en pesos se
+  // derivan con calculoOrden.js. aiuBaseIva: 'total' = IVA sobre
+  // (subtotal + AIU); 'utilidad' = IVA solo sobre la Utilidad.
+  aplicaAiu: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  aiuAdministracion: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+  aiuImprevistos: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+  aiuUtilidad: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+  aiuBaseIva: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'total' },
+  // Retención en la fuente: informativa para el proveedor (se muestra
+  // en el PDF con el neto a pagar). No genera asiento por sí sola.
+  aplicaRetencion: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  retencionConcepto: { type: DataTypes.STRING(60) },
+  retencionPorcentaje: { type: DataTypes.DECIMAL(5, 2), allowNull: false, defaultValue: 0 },
+  retencionValor: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
 }, {
   tableName: 'ordenes_compra',
   indexes: [{ unique: true, fields: ['empresa_id', 'consecutivo'] }],

@@ -586,3 +586,9 @@ td.num, th.num {
   .barra-lateral nav { flex-direction: row; flex-wrap: wrap; }
   .contenido { padding: 20px; }
 }
+
+/* Orden de adquisición: totales con varias líneas (AIU, Impoconsumo,
+   retención, neto). Se permite pasar a otra línea en pantallas angostas. */
+.resumen-totales { flex-wrap: wrap; row-gap: 6px; }
+.resumen-totales .neto-pagar, #resumen-neto-orden-fila { font-weight: 600; }
+.fila-campos .nota-aiu { flex-basis: 100%; margin: 0; }

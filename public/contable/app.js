@@ -69,6 +69,17 @@ function etiquetaImpuesto(tipoImpuesto, porcentaje) {
   return tipoImpuesto === 'exento' ? etiqueta : `${etiqueta} ${porcentaje}%`;
 }
 
+// Para totales de órdenes: el IVA del 19% casi siempre deja centavos, y
+// redondearlos a peso entero haría que las líneas no sumen a la vista.
+function formatoDineroDec(valor) {
+  return Number(valor || 0).toLocaleString('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
+
 function nombreTercero(id) {
   return mapaTerceros[id] || id || '—';
 }
@@ -413,7 +424,7 @@ async function cargarTodo() {
 
     const proyectos = await api('/proyectos');
     listaProyectos = proyectos;
-    mapaProyectos = Object.fromEntries(proyectos.map((p) => [p.id, p.nombre]));
+    mapaProyectos = Object.fromEntries(proyectos.map((p) => [p.id, etiquetaProyecto(p)]));
     renderProyectos(proyectos);
     poblarSelectProyectos(proyectos);
 
@@ -463,13 +474,19 @@ function poblarSelectCuentas(cuentas) {
     cuentas.map((c) => `<option value="${c.id}">${c.banco} — ${c.numero}</option>`).join('');
 }
 
+// "ID — nombre": el ID (centro de costo) va primero porque es lo que
+// identifica el proyecto en los documentos; sin ID, solo el nombre.
+function etiquetaProyecto(p) {
+  return p.codigo ? `${p.codigo} — ${p.nombre}` : p.nombre;
+}
+
 function poblarSelectProyectos(proyectos) {
   const select = document.getElementById('orden-proyecto-id');
   select.innerHTML =
-    '<option value="">Proyecto / Unidad de Negocio...</option>' +
+    '<option value="">Proyecto / Unidad de negocio (ID)...</option>' +
     proyectos
       .filter((p) => p.activo)
-      .map((p) => `<option value="${p.id}">${p.nombre}${p.codigo ? ' (' + p.codigo + ')' : ''}</option>`)
+      .map((p) => `<option value="${p.id}">${etiquetaProyecto(p)}</option>`)
       .join('');
 }
 
@@ -480,34 +497,100 @@ function nombreProyecto(id) {
 // --- RENDER: PROYECTOS ---
 function renderProyectos(lista) {
   document.querySelector('#tabla-proyectos thead').innerHTML =
-    '<tr><th>Nombre</th><th>ID (centro de costo)</th><th>Contratante</th><th class="num">Valor total</th><th>Objeto</th><th>Estado</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-proyectos', 6, 'Todavía no hay proyectos. Crea el primero arriba.');
+    '<tr><th>ID (centro de costo)</th><th>Nombre</th><th>Contratante</th><th class="num">Valor total</th><th>Objeto</th><th>Estado</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-proyectos', 7, 'Todavía no hay proyectos. Crea el primero arriba.');
   document.querySelector('#tabla-proyectos tbody').innerHTML = lista
     .map(
       (p) =>
-        `<tr><td>${p.nombre}</td><td>${p.codigo || '—'}</td><td>${nombreTercero(
+        `<tr><td><strong>${p.codigo || '—'}</strong></td><td>${p.nombre}</td><td>${nombreTercero(
           p.contratanteId
         )}</td><td class="num">${p.valorTotal ? formatoDinero(p.valorTotal) : '—'}</td><td>${
           p.objeto || '—'
-        }</td><td>${badge(p.activo ? 'activo' : 'inactivo')}</td></tr>`
+        }</td><td>${badge(p.activo ? 'activo' : 'inactivo')}</td><td class="acciones">${botonAccion('Editar', {
+          accion: 'editar-proyecto',
+          id: p.id,
+        })}</td></tr>`
     )
     .join('');
 }
 
-conectarFormulario('form-proyecto', () =>
-  api('/proyectos', {
-    method: 'POST',
-    body: JSON.stringify({
-      nombre: document.getElementById('proyecto-nombre').value,
-      codigo: document.getElementById('proyecto-codigo').value || undefined,
-      contratanteId: document.getElementById('proyecto-contratante').value || undefined,
-      valorTotal: document.getElementById('proyecto-valor-total').value
-        ? Number(document.getElementById('proyecto-valor-total').value)
-        : undefined,
-      objeto: document.getElementById('proyecto-objeto').value || undefined,
-    }),
-  })
-);
+// null = el formulario crea un proyecto nuevo; con un id, edita ese
+// proyecto (mismo formulario para las dos cosas, como en Terceros).
+let proyectoEditandoId = null;
+
+function salirDeEdicionProyecto() {
+  proyectoEditandoId = null;
+  document.querySelector('#form-proyecto button[type="submit"]').textContent = 'Guardar';
+}
+
+function abrirEdicionProyecto(id) {
+  const p = listaProyectos.find((x) => x.id === id);
+  if (!p) return;
+
+  proyectoEditandoId = id;
+  document.getElementById('form-proyecto').hidden = false;
+  document.getElementById('proyecto-nombre').value = p.nombre || '';
+  document.getElementById('proyecto-codigo').value = p.codigo || '';
+  document.getElementById('proyecto-contratante').value = p.contratanteId || '';
+  document.getElementById('proyecto-valor-total').value = p.valorTotal ? Number(p.valorTotal) : '';
+  document.getElementById('proyecto-objeto').value = p.objeto || '';
+  document.getElementById('proyecto-activo').checked = !!p.activo;
+
+  document.querySelector('#form-proyecto button[type="submit"]').textContent = 'Guardar cambios';
+  document.getElementById('form-proyecto').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// Si se estaba editando y se pulsa "+ Nuevo proyecto", el formulario
+// vuelve en blanco y en modo creación (conectarToggle ya lo alternó).
+document.getElementById('btn-nuevo-proyecto').addEventListener('click', () => {
+  if (proyectoEditandoId) {
+    salirDeEdicionProyecto();
+    const form = document.getElementById('form-proyecto');
+    form.reset();
+    form.hidden = false;
+  }
+});
+document.getElementById('btn-cancelar-proyecto').addEventListener('click', salirDeEdicionProyecto);
+
+conectarFormulario('form-proyecto', async () => {
+  const nombre = document.getElementById('proyecto-nombre').value;
+  const codigo = document.getElementById('proyecto-codigo').value;
+  const contratanteId = document.getElementById('proyecto-contratante').value;
+  const valor = document.getElementById('proyecto-valor-total').value;
+  const objeto = document.getElementById('proyecto-objeto').value;
+  const activo = document.getElementById('proyecto-activo').checked;
+
+  if (proyectoEditandoId) {
+    // Al editar, un campo vacío se manda como null para poder BORRAR
+    // un dato (con undefined el servidor lo ignoraría y quedaría el viejo).
+    await api(`/proyectos/${proyectoEditandoId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({
+        nombre,
+        codigo: codigo || null,
+        contratanteId: contratanteId || null,
+        valorTotal: valor ? Number(valor) : null,
+        objeto: objeto || null,
+        activo,
+      }),
+    });
+  } else {
+    await api('/proyectos', {
+      method: 'POST',
+      body: JSON.stringify({
+        nombre,
+        codigo: codigo || undefined,
+        contratanteId: contratanteId || undefined,
+        valorTotal: valor ? Number(valor) : undefined,
+        objeto: objeto || undefined,
+        activo,
+      }),
+    });
+  }
+
+  // Solo se sale del modo edición si la llamada tuvo éxito.
+  salirDeEdicionProyecto();
+});
 
 // --- RENDER: TERCEROS ---
 function renderTerceros(lista) {
@@ -594,7 +677,7 @@ function renderOrdenes(lista) {
         o.fecha
       )}</td><td>${nombreTercero(o.terceroId)}</td><td>${proyecto}</td><td>${o.tipo}</td><td>${badge(
         o.estado
-      )}</td><td class="num">${formatoDinero(o.total)}</td><td class="acciones">${acciones}</td></tr>`;
+      )}</td><td class="num">${formatoDineroDec(o.total)}</td><td class="acciones">${acciones}</td></tr>`;
     })
     .join('');
 }
@@ -1127,21 +1210,109 @@ function leerItemsOrden() {
   });
 }
 
-function recalcularTotalesOrden() {
-  const items = leerItemsOrden();
-  const subtotal = items.reduce((s, i) => s + i.valorTotal, 0);
-  const iva = items.reduce((s, i) => s + i.valorTotal * (i.impuestoPorcentaje / 100), 0);
-  const total = subtotal + iva;
+// Junta lo que hay en el formulario con la forma que espera
+// calcularOrden() (el mismo cálculo que corre el servidor al guardar).
+function leerDatosOrden() {
+  const tipo = document.getElementById('orden-tipo').value;
+  const aplicaAiu = tipo === 'servicios' && document.getElementById('orden-aplica-aiu').checked;
+  const aplicaRetencion = document.getElementById('orden-aplica-retencion').checked;
+  const concepto = document.getElementById('orden-retencion-concepto').value;
 
-  document.getElementById('resumen-subtotal-orden').textContent = formatoDinero(subtotal);
-  document.getElementById('resumen-iva-orden').textContent = formatoDinero(iva);
-  document.getElementById('resumen-total-orden').textContent = formatoDinero(total);
+  return {
+    tipo,
+    items: leerItemsOrden(),
+    aplicaAiu,
+    aiuAdministracion: Number(document.getElementById('orden-aiu-administracion').value || 0),
+    aiuImprevistos: Number(document.getElementById('orden-aiu-imprevistos').value || 0),
+    aiuUtilidad: Number(document.getElementById('orden-aiu-utilidad').value || 0),
+    aiuBaseIva: document.getElementById('orden-aiu-base-iva').value,
+    aplicaRetencion,
+    retencionPorcentaje: Number(document.getElementById('orden-retencion-porcentaje').value || 0),
+    retencionConcepto: concepto || undefined,
+  };
 }
+
+function recalcularTotalesOrden() {
+  // estricto:false → mientras se digita no se lanzan errores (ej.
+  // retención marcada pero sin % todavía); el servidor sí valida al guardar.
+  const datos = leerDatosOrden();
+  const { cabecera: c, netoAPagar } = calcularOrden(datos, { estricto: false });
+
+  const aiuTotal = c.aiuAdministracionValor + c.aiuImprevistosValor + c.aiuUtilidadValor;
+
+  document.getElementById('valor-orden-aiu-administracion').textContent = formatoDineroDec(c.aiuAdministracionValor);
+  document.getElementById('valor-orden-aiu-imprevistos').textContent = formatoDineroDec(c.aiuImprevistosValor);
+  document.getElementById('valor-orden-aiu-utilidad').textContent = formatoDineroDec(c.aiuUtilidadValor);
+
+  document.getElementById('resumen-subtotal-orden').textContent = formatoDineroDec(c.subtotal);
+  document.getElementById('resumen-aiu-orden').textContent = formatoDineroDec(aiuTotal);
+  document.getElementById('resumen-aiu-orden-fila').hidden = !c.aplicaAiu;
+  document.getElementById('resumen-iva-orden').textContent = formatoDineroDec(c.iva);
+  document.getElementById('resumen-impoconsumo-orden').textContent = formatoDineroDec(c.impoconsumo);
+  document.getElementById('resumen-total-orden').textContent = formatoDineroDec(c.total);
+  document.getElementById('resumen-retencion-orden').textContent = '− ' + formatoDineroDec(c.retencionValor);
+  document.getElementById('resumen-retencion-orden-fila').hidden = !c.aplicaRetencion;
+  document.getElementById('resumen-neto-orden').textContent = formatoDineroDec(netoAPagar);
+  document.getElementById('resumen-neto-orden-fila').hidden = !c.aplicaRetencion;
+}
+
+// Muestra/oculta los bloques según el tipo de orden y las casillas.
+// El AIU solo existe en compra de SERVICIOS; al pasar a "bienes" se
+// apaga para que no quede un AIU "fantasma" afectando el total.
+function actualizarVisibilidadOrden() {
+  const esServicios = document.getElementById('orden-tipo').value === 'servicios';
+  document.getElementById('bloque-aiu-orden').hidden = !esServicios;
+  if (!esServicios) document.getElementById('orden-aplica-aiu').checked = false;
+
+  document.getElementById('campos-aiu-orden').hidden = !document.getElementById('orden-aplica-aiu').checked;
+  document.getElementById('campos-retencion-orden').hidden = !document.getElementById('orden-aplica-retencion').checked;
+}
+
+document.getElementById('orden-tipo').addEventListener('change', () => {
+  actualizarVisibilidadOrden();
+  recalcularTotalesOrden();
+});
+document.getElementById('orden-aplica-aiu').addEventListener('change', () => {
+  actualizarVisibilidadOrden();
+  recalcularTotalesOrden();
+});
+document.getElementById('orden-aplica-retencion').addEventListener('change', () => {
+  actualizarVisibilidadOrden();
+  recalcularTotalesOrden();
+});
+document
+  .querySelectorAll('#campos-aiu-orden input, #campos-aiu-orden select, #orden-retencion-porcentaje')
+  .forEach((el) => {
+    el.addEventListener('input', recalcularTotalesOrden);
+    el.addEventListener('change', recalcularTotalesOrden);
+  });
+// Si se cambia el % a mano y ya no coincide con el del concepto
+// elegido, el concepto pasa a "Otro" para que el PDF no diga, por
+// ejemplo, "Compras generales 4%".
+document.getElementById('orden-retencion-porcentaje').addEventListener('input', (e) => {
+  const select = document.getElementById('orden-retencion-concepto');
+  const sugerido = select.selectedOptions[0]?.dataset.pct;
+  if (sugerido && Number(sugerido) !== Number(e.target.value)) select.value = 'Otro';
+});
+// Elegir un concepto sugiere su porcentaje (editable después).
+document.getElementById('orden-retencion-concepto').addEventListener('change', (e) => {
+  const pct = e.target.selectedOptions[0]?.dataset.pct;
+  if (pct) document.getElementById('orden-retencion-porcentaje').value = pct;
+  recalcularTotalesOrden();
+});
 
 function limpiarFormularioOrden() {
   document.getElementById('items-orden-tbody').innerHTML = '';
   ordenEditandoId = null;
   document.querySelector('#form-orden button[type="submit"]').textContent = 'Guardar';
+
+  document.getElementById('orden-aplica-aiu').checked = false;
+  ['administracion', 'imprevistos', 'utilidad'].forEach((n) => (document.getElementById('orden-aiu-' + n).value = ''));
+  document.getElementById('orden-aiu-base-iva').value = 'total';
+  document.getElementById('orden-aplica-retencion').checked = false;
+  document.getElementById('orden-retencion-concepto').value = '';
+  document.getElementById('orden-retencion-porcentaje').value = '';
+  actualizarVisibilidadOrden();
   recalcularTotalesOrden();
 }
 
@@ -1165,6 +1336,29 @@ async function abrirEdicionOrden(id) {
     document.getElementById('orden-lugar-entrega').value = orden.lugarEntrega || '';
     document.getElementById('orden-forma-pago').value = orden.formaPago || '';
 
+    // Un proyecto desactivado ya no está en el selector; se agrega solo
+    // para que la orden no pierda su proyecto al editarla.
+    const selectProyecto = document.getElementById('orden-proyecto-id');
+    if (orden.proyectoId && !Array.from(selectProyecto.options).some((o) => o.value === orden.proyectoId)) {
+      selectProyecto.add(new Option(nombreProyecto(orden.proyectoId) + ' (inactivo)', orden.proyectoId));
+    }
+    selectProyecto.value = orden.proyectoId || '';
+
+    document.getElementById('orden-aplica-aiu').checked = !!orden.aplicaAiu;
+    document.getElementById('orden-aiu-administracion').value = Number(orden.aiuAdministracion) || '';
+    document.getElementById('orden-aiu-imprevistos').value = Number(orden.aiuImprevistos) || '';
+    document.getElementById('orden-aiu-utilidad').value = Number(orden.aiuUtilidad) || '';
+    document.getElementById('orden-aiu-base-iva').value = orden.aiuBaseIva || 'total';
+
+    document.getElementById('orden-aplica-retencion').checked = !!orden.aplicaRetencion;
+    const conceptoGuardado = orden.retencionConcepto || '';
+    const selectConcepto = document.getElementById('orden-retencion-concepto');
+    selectConcepto.value = Array.from(selectConcepto.options).some((o) => o.value === conceptoGuardado)
+      ? conceptoGuardado
+      : '';
+    document.getElementById('orden-retencion-porcentaje').value = Number(orden.retencionPorcentaje) || '';
+    actualizarVisibilidadOrden();
+
     const tbody = document.getElementById('items-orden-tbody');
     tbody.innerHTML = '';
     const items = orden.items || [];
@@ -1182,6 +1376,7 @@ async function abrirEdicionOrden(id) {
 document.getElementById('btn-nueva-orden').addEventListener('click', () => {
   ordenEditandoId = null;
   document.querySelector('#form-orden button[type="submit"]').textContent = 'Guardar';
+  actualizarVisibilidadOrden();
   if (document.getElementById('items-orden-tbody').children.length === 0) {
     document.getElementById('items-orden-tbody').appendChild(crearFilaItemOrden());
   }
@@ -1189,9 +1384,13 @@ document.getElementById('btn-nueva-orden').addEventListener('click', () => {
 document.getElementById('btn-cancelar-orden').addEventListener('click', limpiarFormularioOrden);
 
 conectarFormulario('form-orden', async () => {
-  const items = leerItemsOrden();
+  const datosCalculo = leerDatosOrden();
+  const items = datosCalculo.items;
   if (items.length === 0 || items.some((i) => !i.concepto || i.cantidad <= 0)) {
     throw new Error('Agrega al menos un ítem con concepto y cantidad mayor a cero.');
+  }
+  if (datosCalculo.aplicaRetencion && !(datosCalculo.retencionPorcentaje > 0)) {
+    throw new Error('Marcaste calcular la retención en la fuente: indica el porcentaje.');
   }
 
   const cuerpo = {
@@ -1201,6 +1400,15 @@ conectarFormulario('form-orden', async () => {
     lugarEntrega: document.getElementById('orden-lugar-entrega').value || undefined,
     formaPago: document.getElementById('orden-forma-pago').value || undefined,
     items,
+    // AIU y retención: mismos datos que alimentan la vista previa de totales.
+    aplicaAiu: datosCalculo.aplicaAiu,
+    aiuAdministracion: datosCalculo.aiuAdministracion,
+    aiuImprevistos: datosCalculo.aiuImprevistos,
+    aiuUtilidad: datosCalculo.aiuUtilidad,
+    aiuBaseIva: datosCalculo.aiuBaseIva,
+    aplicaRetencion: datosCalculo.aplicaRetencion,
+    retencionConcepto: datosCalculo.retencionConcepto,
+    retencionPorcentaje: datosCalculo.retencionPorcentaje,
   };
 
   if (ordenEditandoId) {
@@ -1248,11 +1456,40 @@ async function verItemsOrden(id) {
           '<tr><td colspan="5" class="vacio">Esta orden no tiene ítems registrados (se creó antes de esta función).</td></tr>'
         }</tbody>
       </table>
+      ${resumenTotalesOrdenHtml(orden)}
     </div></td>`;
     filaOriginal.after(tr);
   } catch (err) {
     alert(err.message);
   }
+}
+
+// Desglose en texto bajo los ítems: AIU, impuestos, retención y neto.
+function resumenTotalesOrdenHtml(orden) {
+  const c = orden.calculo;
+  if (!c) return '';
+  const partes = [`Subtotal ${formatoDineroDec(c.subtotal)}`];
+  if (c.aplicaAiu) {
+    partes.push(
+      `AIU: Administración ${c.aiuAdministracion}% (${formatoDineroDec(c.aiuAdministracionValor)}) · Imprevistos ${
+        c.aiuImprevistos
+      }% (${formatoDineroDec(c.aiuImprevistosValor)}) · Utilidad ${c.aiuUtilidad}% (${formatoDineroDec(
+        c.aiuUtilidadValor
+      )}) — IVA sobre ${c.aiuBaseIva === 'utilidad' ? 'la Utilidad' : 'subtotal + AIU'}`
+    );
+  }
+  partes.push(`IVA ${formatoDineroDec(c.iva)}`);
+  if (c.impoconsumo > 0) partes.push(`Impoconsumo ${formatoDineroDec(c.impoconsumo)}`);
+  partes.push(`<strong>Total ${formatoDineroDec(c.total)}</strong>`);
+  if (c.aplicaRetencion) {
+    partes.push(
+      `Retención en la fuente${orden.retencionConcepto && orden.retencionConcepto !== 'Otro' ? ' (' + orden.retencionConcepto + ')' : ''} ${
+        c.retencionPorcentaje
+      }%: − ${formatoDineroDec(c.retencionValor)}`
+    );
+    partes.push(`<strong>Neto a pagar ${formatoDineroDec(c.netoAPagar)}</strong>`);
+  }
+  return `<p class="nota-aiu">${partes.join(' · ')}</p>`;
 }
 
 conectarFormulario('form-periodo', () =>
@@ -1325,6 +1562,9 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
   switch (tipoAccion) {
     case 'editar-tercero':
       return abrirEdicionTercero(id);
+
+    case 'editar-proyecto':
+      return abrirEdicionProyecto(id);
 
     case 'ver-items-cotizacion':
       return verItemsCotizacion(id);

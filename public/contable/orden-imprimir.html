@@ -116,6 +116,14 @@
   .totales td.num { text-align: right; font-family: var(--font-mono); }
   .totales tr.total-final td { border-top: 2px solid var(--accent); font-weight: 600; font-size: 15px; padding-top: 10px; }
 
+  .aviso-retencion {
+    font-size: 12.5px;
+    line-height: 1.55;
+    background: #F6F8F4;
+    border-left: 3px solid var(--accent);
+    padding: 10px 14px;
+    margin: 0 0 16px;
+  }
   .info-adicional { font-size: 13px; margin-bottom: 8px; }
   .info-adicional strong { color: var(--ink-soft); font-weight: 500; }
 
@@ -157,6 +165,15 @@ const ordenId = params.get('id');
 function formatoDinero(valor) {
   return Number(valor || 0).toLocaleString('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 });
 }
+// Con centavos cuando los hay: el IVA del 19% casi nunca da pesos exactos.
+function formatoDineroDec(valor) {
+  return Number(valor || 0).toLocaleString('es-CO', {
+    style: 'currency',
+    currency: 'COP',
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  });
+}
 function formatoFecha(valor) {
   if (!valor) return '—';
   return new Date(valor).toLocaleDateString('es-CO', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -192,12 +209,61 @@ async function cargar() {
     const empresa = empresas.find((e) => e.id === usuario.empresaId) || {};
     const proveedor = terceros.find((t) => t.id === orden.terceroId) || {};
     const proyecto = proyectos.find((p) => p.id === orden.proyectoId);
-    const nombreProyecto = proyecto ? proyecto.nombre : orden.proyecto || '—';
+    // ID (centro de costo) primero; el nombre acompaña.
+    const etiquetaProyecto = proyecto
+      ? (proyecto.codigo ? `<strong>${proyecto.codigo}</strong> — ${proyecto.nombre}` : proyecto.nombre)
+      : orden.proyecto || '—';
     const items = orden.items || [];
 
     const cuentaProveedor = proveedor.cuentaBancariaBanco
       ? `${proveedor.cuentaBancariaBanco} · ${proveedor.cuentaBancariaTipo || ''} ${proveedor.cuentaBancariaNumero || ''}`
       : null;
+
+    // Desglose calculado por el servidor (mismo cálculo que al guardar).
+    // Órdenes antiguas, sin ítems, no lo traen: se usan sus totales guardados.
+    const c = orden.calculo;
+    let filasTotales;
+    let avisoRetencion = '';
+    if (c) {
+      const f = (etiqueta, valor, clase) =>
+        `<tr${clase ? ` class="${clase}"` : ''}><td>${etiqueta}</td><td class="num">${valor}</td></tr>`;
+      const filas = [f('Subtotal', formatoDineroDec(c.subtotal))];
+      if (c.aplicaAiu) {
+        filas.push(f(`AIU — Administración (${c.aiuAdministracion}%)`, formatoDineroDec(c.aiuAdministracionValor)));
+        filas.push(f(`AIU — Imprevistos (${c.aiuImprevistos}%)`, formatoDineroDec(c.aiuImprevistosValor)));
+        filas.push(f(`AIU — Utilidad (${c.aiuUtilidad}%)`, formatoDineroDec(c.aiuUtilidadValor)));
+        filas.push(f('Base gravable (subtotal + AIU)', formatoDineroDec(c.base)));
+      }
+      filas.push(
+        f(
+          c.aplicaAiu ? `IVA 19% sobre ${c.aiuBaseIva === 'utilidad' ? 'la Utilidad' : 'la base gravable'}` : 'IVA',
+          formatoDineroDec(c.iva)
+        )
+      );
+      if (c.impoconsumo > 0) filas.push(f('Impoconsumo', formatoDineroDec(c.impoconsumo)));
+      filas.push(f('Total', formatoDineroDec(c.total), 'total-final'));
+      if (c.aplicaRetencion) {
+        filas.push(
+          f(
+            `Retención en la fuente${orden.retencionConcepto && orden.retencionConcepto !== 'Otro' ? ' (' + orden.retencionConcepto + ')' : ''} ${c.retencionPorcentaje}%`,
+            '− ' + formatoDineroDec(c.retencionValor)
+          )
+        );
+        filas.push(f('Neto a pagar al proveedor', formatoDineroDec(c.netoAPagar), 'total-final'));
+        avisoRetencion = `<p class="aviso-retencion">
+          <strong>Retención en la fuente:</strong> al momento del pago se practicará una retención del
+          ${c.retencionPorcentaje}% sobre la base de ${formatoDineroDec(c.base)} (antes de impuestos), equivalente a
+          ${formatoDineroDec(c.retencionValor)}, por lo que el valor neto a pagar es ${formatoDineroDec(c.netoAPagar)}.
+          Al aceptar esta orden, el proveedor declara conocer esta retención.
+        </p>`;
+      }
+      filasTotales = filas.join('');
+    } else {
+      filasTotales = `
+        <tr><td>Subtotal</td><td class="num">${formatoDineroDec(orden.subtotal)}</td></tr>
+        <tr><td>IVA</td><td class="num">${formatoDineroDec(orden.iva)}</td></tr>
+        <tr class="total-final"><td>Total</td><td class="num">${formatoDineroDec(orden.total)}</td></tr>`;
+    }
 
     document.getElementById('contenido').innerHTML = `
       <div class="hoja">
@@ -234,7 +300,7 @@ async function cargar() {
           <div class="bloque-cliente">
             <h3>Orden</h3>
             <p><strong>Tipo:</strong> ${orden.tipo === 'servicios' ? 'Servicios' : 'Bienes'}</p>
-            <p><strong>Proyecto / Unidad de negocio:</strong> ${nombreProyecto}</p>
+            <p><strong>Proyecto / Unidad de negocio (ID):</strong> ${etiquetaProyecto}</p>
             <p><strong>Lugar de entrega:</strong> ${orden.lugarEntrega || '—'}</p>
           </div>
         </div>
@@ -252,7 +318,7 @@ async function cargar() {
                     <td>${Number(it.cantidad).toLocaleString('es-CO')}</td>
                     <td>${it.unidadMedida}</td>
                     <td class="num">${formatoDinero(it.valorUnitario)}</td>
-                    <td>${etiquetaImpuesto(it.tipoImpuesto, it.impuestoPorcentaje)}</td>
+                    <td>${orden.calculo && orden.calculo.aplicaAiu ? 'Según AIU' : etiquetaImpuesto(it.tipoImpuesto, it.impuestoPorcentaje)}</td>
                     <td class="num">${formatoDinero(it.valorTotal)}</td>
                   </tr>`).join('')
                 : '<tr><td colspan="6" style="text-align:center; color:#888;">Esta orden no tiene ítems registrados.</td></tr>'
@@ -262,11 +328,11 @@ async function cargar() {
 
         <div class="totales">
           <table>
-            <tr><td>Subtotal</td><td class="num">${formatoDinero(orden.subtotal)}</td></tr>
-            <tr><td>IVA</td><td class="num">${formatoDinero(orden.iva)}</td></tr>
-            <tr class="total-final"><td>Total</td><td class="num">${formatoDinero(orden.total)}</td></tr>
+            ${filasTotales}
           </table>
         </div>
+
+        ${avisoRetencion}
 
         ${orden.formaPago ? `<p class="info-adicional"><strong>Forma de pago:</strong> ${orden.formaPago}</p>` : ''}
 

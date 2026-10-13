@@ -257,6 +257,9 @@
         <select id="proyecto-contratante"></select>
         <input type="number" id="proyecto-valor-total" placeholder="Valor total" min="0">
         <input type="text" id="proyecto-objeto" placeholder="Objeto del proyecto (opcional)">
+        <label class="check-aiu">
+          <input type="checkbox" id="proyecto-activo" checked> Activo (aparece en el selector de las órdenes)
+        </label>
         <button type="submit" class="btn-primario">Guardar</button>
         <button type="button" class="btn-secundario" id="btn-cancelar-proyecto">Cancelar</button>
       </form>
@@ -354,7 +357,7 @@
             <option value="servicios">Servicios</option>
           </select>
           <select id="orden-proyecto-id">
-            <option value="">Proyecto / Unidad de Negocio...</option>
+            <option value="">Proyecto / Unidad de negocio (ID)...</option>
           </select>
           <input type="text" id="orden-lugar-entrega" placeholder="Lugar de entrega (opcional)">
           <input type="text" id="orden-forma-pago" placeholder="Forma de pago (opcional)">
@@ -373,10 +376,65 @@
           </table>
         </div>
 
+        <div id="bloque-aiu-orden" hidden>
+          <label class="check-aiu">
+            <input type="checkbox" id="orden-aplica-aiu"> Discriminar AIU (Administración, Imprevistos, Utilidad) — solo compra de servicios
+          </label>
+          <div class="fila-campos" id="campos-aiu-orden" hidden>
+            <label class="campo-aiu">
+              <span>Administración %</span>
+              <input type="number" id="orden-aiu-administracion" placeholder="%" min="0" max="100" step="0.01">
+              <span class="valor-aiu" id="valor-orden-aiu-administracion">$0</span>
+            </label>
+            <label class="campo-aiu">
+              <span>Imprevistos %</span>
+              <input type="number" id="orden-aiu-imprevistos" placeholder="%" min="0" max="100" step="0.01">
+              <span class="valor-aiu" id="valor-orden-aiu-imprevistos">$0</span>
+            </label>
+            <label class="campo-aiu">
+              <span>Utilidad %</span>
+              <input type="number" id="orden-aiu-utilidad" placeholder="%" min="0" max="100" step="0.01">
+              <span class="valor-aiu" id="valor-orden-aiu-utilidad">$0</span>
+            </label>
+            <label class="campo-aiu">
+              <span>IVA se calcula sobre</span>
+              <select id="orden-aiu-base-iva">
+                <option value="total">Subtotal + AIU</option>
+                <option value="utilidad">Solo la Utilidad</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <label class="check-aiu">
+          <input type="checkbox" id="orden-aplica-retencion"> Calcular retención en la fuente (queda informada al proveedor en el PDF)
+        </label>
+        <div class="fila-campos" id="campos-retencion-orden" hidden>
+          <label class="campo-aiu">
+            <span>Concepto (sugerencia)</span>
+            <select id="orden-retencion-concepto">
+              <option value="">Elegir concepto...</option>
+              <option value="Compras generales" data-pct="2.5">Compras generales — 2,5%</option>
+              <option value="Servicios generales" data-pct="4">Servicios generales — 4%</option>
+              <option value="Honorarios y comisiones" data-pct="10">Honorarios y comisiones — 10%</option>
+              <option value="Otro">Otro (digitar %)</option>
+            </select>
+          </label>
+          <label class="campo-aiu">
+            <span>Retención %</span>
+            <input type="number" id="orden-retencion-porcentaje" placeholder="%" min="0" max="100" step="0.01">
+          </label>
+          <p class="nota-aiu">Las tarifas son una sugerencia: verifica la tarifa y la base mínima que aplican a este proveedor. Se calcula sobre el subtotal + AIU, antes de impuestos.</p>
+        </div>
+
         <div class="resumen-totales">
           <span>Subtotal: <strong id="resumen-subtotal-orden">$0</strong></span>
+          <span id="resumen-aiu-orden-fila" hidden>AIU: <strong id="resumen-aiu-orden">$0</strong></span>
           <span>IVA: <strong id="resumen-iva-orden">$0</strong></span>
+          <span>Impoconsumo: <strong id="resumen-impoconsumo-orden">$0</strong></span>
           <span>Total: <strong id="resumen-total-orden">$0</strong></span>
+          <span id="resumen-retencion-orden-fila" hidden>Retención en la fuente: <strong id="resumen-retencion-orden">$0</strong></span>
+          <span id="resumen-neto-orden-fila" hidden>Neto a pagar: <strong id="resumen-neto-orden">$0</strong></span>
         </div>
 
         <div class="fila-botones">
@@ -572,6 +630,7 @@
   </main>
 </div>
 
+<script src="/contable/calculoOrden.js"></script>
 <script src="/contable/app.js"></script>
 </body>
 </html>

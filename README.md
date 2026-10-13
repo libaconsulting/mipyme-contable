@@ -118,6 +118,25 @@ anteriores al catálogo). Pendiente real: conectarlo con
 segmentación contable por proyecto sea automática, no solo informativa
 en las órdenes.
 
+## Orden de adquisición: impuestos, AIU y retención
+
+El cálculo de totales vive en **un solo archivo**, `public/contable/calculoOrden.js`,
+que usan tanto el navegador (vista previa mientras se digita y PDF) como el
+backend (`compras.service.js`, con `require`). El servidor siempre recalcula al
+guardar; nunca confía en totales que lleguen del cliente. Pruebas:
+`node --test tests/calculoOrden.test.js` (incluye el caso real ODA-016-2026).
+
+- **IVA e Impoconsumo** se discriminan por separado (`OrdenCompra.iva` / `.impoconsumo`).
+- **AIU** (Administración, Imprevistos, Utilidad): solo en órdenes de *servicios*; cada % se
+  calcula sobre el subtotal. IVA 19% sobre (subtotal + AIU), o solo sobre la Utilidad
+  (`aiuBaseIva = 'utilidad'`). Con AIU se ignora el IVA individual de los ítems.
+- **Retención en la fuente**: casilla opcional + porcentaje (con sugerencias de concepto).
+  Se calcula sobre la base *antes de impuestos* (subtotal + AIU), no se suma al total
+  (`total` es el valor bruto) y el PDF muestra el **neto a pagar** y un aviso para que el
+  proveedor conozca la retención al aceptar la orden.
+- Al convertir la orden en factura de compra, `subtotal = total − iva`, de modo que el
+  Impoconsumo (no descontable) queda como mayor valor del costo y `subtotal + iva = total`.
+
 ## Frontend
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
@@ -200,6 +219,11 @@ qué contabilizar.
 
 ## Pendientes inmediatos
 
+- [ ] **Retención en la fuente en órdenes es solo informativa**: no genera asiento (retención por pagar) ni la usa `convertirOrdenEnFactura` / `motorAsientos`. Falta decidir si se contabiliza al causar la factura o al pagar (Tesorería)
+- [ ] Retención: las tarifas del desplegable son una **sugerencia fija** (compras 2,5%, servicios 4%, honorarios 10%); no se evalúan bases mínimas en UVT ni se deriva la tarifa de `Tercero.tipoPersona` / `responsabilidadesFiscales`. Validar con el contador antes de depender de esos valores
+- [ ] AIU en órdenes: igual que en cotizaciones, no admite mezclar ítems exentos/Impoconsumo con IVA sobre la base AIU (el Impoconsumo de los ítems se suma aparte; el IVA individual de los ítems se ignora)
+- [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
+
 - [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
 - [ ] Reemplazar `FACTOR_PRESTACIONES` (21.83% fijo) en `nomina.service.js` por el cálculo exacto de cesantías, intereses, prima y vacaciones según la normativa laboral vigente y el tipo de contrato
@@ -227,7 +251,7 @@ qué contabilizar.
 - [ ] "Enviar" (cotización) sigue siendo solo un cambio de estado — no manda correo ni WhatsApp automáticamente, el botón ahora lo aclara con un `confirm()`. El envío real de verdad (correo con el PDF adjunto, por ejemplo) requeriría configurar un proveedor de correo transaccional, que todavía no existe en el proyecto
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` generan el PDF usando "Imprimir" del navegador (`window.print()`), no una librería de generación de PDF en el servidor — evita agregar una dependencia pesada (ej. Puppeteer) que podría no funcionar bien en el hosting de Node de Hostinger. Si el formato de impresión del navegador resulta insuficiente, esto es lo primero a reconsiderar
 - [ ] Conectar `Proyecto` con `Movimiento.centroCosto` para que la contabilidad se segmente por proyecto de verdad (hoy el catálogo solo se usa desde Órdenes de Adquisición)
-- [ ] Editar/eliminar un `Proyecto` desde la interfaz (hoy el panel de Proyectos solo crea y lista, no tiene botón de editar — mismo patrón que ya existe en Terceros y Empresas, falta aplicarlo aquí)
+- [x] ~~Editar un `Proyecto` desde la interfaz~~ — ya existe el botón "Editar" (mismo formulario que crear, incluye activar/desactivar y permite borrar datos opcionales). Falta solo **eliminar** (hoy se desactiva)
 - [ ] Migrar las órdenes viejas que tienen `proyecto` (texto libre) pero no `proyectoId`, para que puedan filtrarse/agruparse igual que las nuevas
 - [ ] Usar `Tercero.responsabilidadesFiscales` y `tipoPersona` para automatizar el cálculo de retención en la fuente (formulario 350) — hoy son solo datos capturados, no alimentan ningún cálculo todavía
 - [ ] Consecutivos: ya son únicos por empresa (índice compuesto `empresa_id + consecutivo`, no `consecutivo` global) y toda la creación vive en una transacción real — un fallo a mitad de camino ya no deja un encabezado huérfano con el número gastado. Sigue sin bloqueo transaccional de secuencia bajo concurrencia muy alta (una tabla de secuencias con `SELECT ... FOR UPDATE` sería la solución definitiva si el volumen lo exige)

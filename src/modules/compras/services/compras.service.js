@@ -7,12 +7,59 @@ const DocumentoSoporteAdquisicion = require('../models/DocumentoSoporteAdquisici
 const documentoSoporteAdapter = require('../../../integrations/adapters/documentoSoporteAdapter');
 const { contabilizarEvento } = require('../../../core/services/motorAsientos');
 const { crearConSecutivoUnico } = require('../../../core/services/consecutivos');
+// Mismo archivo que usa el navegador: lo que se ve al digitar es lo que se guarda.
+const calcularOrden = require('../../../../public/contable/calculoOrden');
+
+// Campos de cabecera derivados del cálculo (impuestos, AIU, retención).
+function camposCalculados(cabecera, datos) {
+  return {
+    subtotal: cabecera.subtotal,
+    iva: cabecera.iva,
+    impoconsumo: cabecera.impoconsumo,
+    total: cabecera.total,
+    aplicaAiu: cabecera.aplicaAiu,
+    aiuAdministracion: cabecera.aiuAdministracion,
+    aiuImprevistos: cabecera.aiuImprevistos,
+    aiuUtilidad: cabecera.aiuUtilidad,
+    aiuBaseIva: cabecera.aiuBaseIva,
+    aplicaRetencion: cabecera.aplicaRetencion,
+    retencionConcepto: cabecera.aplicaRetencion ? datos.retencionConcepto || null : null,
+    retencionPorcentaje: cabecera.retencionPorcentaje,
+    retencionValor: cabecera.retencionValor,
+  };
+}
+
+async function guardarItems(ordenId, lineas, transaction) {
+  for (const l of lineas) {
+    await OrdenCompraItem.create(
+      {
+        id: uuidv4(),
+        ordenCompraId: ordenId,
+        concepto: l.concepto,
+        cantidad: l.cantidad,
+        unidadMedida: l.unidadMedida || 'UND',
+        valorUnitario: l.valorUnitario,
+        tipoImpuesto: l.tipoImpuesto,
+        impuestoPorcentaje: l.impuestoPorcentaje,
+        valorTotal: l.valorTotal,
+        impuestoValor: l.impuestoValor,
+      },
+      { transaction }
+    );
+  }
+}
 
 // Crea una orden de adquisición (bienes o servicios) en "borrador". Si
-// vienen "items", se crean como OrdenCompraItem y subtotal/IVA/total se
-// calculan solos. Sin items, respeta el subtotal/iva/total a mano por
-// compatibilidad con el formulario actual.
+// vienen "items", se crean como OrdenCompraItem y todos los totales
+// (subtotal, IVA, Impoconsumo, AIU, retención) se calculan en el
+// servidor con calculoOrden.js — no se confía en totales mandados a
+// mano. Sin items, respeta subtotal/iva/total por compatibilidad.
 async function crearOrden(datos, usuario) {
+  const hayItems = Array.isArray(datos.items) && datos.items.length > 0;
+  // Se calcula (y valida) ANTES de abrir la transacción: si el
+  // porcentaje de retención viene mal, falla sin consumir consecutivo.
+  const calculo = hayItems ? calcularOrden(datos) : null;
+
   return crearConSecutivoUnico(OrdenCompra, usuario.empresaId, 'ODA', async (consecutivo, transaction) => {
     const orden = await OrdenCompra.create(
       {
@@ -31,44 +78,12 @@ async function crearOrden(datos, usuario) {
         subtotal: datos.subtotal || 0,
         iva: datos.iva || 0,
         total: datos.total || 0,
+        ...(calculo ? camposCalculados(calculo.cabecera, datos) : {}),
       },
       { transaction }
     );
 
-    if (Array.isArray(datos.items) && datos.items.length > 0) {
-      let subtotal = 0;
-      let iva = 0;
-
-      for (const item of datos.items) {
-        const cantidad = Number(item.cantidad);
-        const valorUnitario = Number(item.valorUnitario);
-        const tipoImpuesto = item.tipoImpuesto || 'iva';
-        const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
-        const valorTotal = cantidad * valorUnitario;
-        const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
-
-        await OrdenCompraItem.create(
-          {
-            id: uuidv4(),
-            ordenCompraId: orden.id,
-            concepto: item.concepto,
-            cantidad,
-            unidadMedida: item.unidadMedida || 'UND',
-            valorUnitario,
-            tipoImpuesto,
-            impuestoPorcentaje,
-            valorTotal,
-            impuestoValor,
-          },
-          { transaction }
-        );
-
-        subtotal += valorTotal;
-        iva += impuestoValor;
-      }
-
-      await orden.update({ subtotal, iva, total: subtotal + iva }, { transaction });
-    }
+    if (calculo) await guardarItems(orden.id, calculo.lineas, transaction);
 
     return orden;
   });
@@ -114,7 +129,10 @@ async function convertirOrdenEnFactura(ordenId, usuario) {
     terceroId: orden.terceroId,
     ordenCompraOrigenId: orden.id,
     fecha: new Date(),
-    subtotal: orden.subtotal,
+    // subtotal = todo lo que no es IVA: base (ítems + AIU) más el
+    // Impoconsumo, que no es descontable y se lleva como mayor valor
+    // del costo/gasto. Así subtotal + iva = total siempre cuadra.
+    subtotal: Number(orden.total) - Number(orden.iva),
     iva: orden.iva,
     total: orden.total,
   });
@@ -232,7 +250,17 @@ async function obtenerOrden(id, usuario) {
   if (!orden) return null;
 
   const items = await OrdenCompraItem.findAll({ where: { ordenCompraId: id } });
-  return { ...orden.toJSON(), items };
+  const datos = orden.toJSON();
+
+  // Desglose listo para mostrar (valores del AIU en pesos, base,
+  // retención y neto a pagar). Se recalcula con los mismos datos
+  // guardados; "modo formulario" para no fallar con órdenes viejas que
+  // no tienen nada de esto.
+  const { cabecera, netoAPagar } = calcularOrden({ ...datos, items: items.map((i) => i.toJSON()) }, { estricto: false });
+  // Órdenes anteriores a los ítems/AIU/retención conservan sus totales guardados.
+  const calculo = items.length > 0 ? { ...cabecera, netoAPagar } : null;
+
+  return { ...datos, items, calculo };
 }
 
 // Edita una orden — solo mientras sigue en "borrador", mismo criterio
@@ -246,6 +274,8 @@ async function actualizarOrden(id, datos, usuario) {
     throw new Error('Solo se puede editar una orden en estado "borrador".');
   }
 
+  const calculo = calcularOrden(datos);
+
   return sequelize.transaction(async (transaction) => {
     await orden.update(
       {
@@ -256,44 +286,13 @@ async function actualizarOrden(id, datos, usuario) {
         proyecto: datos.proyecto,
         lugarEntrega: datos.lugarEntrega,
         formaPago: datos.formaPago,
+        ...camposCalculados(calculo.cabecera, datos),
       },
       { transaction }
     );
 
     await OrdenCompraItem.destroy({ where: { ordenCompraId: id }, transaction });
-
-    let subtotal = 0;
-    let iva = 0;
-
-    for (const item of datos.items || []) {
-      const cantidad = Number(item.cantidad);
-      const valorUnitario = Number(item.valorUnitario);
-      const tipoImpuesto = item.tipoImpuesto || 'iva';
-      const impuestoPorcentaje = item.impuestoPorcentaje ?? 19;
-      const valorTotal = cantidad * valorUnitario;
-      const impuestoValor = valorTotal * (impuestoPorcentaje / 100);
-
-      await OrdenCompraItem.create(
-        {
-          id: uuidv4(),
-          ordenCompraId: id,
-          concepto: item.concepto,
-          cantidad,
-          unidadMedida: item.unidadMedida || 'UND',
-          valorUnitario,
-          tipoImpuesto,
-          impuestoPorcentaje,
-          valorTotal,
-          impuestoValor,
-        },
-        { transaction }
-      );
-
-      subtotal += valorTotal;
-      iva += impuestoValor;
-    }
-
-    await orden.update({ subtotal, iva, total: subtotal + iva }, { transaction });
+    await guardarItems(id, calculo.lineas, transaction);
 
     return orden;
   });
