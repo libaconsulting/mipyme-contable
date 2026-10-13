@@ -2031,7 +2031,7 @@ function recalcularTotalesOrden() {
     : '− ' + formatoDineroDec(c.retencionValor);
   document.getElementById('resumen-retencion-orden-fila').hidden = !(aplica || noAplica);
   document.getElementById('resumen-neto-orden').textContent = formatoDineroDec(netoAPagar);
-  document.getElementById('resumen-neto-orden-fila').hidden = !aplica;
+  document.getElementById('resumen-neto-orden-fila').hidden = !(aplica || noAplica);
 
   document.getElementById('nota-retencion-orden').textContent =
     `Conceptos y tarifas ${retencionesCatalogo.ANIO} (UVT ${formatoDineroDec(retencionesCatalogo.UVT_VALOR)}). ` +
@@ -2284,7 +2284,7 @@ function resumenTotalesOrdenHtml(orden) {
           (l.aplica ? `− ${formatoDineroDec(l.valor)}` : 'no se practica (no alcanza el tope)')
       );
     });
-    partes.push(`<strong>Neto a pagar ${formatoDineroDec(c.netoAPagar)}</strong>`);
+    partes.push(`<strong>A consignar al proveedor ${formatoDineroDec(c.netoAPagar)}</strong>`);
   } else if (c.retencionModo === 'no_aplica') {
     partes.push(`No aplica retención en la fuente: ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}`);
   }
@@ -2925,7 +2925,7 @@ cat > public/contable/index.html << 'SCRIPTEOF'
           <span>Impoconsumo: <strong id="resumen-impoconsumo-orden">$0</strong></span>
           <span>Total: <strong id="resumen-total-orden">$0</strong></span>
           <span id="resumen-retencion-orden-fila" hidden>Retención en la fuente: <strong id="resumen-retencion-orden">$0</strong></span>
-          <span id="resumen-neto-orden-fila" hidden>Neto a pagar: <strong id="resumen-neto-orden">$0</strong></span>
+          <span id="resumen-neto-orden-fila" hidden>Valor a consignar al proveedor: <strong id="resumen-neto-orden">$0</strong></span>
         </div>
 
         <div class="fila-botones">
@@ -3875,14 +3875,26 @@ cat > public/contable/orden-imprimir.html << 'SCRIPTEOF'
   .totales td.num { text-align: right; font-family: var(--font-mono); }
   .totales tr.total-final td { border-top: 2px solid var(--accent); font-weight: 600; font-size: 15px; padding-top: 10px; }
 
-  .aviso-retencion {
-    font-size: 12.5px;
-    line-height: 1.55;
-    background: #F6F8F4;
-    border-left: 3px solid var(--accent);
-    padding: 10px 14px;
-    margin: 0 0 16px;
+  .proyeccion-pago {
+    border: 1px solid var(--rule-strong);
+    border-left: 4px solid var(--accent);
+    padding: 12px 16px 10px;
+    margin: 0 0 20px;
+    break-inside: avoid;
   }
+  .proyeccion-pago h3 {
+    font-family: var(--font-serif);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--ink-soft);
+    margin: 0 0 8px;
+  }
+  .proyeccion-pago table { width: 100%; border-collapse: collapse; }
+  .proyeccion-pago td { padding: 4px 0; font-size: 13px; }
+  .proyeccion-pago td.num { text-align: right; font-family: var(--font-mono); white-space: nowrap; padding-left: 16px; }
+  .proyeccion-pago tr.recibe td { border-top: 2px solid var(--accent); font-weight: 600; font-size: 15px; padding-top: 8px; }
+  .proyeccion-pago p { font-size: 12px; line-height: 1.5; color: var(--ink-soft); margin: 8px 0 0; }
   .info-adicional { font-size: 13px; margin-bottom: 8px; }
   .info-adicional strong { color: var(--ink-soft); font-weight: 500; }
 
@@ -3982,7 +3994,7 @@ async function cargar() {
     // Órdenes antiguas, sin ítems, no lo traen: se usan sus totales guardados.
     const c = orden.calculo;
     let filasTotales;
-    let avisoRetencion = '';
+    let proyeccionPago = '';
     if (c) {
       const f = (etiqueta, valor, clase) =>
         `<tr${clase ? ` class="${clase}"` : ''}><td>${etiqueta}</td><td class="num">${valor}</td></tr>`;
@@ -4001,42 +4013,62 @@ async function cargar() {
       );
       if (c.impoconsumo > 0) filas.push(f('Impoconsumo', formatoDineroDec(c.impoconsumo)));
       filas.push(f('Total', formatoDineroDec(c.total), 'total-final'));
+      // Proyección de pago: lo que el proveedor sabrá que recibirá en su
+      // cuenta y cuánto se retiene. Aplica la retención sobre el valor TOTAL
+      // de la orden (la retención se calcula sobre la base antes de impuestos,
+      // pero se descuenta del total con impuestos).
+      const fp = (etiqueta, valor, clase) =>
+        `<tr${clase ? ` class="${clase}"` : ''}><td>${etiqueta}</td><td class="num">${valor}</td></tr>`;
       if (c.retencionModo === 'aplica') {
         const practicadas = c.retenciones.filter((l) => l.aplica);
         const sinEfecto = c.retenciones.filter((l) => !l.aplica);
+        const pctSobreTotal = c.total > 0 ? Math.round((c.retencionValor / c.total) * 10000) / 100 : 0;
+        const filasPago = [fp('Valor total de la orden (impuestos incluidos)', formatoDineroDec(c.total))];
         practicadas.forEach((l) =>
-          filas.push(f(`Retención: ${l.nombre} (${l.tarifa}%)`, '− ' + formatoDineroDec(l.valor)))
+          filasPago.push(
+            fp(
+              `(−) Retención en la fuente: ${l.nombre} — ${l.tarifa.toLocaleString('es-CO')}% sobre ${formatoDineroDec(l.base)}${
+                l.sobre === 'iva' ? ' (valor del IVA)' : l.sobre === 'aiu' ? ' (AIU)' : ''
+              }`,
+              '− ' + formatoDineroDec(l.valor)
+            )
+          )
         );
-        if (practicadas.length > 0) {
-          filas.push(f('Neto a pagar al proveedor', formatoDineroDec(c.netoAPagar), 'total-final'));
-          avisoRetencion = `<p class="aviso-retencion">
-            <strong>Retención en la fuente:</strong> al momento del pago se practicarán las siguientes retenciones:
-            ${practicadas
-              .map(
-                (l) =>
-                  `${l.nombre} al ${l.tarifa}% sobre ${formatoDineroDec(l.base)}${
-                    l.sobre === 'iva' ? ' (valor del IVA)' : l.sobre === 'aiu' ? ' (AIU)' : ' (antes de impuestos)'
-                  } = ${formatoDineroDec(l.valor)}`
-              )
-              .join('; ')}.
-            Total retenido: ${formatoDineroDec(c.retencionValor)}; valor neto a pagar: ${formatoDineroDec(c.netoAPagar)}.
-            Al aceptar esta orden, el proveedor declara conocer esta retención.
-            ${
-              sinEfecto.length > 0
-                ? `<br>No se practica: ${sinEfecto.map((l) => l.nombre).join('; ')}, por no alcanzar la base mínima (tope) o no tener base de cálculo.`
-                : ''
-            }
-          </p>`;
-        } else {
-          avisoRetencion = `<p class="aviso-retencion">
-            <strong>Retención en la fuente:</strong> no se practica retención en esta orden
-            (${sinEfecto.map((l) => l.nombre).join('; ')}: la base no alcanza el tope mínimo o no hay base de cálculo).
-          </p>`;
-        }
+        if (practicadas.length === 0) filasPago.push(fp('(−) Retención en la fuente', formatoDineroDec(0)));
+        filasPago.push(
+          fp(
+            cuentaProveedor ? `Valor que recibirá en su cuenta (${cuentaProveedor})` : 'Valor que recibirá en su cuenta',
+            formatoDineroDec(c.netoAPagar),
+            'recibe'
+          )
+        );
+        proyeccionPago = `<div class="proyeccion-pago">
+          <h3>Proyección de pago al proveedor</h3>
+          <table>${filasPago.join('')}</table>
+          <p>${
+            practicadas.length > 0
+              ? `Total retenido: ${formatoDineroDec(c.retencionValor)}, equivalente al ${pctSobreTotal.toLocaleString('es-CO')}% del valor total de la orden. `
+              : 'No se practica retención en esta orden. '
+          }${
+            sinEfecto.length > 0
+              ? `No se practica: ${sinEfecto.map((l) => l.nombre).join('; ')} (la base no alcanza el tope mínimo o no hay base de cálculo). `
+              : ''
+          }Al aceptar esta orden, el proveedor declara conocer la retención aquí proyectada.</p>
+        </div>`;
       } else if (c.retencionModo === 'no_aplica') {
-        avisoRetencion = `<p class="aviso-retencion">
-          <strong>Retención en la fuente:</strong> no aplica — ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}.
-        </p>`;
+        proyeccionPago = `<div class="proyeccion-pago">
+          <h3>Proyección de pago al proveedor</h3>
+          <table>${[
+            fp('Valor total de la orden (impuestos incluidos)', formatoDineroDec(c.total)),
+            fp('(−) Retención en la fuente: no aplica', formatoDineroDec(0)),
+            fp(
+              cuentaProveedor ? `Valor que recibirá en su cuenta (${cuentaProveedor})` : 'Valor que recibirá en su cuenta',
+              formatoDineroDec(c.total),
+              'recibe'
+            ),
+          ].join('')}</table>
+          <p>Motivo por el que no aplica retención: ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}.</p>
+        </div>`;
       }
       filasTotales = filas.join('');
     } else {
@@ -4113,7 +4145,7 @@ async function cargar() {
           </table>
         </div>
 
-        ${avisoRetencion}
+        ${proyeccionPago}
 
         ${orden.formaPago ? `<p class="info-adicional"><strong>Forma de pago:</strong> ${orden.formaPago}</p>` : ''}
 
@@ -4932,6 +4964,11 @@ guardar; nunca confía en totales que lleguen del cliente. Pruebas:
     **foto** de las líneas calculadas (`OrdenCompra.retenciones`), para que una orden vieja no
     cambie cuando se actualice el catálogo en otro año. Para cambiar de año: editar `ANIO`,
     `UVT_VALOR` y el arreglo de conceptos.
+  - **Proyección de pago** en el PDF: valor total de la orden (impuestos incluidos), cada retención
+    descontada con su tarifa y base, y el **valor que recibirá el proveedor en su cuenta**
+    (con su cuenta bancaria si está registrada). Es solo informativa: la orden no genera asientos
+    contables; el único asiento ocurre al convertirla en factura de compra y hoy usa el total
+    bruto (la retención aún no se contabiliza).
   - UVT 2026 = $52.374 (Res. DIAN 000238/2025). El Excel traía la columna VALOR con 52.400; el
     sistema usa la oficial.
 - Al convertir la orden en factura de compra, `subtotal = total − iva`, de modo que el

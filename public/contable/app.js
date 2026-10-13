@@ -1351,7 +1351,7 @@ function recalcularTotalesOrden() {
     : '− ' + formatoDineroDec(c.retencionValor);
   document.getElementById('resumen-retencion-orden-fila').hidden = !(aplica || noAplica);
   document.getElementById('resumen-neto-orden').textContent = formatoDineroDec(netoAPagar);
-  document.getElementById('resumen-neto-orden-fila').hidden = !aplica;
+  document.getElementById('resumen-neto-orden-fila').hidden = !(aplica || noAplica);
 
   document.getElementById('nota-retencion-orden').textContent =
     `Conceptos y tarifas ${retencionesCatalogo.ANIO} (UVT ${formatoDineroDec(retencionesCatalogo.UVT_VALOR)}). ` +
@@ -1604,7 +1604,7 @@ function resumenTotalesOrdenHtml(orden) {
           (l.aplica ? `− ${formatoDineroDec(l.valor)}` : 'no se practica (no alcanza el tope)')
       );
     });
-    partes.push(`<strong>Neto a pagar ${formatoDineroDec(c.netoAPagar)}</strong>`);
+    partes.push(`<strong>A consignar al proveedor ${formatoDineroDec(c.netoAPagar)}</strong>`);
   } else if (c.retencionModo === 'no_aplica') {
     partes.push(`No aplica retención en la fuente: ${c.retencionMotivo}${c.retencionDetalle ? ' (' + c.retencionDetalle + ')' : ''}`);
   }

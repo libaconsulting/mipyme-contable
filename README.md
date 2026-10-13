@@ -144,6 +144,11 @@ guardar; nunca confía en totales que lleguen del cliente. Pruebas:
     **foto** de las líneas calculadas (`OrdenCompra.retenciones`), para que una orden vieja no
     cambie cuando se actualice el catálogo en otro año. Para cambiar de año: editar `ANIO`,
     `UVT_VALOR` y el arreglo de conceptos.
+  - **Proyección de pago** en el PDF: valor total de la orden (impuestos incluidos), cada retención
+    descontada con su tarifa y base, y el **valor que recibirá el proveedor en su cuenta**
+    (con su cuenta bancaria si está registrada). Es solo informativa: la orden no genera asientos
+    contables; el único asiento ocurre al convertirla en factura de compra y hoy usa el total
+    bruto (la retención aún no se contabiliza).
   - UVT 2026 = $52.374 (Res. DIAN 000238/2025). El Excel traía la columna VALOR con 52.400; el
     sistema usa la oficial.
 - Al convertir la orden en factura de compra, `subtotal = total − iva`, de modo que el
