@@ -335,7 +335,30 @@ Facturas de venta → **+ Cargar factura emitida (XML)**: sirve el `.xml` o el `
 
 Lo que **no** hace todavía: retenciones que practica el cliente (se registrarán al recibir el pago, en
 Tesorería), notas crédito/débito, costo de ventas de bienes (inventarios), impoconsumo en ventas, ni el
-**documento soporte** emitido por Siigo (pendiente de ver un XML real para validar los roles de las partes).
+**documento soporte** (Siigo no entrega XML: se registra a mano, ver la sección siguiente).
+
+## Documento soporte (compras a no obligados a facturar), expedido en Siigo
+
+Siigo **solo entrega el PDF** del documento soporte (no hay XML), así que no se "carga": se **registra**.
+Pestaña **Documentos soporte → + Registrar documento soporte**: se digita lo que dice el PDF (número como
+sale en Siigo, fecha de compra, cédula/NIT y nombre del proveedor, qué se compró y cuánto, cuenta de gasto,
+retención en la fuente) y se adjunta el PDF como soporte (opcional, hasta 3,5 MB; se valida que sea PDF).
+
+- Código: `src/modules/compras/services/documentoSoporte.service.js`; rutas bajo `/api/compras/documentos-soporte`
+  (`GET /opciones`, `GET /`, `POST /`, `GET /:id`, `GET /:id/pdf`). La tabla `documentos_soporte_adquisicion`
+  (la misma del flujo de emisión con proveedor tecnológico) ganó columnas; `origen = 'registrado'` distingue estos.
+- **Asiento** (mismo `asientoCompra.js` que la factura de compra, con `cuentaPorPagar: '2335'`):
+  Db gasto/costo por línea (bruto) / Cr 2365 retención en la fuente / Cr **2335 Costos y gastos por pagar**
+  (bruto − retención). Sin IVA. Ejemplo real (DS 44): 4.530.000 / 271.800 (6 %, servicios no declarantes) / 4.258.200.
+- El proveedor se busca por cédula/NIT en Terceros (con o sin puntos y dígito de verificación); si no existe se
+  crea como proveedor. El número del documento es único por empresa. No puede ser tu propia empresa ni tener fecha futura.
+- Retención: mismo catálogo y reglas de tope en UVT que órdenes y facturas de compra. Solo conceptos sobre la base
+  (no ReteIVA ni AIU). El concepto lo elige la persona; no se deduce solo de si el proveedor es declarante.
+- Pruebas: `node --test tests/asientoCompra.test.js` (caso DS 44 incluido).
+
+Lo que **no** hace todavía: leer el PDF automáticamente (se digita), IVA teórico/mayor valor, notas de ajuste
+al documento soporte, ni pagar el documento (el pago se cruzará contra 2335 cuando exista el cruce en Tesorería).
+Cuando haya proveedor tecnológico propio, el flujo `POST /api/compras/documento-soporte` (emisión) sigue disponible.
 
 ## Frontend
 
@@ -425,7 +448,7 @@ qué contabilizar.
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
 - [ ] Plan de cuentas: no hay pantalla para editar las **reglas de contabilización** (qué cuenta usa cada evento); solo se ven en el bloqueo al desactivar. Tampoco hay importación masiva del plan desde Excel ni cuentas de orden (clases 8 y 9). La cuenta 1355 se usa como "IVA descontable" (en el PUC el IVA descontable es una subcuenta de 2408): validar con el contador si se prefiere la estructura del PUC
-- [ ] Facturas de venta desde XML (Siigo): retenciones practicadas por el cliente al pago, notas crédito/débito, costo de ventas e inventario, impoconsumo, y cargar el documento soporte desde su XML. Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
+- [ ] Facturas de venta desde XML (Siigo): retenciones practicadas por el cliente al pago, notas crédito/débito, costo de ventas e inventario, impoconsumo, Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
 - [ ] Facturas de compra desde XML: notas crédito/débito de proveedores (descuentos y devoluciones posteriores), documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`

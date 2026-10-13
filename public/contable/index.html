@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261013-4">
+<link rel="stylesheet" href="/contable/style.css?v=20261013-5">
 </head>
 <body>
 
@@ -121,6 +121,7 @@
       <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
       <button class="nav-item" data-tab="ordenes">Órdenes de adquisición</button>
       <button class="nav-item" data-tab="facturas-compra">Facturas de compra</button>
+      <button class="nav-item" data-tab="documentos-soporte">Documentos soporte</button>
       <button class="nav-item" data-tab="nomina">Nómina</button>
       <button class="nav-item" data-tab="inventarios">Inventarios</button>
       <button class="nav-item" data-tab="activos-fijos">Activos fijos</button>
@@ -468,6 +469,17 @@
       <p class="nota-panel">Carga el XML que te envía el proveedor (o el .zip completo): se lee, se revisa y recién ahí se contabiliza. También se generan al convertir una orden aprobada o llegan por webhook del proveedor tecnológico.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-facturas-compra"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-documentos-soporte" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Documentos soporte</h2>
+        <button class="btn-primario" id="btn-registrar-ds">+ Registrar documento soporte</button>
+      </header>
+      <p class="nota-panel">Compras a personas o empresas que no están obligadas a facturar. El documento se expide en Siigo (que solo entrega el PDF): aquí lo registras con sus datos y el PDF queda como soporte; se contabiliza con la retención en la fuente que practicaste.</p>
+      <div class="tabla-envoltorio">
+        <table id="tabla-documentos-soporte"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
@@ -903,6 +915,126 @@
     </div>
   </dialog>
 
+  <!-- Registro de un documento soporte expedido en Siigo (solo PDF) -->
+  <dialog id="dialogo-ds" class="dialogo-factura" aria-labelledby="titulo-ds">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-ds">Registrar documento soporte</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-ds" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="dialogo-cuerpo">
+      <div class="fila-campos">
+        <label class="campo-etiquetado">
+          <span>Número (como sale en Siigo)</span>
+          <input type="text" id="ds-numero" maxlength="40" autocomplete="off" placeholder="Ej.: DS 44">
+        </label>
+        <label class="campo-etiquetado">
+          <span>Fecha de compra</span>
+          <input type="date" id="ds-fecha">
+        </label>
+        <label class="campo-etiquetado">
+          <span>Condición de pago</span>
+          <select id="ds-forma-pago">
+            <option value="contado">Contado</option>
+            <option value="credito">Crédito</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="fx-rejilla">
+        <div class="fx-bloque">
+          <h4>Proveedor (no obligado a facturar)</h4>
+          <label class="campo-etiquetado">
+            <span>Cédula o NIT (con dígito de verificación si lo trae)</span>
+            <input type="text" id="ds-nit" maxlength="20" autocomplete="off" placeholder="Ej.: 1.120.353.382-1">
+          </label>
+          <label class="campo-etiquetado">
+            <span>Nombre</span>
+            <input type="text" id="ds-nombre" maxlength="150" autocomplete="off">
+          </label>
+          <p class="nota-aiu" id="ds-proveedor-nota"></p>
+        </div>
+        <div class="fx-bloque">
+          <h4>Proyecto / centro de costo</h4>
+          <select id="ds-proyecto"></select>
+          <h4>Soporte (PDF de Siigo)</h4>
+          <input type="file" id="ds-pdf" accept=".pdf,application/pdf">
+          <p class="nota-aiu" id="ds-pdf-nota">Opcional, pero recomendado: queda guardado con el documento.</p>
+        </div>
+      </div>
+
+      <div class="fx-bloque fx-ancho">
+        <div class="fx-titulo-con-accion">
+          <h4>Lo que se compró</h4>
+          <button type="button" class="btn-secundario btn-chico" id="btn-ds-agregar-linea">+ Agregar línea</button>
+        </div>
+        <div class="tabla-envoltorio">
+          <table class="tabla-items-detalle" id="ds-tabla-lineas">
+            <thead>
+              <tr><th>Descripción</th><th class="num">Cant.</th><th class="num">Vr. unitario</th><th class="num">Vr. total</th><th>Cuenta de gasto</th><th></th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <p class="nota-aiu">Un documento soporte no lleva IVA. Escribe el valor bruto, antes de la retención.</p>
+      </div>
+
+      <fieldset class="bloque-retencion">
+        <legend>Retención en la fuente que practicas</legend>
+        <div class="opciones-retencion">
+          <label><input type="radio" name="ds-retencion-modo" value="aplica"> Aplicar retención</label>
+          <label><input type="radio" name="ds-retencion-modo" value="no_aplica"> No aplica retención</label>
+        </div>
+
+        <div id="ds-retencion-aplica" hidden>
+          <table class="tabla-items">
+            <thead>
+              <tr><th>Concepto (tipo de bien o servicio)</th><th>Tarifa</th><th class="num">Base</th><th class="num">Tope mínimo</th><th class="num">Retención</th><th></th></tr>
+            </thead>
+            <tbody id="ds-retenciones-tbody"></tbody>
+          </table>
+          <button type="button" class="btn-secundario btn-chico" id="btn-ds-agregar-retencion">+ Agregar concepto de retención</button>
+          <p class="nota-aiu" id="ds-nota-retencion"></p>
+        </div>
+
+        <div id="ds-retencion-no-aplica" class="fila-campos" hidden>
+          <label class="campo-aiu">
+            <span>Motivo</span>
+            <select id="ds-retencion-motivo"></select>
+          </label>
+          <label class="campo-aiu campo-ancho">
+            <span>Detalle (opcional)</span>
+            <input type="text" id="ds-retencion-detalle" maxlength="255" placeholder="Ej.: certificado RST vigente, resolución, etc.">
+          </label>
+        </div>
+      </fieldset>
+
+      <div class="fx-bloque fx-ancho">
+        <h4>Asiento que se va a contabilizar</h4>
+        <div class="tabla-envoltorio">
+          <table class="tabla-items-detalle" id="ds-tabla-asiento">
+            <thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
+            <tbody></tbody>
+            <tfoot></tfoot>
+          </table>
+        </div>
+        <div class="resumen-totales" id="ds-totales"></div>
+      </div>
+
+      <label class="campo-etiquetado">
+        <span>Observaciones (opcional)</span>
+        <input type="text" id="ds-observaciones" maxlength="1000" autocomplete="off">
+      </label>
+    </div>
+
+    <div class="dialogo-pie">
+      <p class="fx-error" id="ds-error" hidden></p>
+      <span class="fx-ayuda" id="ds-ayuda"></span>
+      <button type="button" class="btn-secundario" id="btn-cancelar-ds">Cancelar</button>
+      <button type="button" class="btn-primario" id="btn-guardar-ds" disabled>Registrar y contabilizar</button>
+    </div>
+  </dialog>
+
   <!-- Detalle de una factura de compra ya registrada -->
   <dialog id="dialogo-factura-detalle" class="dialogo-factura" aria-labelledby="titulo-factura-detalle">
     <div class="dialogo-cabecera">
@@ -951,11 +1083,11 @@
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261013-4"></script>
-<script src="/contable/calculoOrden.js?v=20261013-4"></script>
-<script src="/contable/asientoCompra.js?v=20261013-4"></script>
-<script src="/contable/asientoVenta.js?v=20261013-4"></script>
-<script src="/contable/planCuentas.js?v=20261013-4"></script>
-<script src="/contable/app.js?v=20261013-4"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261013-5"></script>
+<script src="/contable/calculoOrden.js?v=20261013-5"></script>
+<script src="/contable/asientoCompra.js?v=20261013-5"></script>
+<script src="/contable/asientoVenta.js?v=20261013-5"></script>
+<script src="/contable/planCuentas.js?v=20261013-5"></script>
+<script src="/contable/app.js?v=20261013-5"></script>
 </body>
 </html>

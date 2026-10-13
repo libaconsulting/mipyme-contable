@@ -432,11 +432,12 @@ async function cargarTodo() {
     renderProyectos(proyectos);
     poblarSelectProyectos(proyectos);
 
-    const [cotizaciones, facturasVenta, ordenes, facturasCompra, periodos, productos, activos, cuentas, movBancarios] = await Promise.all([
+    const [cotizaciones, facturasVenta, ordenes, facturasCompra, documentosSoporte, periodos, productos, activos, cuentas, movBancarios] = await Promise.all([
       api('/ventas/cotizaciones'),
       api('/ventas/facturas'),
       api('/compras/ordenes'),
       api('/compras/facturas'),
+      api('/compras/documentos-soporte'),
       api('/nomina/periodos'),
       api('/inventarios/productos'),
       api('/activos-fijos'),
@@ -448,6 +449,7 @@ async function cargarTodo() {
     renderFacturasVenta(facturasVenta);
     renderOrdenes(ordenes);
     renderFacturasCompra(facturasCompra);
+    renderDocumentosSoporte(documentosSoporte);
     renderNomina(periodos);
     renderProductos(productos);
     renderActivos(activos);
@@ -2617,6 +2619,7 @@ async function abrirDetalleFactura(id, avisos, mensajeOk) {
     const f = await api(`/compras/facturas/${id}`);
     facturaDetalleId = id;
     facturaDetalleModulo = 'compras';
+    document.getElementById('btn-xml-factura-detalle').textContent = 'Descargar XML';
     const det = f.detalle || {};
     const lineas = det.lineas || [];
     const retenciones = Array.isArray(f.retenciones) ? f.retenciones : [];
@@ -2687,16 +2690,17 @@ async function abrirDetalleFactura(id, avisos, mensajeOk) {
 
 async function descargarXmlFactura(id, modulo = 'compras') {
   try {
-    const res = await fetch(`${API}/${modulo}/facturas/${id}/xml`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
+    const ruta = modulo === 'ds' ? `compras/documentos-soporte/${id}/pdf` : `${modulo}/facturas/${id}/xml`;
+    const res = await fetch(`${API}/${ruta}`, { headers: token ? { Authorization: `Bearer ${token}` } : {} });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
-      throw new Error(data.error || 'No se pudo descargar el XML.');
+      throw new Error(data.error || 'No se pudo descargar el archivo.');
     }
     const blob = await res.blob();
     const nombre = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') || '');
     const enlace = document.createElement('a');
     enlace.href = URL.createObjectURL(blob);
-    enlace.download = nombre ? nombre[1] : 'factura.xml';
+    enlace.download = nombre ? nombre[1] : modulo === 'ds' ? 'documento-soporte.pdf' : 'factura.xml';
     document.body.appendChild(enlace);
     enlace.click();
     enlace.remove();
@@ -3110,6 +3114,7 @@ async function abrirDetalleFacturaVenta(id, avisos, mensajeOk) {
     const f = await api(`/ventas/facturas/${id}`);
     facturaDetalleId = id;
     facturaDetalleModulo = 'ventas';
+    document.getElementById('btn-xml-factura-detalle').textContent = 'Descargar XML';
     const det = f.detalle || {};
     const lineas = det.lineas || [];
     const cuentaTxt = (codigo, nombre) => `${escHtml(codigo)} <span class="cuenta-nombre">${escHtml(nombre || '')}</span>`;
@@ -3168,6 +3173,436 @@ async function abrirDetalleFacturaVenta(id, avisos, mensajeOk) {
   }
 }
 
+// --- DOCUMENTOS SOPORTE (compras a no obligados a facturar; Siigo solo entrega el PDF) ---
+// No hay XML que leer: la persona digita lo que dice el PDF (número, fecha, proveedor,
+// valor, retención, cuenta de gasto) y el PDF se guarda como soporte. El asiento que se
+// ve es el mismo módulo (asientoCompra.js) que usa el servidor al guardar.
+
+const ds = {
+  opciones: null, // { cuentasDestino, cuentaSugerida }
+  pdf: null, // { base64, nombre }
+  proveedor: null, // tercero existente que coincide con el NIT digitado
+  lineas: 0,
+  enviando: false,
+};
+const dialogoDs = document.getElementById('dialogo-ds');
+
+const dsSoloDigitosNit = (texto) => String(texto || '').split('-')[0].replace(/\D/g, '');
+
+function dsOpcionesCuentas(seleccionada) {
+  return (
+    ds.opciones.cuentasDestino
+      .map((c) => `<option value="${escHtml(c.codigo)}"${c.codigo === seleccionada ? ' selected' : ''}>${escHtml(c.codigo)} — ${escHtml(c.nombre)}</option>`)
+      .join('') + (puedeEditarPlan() ? `<option value="${FX_OPCION_NUEVA}">+ Crear cuenta nueva…</option>` : '')
+  );
+}
+
+function dsAgregarLinea(valores) {
+  const v = valores || {};
+  const tr = document.createElement('tr');
+  tr.innerHTML =
+    `<td><input type="text" class="ds-desc" maxlength="255" placeholder="Qué se compró" value="${escHtml(v.descripcion || '')}"></td>` +
+    `<td class="num"><input type="number" class="ds-cant" min="0" step="any" value="${escHtml(v.cantidad !== undefined ? v.cantidad : 1)}"></td>` +
+    `<td class="num"><input type="number" class="ds-unit" min="0" step="any" placeholder="0" value="${escHtml(v.valorUnitario || '')}"></td>` +
+    `<td class="num ds-total">—</td>` +
+    `<td><select class="ds-cuenta"><option value="">Elegir cuenta...</option>${dsOpcionesCuentas(ds.opciones.cuentaSugerida)}</select></td>` +
+    `<td><button type="button" class="btn-accion destructivo ds-quitar">Quitar</button></td>`;
+  document.querySelector('#ds-tabla-lineas tbody').appendChild(tr);
+  ds.lineas += 1;
+  return tr;
+}
+
+function dsLeerLineas() {
+  return Array.from(document.querySelectorAll('#ds-tabla-lineas tbody tr')).map((tr) => ({
+    descripcion: tr.querySelector('.ds-desc').value.trim(),
+    cantidad: Number(tr.querySelector('.ds-cant').value || 0),
+    valorUnitario: Number(tr.querySelector('.ds-unit').value || 0),
+    cuenta: tr.querySelector('.ds-cuenta').value,
+    fila: tr,
+  }));
+}
+
+function dsModoRetencion() {
+  const marcado = document.querySelector('input[name="ds-retencion-modo"]:checked');
+  return marcado ? marcado.value : '';
+}
+
+async function abrirDialogoDs() {
+  try {
+    ds.opciones = await api('/compras/documentos-soporte/opciones');
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  ds.pdf = null;
+  ds.proveedor = null;
+  ds.lineas = 0;
+  ds.enviando = false;
+  ['ds-numero', 'ds-nit', 'ds-nombre', 'ds-observaciones', 'ds-retencion-detalle'].forEach((id) => (document.getElementById(id).value = ''));
+  document.getElementById('ds-nombre').readOnly = false;
+  document.getElementById('ds-fecha').value = new Date(Date.now() - 5 * 3600 * 1000).toISOString().slice(0, 10);
+  document.getElementById('ds-forma-pago').value = 'contado';
+  document.getElementById('ds-pdf').value = '';
+  document.getElementById('ds-pdf-nota').textContent = 'Opcional, pero recomendado: queda guardado con el documento.';
+  document.getElementById('ds-proveedor-nota').textContent = '';
+  document.getElementById('ds-error').hidden = true;
+  document.getElementById('ds-retenciones-tbody').innerHTML = '';
+  document.querySelectorAll('input[name="ds-retencion-modo"]').forEach((r) => (r.checked = false));
+  document.getElementById('ds-retencion-motivo').innerHTML =
+    '<option value="">Elegir motivo...</option>' + retencionesCatalogo.MOTIVOS_NO_APLICA.map((m) => `<option value="${escHtml(m)}">${escHtml(m)}</option>`).join('');
+  document.getElementById('ds-proyecto').innerHTML =
+    '<option value="">Sin proyecto</option>' +
+    listaProyectos.filter((x) => x.activo).map((x) => `<option value="${escHtml(x.id)}">${escHtml(etiquetaProyecto(x))}</option>`).join('');
+  document.querySelector('#ds-tabla-lineas tbody').innerHTML = '';
+  dsAgregarLinea();
+  recalcularDs();
+  if (typeof dialogoDs.showModal === 'function') dialogoDs.showModal();
+  else dialogoDs.setAttribute('open', '');
+  document.getElementById('ds-numero').focus();
+}
+
+function cerrarDialogoDs() {
+  if (ds.enviando) return;
+  dialogoDs.close();
+}
+
+// ¿El NIT digitado ya está en Terceros? Si sí, se usa ese proveedor.
+function dsBuscarProveedor() {
+  const base = dsSoloDigitosNit(document.getElementById('ds-nit').value);
+  const nombre = document.getElementById('ds-nombre');
+  const nota = document.getElementById('ds-proveedor-nota');
+  ds.proveedor = base.length >= 5 ? listaTerceros.find((t) => dsSoloDigitosNit(t.identificacion) === base) || null : null;
+  if (ds.proveedor) {
+    nombre.value = ds.proveedor.nombre;
+    nombre.readOnly = true;
+    nota.textContent = '✔ Ya está en Terceros: se usa ese proveedor.';
+  } else {
+    if (nombre.readOnly) nombre.value = '';
+    nombre.readOnly = false;
+    nota.textContent = base.length >= 5 ? 'No está en Terceros: se creará como proveedor con este nombre.' : '';
+  }
+}
+
+function dsNombreCuenta(codigo) {
+  const c = ds.opciones.cuentasDestino.find((x) => x.codigo === codigo);
+  return c ? c.nombre : { 2365: 'Retención en la fuente por pagar', 2335: 'Costos y gastos por pagar' }[codigo] || '';
+}
+
+function recalcularDs() {
+  if (!ds.opciones) return;
+  const lineas = dsLeerLineas();
+  const modo = dsModoRetencion();
+  document.getElementById('ds-retencion-aplica').hidden = modo !== 'aplica';
+  document.getElementById('ds-retencion-no-aplica').hidden = modo !== 'no_aplica';
+  if (modo === 'aplica' && document.getElementById('ds-retenciones-tbody').children.length === 0) {
+    document.getElementById('ds-retenciones-tbody').appendChild(crearFilaRetencion(null, recalcularDs));
+  }
+
+  const totales = lineas.map((l) => Math.round(l.cantidad * l.valorUnitario * 100) / 100);
+  lineas.forEach((l, i) => (l.fila.querySelector('.ds-total').textContent = totales[i] > 0 ? formatoDineroDec(totales[i]) : '—'));
+  const base = Math.round(totales.reduce((a, b) => a + b, 0) * 100) / 100;
+
+  const entradas = modo === 'aplica' ? leerRetencionesOrden('ds-retenciones-tbody') : [];
+  const ret = calcularOrden.calcularRetenciones(
+    {
+      base,
+      iva: 0,
+      aiuTotal: 0,
+      retencionModo: modo,
+      retencionMotivo: document.getElementById('ds-retencion-motivo').value,
+      retencionDetalle: document.getElementById('ds-retencion-detalle').value,
+      retenciones: entradas.map((e) => retencionesCatalogo.especificar(e, { estricto: false })),
+    },
+    false
+  );
+  document.querySelectorAll('#ds-retenciones-tbody tr').forEach((tr, i) => {
+    const l = ret.retenciones[i];
+    if (!l) return;
+    tr.querySelector('.ret-base').textContent = l.codigo ? formatoDineroDec(l.base) : '—';
+    tr.querySelector('.ret-tope').textContent = l.codigo ? (l.baseMinima > 0 ? formatoDineroDec(l.baseMinima) : 'Sin tope') : '—';
+    const valor = tr.querySelector('.ret-valor');
+    valor.textContent = formatoDineroDec(l.valor);
+    valor.classList.toggle('ret-sin-efecto', l.valor === 0);
+    const nota = tr.querySelector('.ret-nota');
+    nota.textContent = l.nota;
+    nota.hidden = !l.nota;
+  });
+  document.getElementById('ds-nota-retencion').textContent =
+    `Conceptos y tarifas ${retencionesCatalogo.ANIO} (UVT ${formatoDineroDec(retencionesCatalogo.UVT_VALOR)}). Para un servicio prestado por una persona natural no declarante suele ser “Servicios generales (no declarantes)”; confírmalo con tu contador. Si la base no alcanza el tope mínimo, no se practica.`;
+
+  const proyecto = listaProyectos.find((x) => x.id === document.getElementById('ds-proyecto').value);
+  document.querySelectorAll('.ds-cuenta').forEach((sel) => {
+    if (sel.value !== FX_OPCION_NUEVA) sel.dataset.prev = sel.value;
+  });
+  let asiento = null;
+  if (base > 0 && lineas.every((l) => l.cuenta && l.cuenta !== FX_OPCION_NUEVA)) {
+    try {
+      asiento = asientoCompra.armarAsientoCompra({
+        lineas: lineas.map((_, i) => ({ valorTotal: totales[i], iva: 0, otrosImpuestos: 0 })),
+        base,
+        iva: 0,
+        impoconsumo: 0,
+        total: base,
+        ivaDescontable: false,
+        cuentasLinea: lineas.map((l) => l.cuenta),
+        retenciones: ret.retenciones,
+        centroCosto: proyecto ? proyecto.codigo || proyecto.nombre : null,
+        cuentaPorPagar: asientoCompra.CUENTAS_FIJAS.COSTOS_Y_GASTOS_POR_PAGAR,
+      });
+    } catch (_) {
+      asiento = null;
+    }
+  }
+  const tbody = document.querySelector('#ds-tabla-asiento tbody');
+  const tfoot = document.querySelector('#ds-tabla-asiento tfoot');
+  if (asiento) {
+    tbody.innerHTML = asiento.lineas
+      .map(
+        (l) =>
+          `<tr><td class="${l.credito ? 'indentar' : ''}">${escHtml(l.cuentaCodigo)} <span class="cuenta-nombre">${escHtml(dsNombreCuenta(l.cuentaCodigo))}</span>${
+            l.centroCosto ? ` <span class="badge">${escHtml(l.centroCosto)}</span>` : ''
+          }</td><td class="num">${l.debito ? escHtml(formatoDineroDec(l.debito)) : ''}</td><td class="num">${l.credito ? escHtml(formatoDineroDec(l.credito)) : ''}</td></tr>`
+      )
+      .join('');
+    tfoot.innerHTML = `<tr><td>Sumas iguales${asiento.cuadra ? '' : ' — NO CUADRA'}</td><td class="num">${escHtml(formatoDineroDec(asiento.totalDebito))}</td><td class="num">${escHtml(
+      formatoDineroDec(asiento.totalCredito)
+    )}</td></tr>`;
+  } else {
+    tbody.innerHTML = '<tr><td colspan="3" class="vacio">Completa las líneas (descripción, valor y cuenta) para ver el asiento.</td></tr>';
+    tfoot.innerHTML = '';
+  }
+  const neto = Math.round((base - ret.retencionValor) * 100) / 100;
+  document.getElementById('ds-totales').innerHTML =
+    `<span>Valor bruto: <strong>${escHtml(formatoDineroDec(base))}</strong></span>` +
+    `<span>Retención: <strong>− ${escHtml(formatoDineroDec(ret.retencionValor))}</strong></span>` +
+    `<span>A pagar al proveedor: <strong class="neto">${escHtml(formatoDineroDec(neto))}</strong></span>`;
+
+  // ¿Ya se puede registrar?
+  const pendientes = [];
+  if (!document.getElementById('ds-numero').value.trim()) pendientes.push('Escribe el número del documento (ej. DS 44).');
+  else if (!document.getElementById('ds-fecha').value) pendientes.push('Elige la fecha de la compra.');
+  else if (dsSoloDigitosNit(document.getElementById('ds-nit').value).length < 5) pendientes.push('Escribe la cédula o NIT del proveedor.');
+  else if (!ds.proveedor && !document.getElementById('ds-nombre').value.trim()) pendientes.push('Escribe el nombre del proveedor.');
+  else if (lineas.some((l) => !l.descripcion || !(l.cantidad > 0) || !(l.valorUnitario > 0))) pendientes.push('Completa cada línea: descripción, cantidad y valor unitario.');
+  else if (lineas.some((l) => !l.cuenta || l.cuenta === FX_OPCION_NUEVA)) pendientes.push('Elige la cuenta de gasto de cada línea.');
+  else if (!modo) pendientes.push('Decide la retención: aplicar o no aplicar.');
+  else if (modo === 'aplica' && (entradas.length === 0 || entradas.some((e) => !e.codigo))) pendientes.push('Elige el concepto de la retención.');
+  else if (modo === 'aplica' && entradas.some((e) => e.codigo === retencionesCatalogo.CONCEPTO_MANUAL.codigo && !(e.tarifa > 0))) pendientes.push('Escribe la tarifa del “Otro concepto”.');
+  else if (modo === 'no_aplica' && !document.getElementById('ds-retencion-motivo').value) pendientes.push('Elige el motivo por el que no aplica la retención.');
+  else if (ret.retencionValor >= base) pendientes.push('La retención no puede ser igual o mayor al valor del documento.');
+  else if (asiento && !asiento.cuadra) pendientes.push('El asiento no cuadra.');
+  document.getElementById('ds-ayuda').textContent = pendientes[0] || 'Todo listo para contabilizar.';
+  document.getElementById('btn-guardar-ds').disabled = pendientes.length > 0 || ds.enviando;
+  return { modo, entradas };
+}
+
+function dsCrearCuentaDesde(sel) {
+  sel.value = sel.dataset.prev || '';
+  abrirDialogoCuenta({
+    paraCompra: true,
+    alTerminar: (cuenta) => {
+      if (!cuenta || !ds.opciones) return;
+      ds.opciones.cuentasDestino.push({ codigo: cuenta.codigo, nombre: cuenta.nombre });
+      ds.opciones.cuentasDestino.sort((a, b) => a.codigo.localeCompare(b.codigo));
+      document.querySelectorAll('.ds-cuenta').forEach((s) => {
+        const v = s === sel ? cuenta.codigo : s.value;
+        s.innerHTML = '<option value="">Elegir cuenta...</option>' + dsOpcionesCuentas(v);
+        s.value = v;
+      });
+      recalcularDs();
+    },
+  });
+}
+
+async function guardarDs() {
+  if (ds.enviando) return;
+  const estado = recalcularDs();
+  const errorEl = document.getElementById('ds-error');
+  errorEl.hidden = true;
+  const lineas = dsLeerLineas();
+  const cuerpo = {
+    numero: document.getElementById('ds-numero').value,
+    fecha: document.getElementById('ds-fecha').value,
+    formaPago: document.getElementById('ds-forma-pago').value,
+    terceroId: ds.proveedor ? ds.proveedor.id : undefined,
+    proveedorNit: document.getElementById('ds-nit').value,
+    proveedorNombre: document.getElementById('ds-nombre').value,
+    proyectoId: document.getElementById('ds-proyecto').value || undefined,
+    lineas: lineas.map((l) => ({ descripcion: l.descripcion, cantidad: l.cantidad, valorUnitario: l.valorUnitario })),
+    cuentasLineas: Object.fromEntries(lineas.map((l, i) => [i, l.cuenta])),
+    retencionModo: estado.modo,
+    retencionMotivo: document.getElementById('ds-retencion-motivo').value,
+    retencionDetalle: document.getElementById('ds-retencion-detalle').value,
+    retenciones: estado.modo === 'aplica' ? estado.entradas.map((e) => ({ codigo: e.codigo, tarifa: e.tarifa })) : [],
+    observaciones: document.getElementById('ds-observaciones').value || undefined,
+    pdfBase64: ds.pdf ? ds.pdf.base64 : undefined,
+    pdfNombre: ds.pdf ? ds.pdf.nombre : undefined,
+  };
+  const boton = document.getElementById('btn-guardar-ds');
+  ds.enviando = true;
+  boton.disabled = true;
+  boton.textContent = 'Registrando...';
+  try {
+    const resultado = await api('/compras/documentos-soporte', { method: 'POST', body: JSON.stringify(cuerpo) });
+    ds.enviando = false;
+    dialogoDs.close();
+    await cargarTodo();
+    const avisos = [];
+    if (!resultado.contabilizada) avisos.push('El documento quedó registrado, pero SIN asiento: la regla contable de este evento está en nivel manual. Contabilízalo desde el módulo contable.');
+    if (resultado.periodoAjustado) avisos.push('La fecha del documento no cae en un periodo contable abierto; el asiento quedó con la fecha de hoy en el periodo vigente.');
+    await abrirDetalleDocumentoSoporte(resultado.documento.id, avisos, 'Documento soporte registrado y contabilizado.');
+  } catch (err) {
+    ds.enviando = false;
+    errorEl.textContent = err.message;
+    errorEl.hidden = false;
+  } finally {
+    boton.textContent = 'Registrar y contabilizar';
+    if (ds.opciones) recalcularDs();
+  }
+}
+
+document.getElementById('btn-registrar-ds').addEventListener('click', abrirDialogoDs);
+document.getElementById('btn-cerrar-ds').addEventListener('click', cerrarDialogoDs);
+document.getElementById('btn-cancelar-ds').addEventListener('click', cerrarDialogoDs);
+document.getElementById('btn-guardar-ds').addEventListener('click', guardarDs);
+dialogoDs.addEventListener('cancel', (e) => {
+  if (ds.enviando) e.preventDefault();
+});
+document.getElementById('btn-ds-agregar-linea').addEventListener('click', () => {
+  dsAgregarLinea();
+  recalcularDs();
+});
+document.getElementById('btn-ds-agregar-retencion').addEventListener('click', () => {
+  document.getElementById('ds-retenciones-tbody').appendChild(crearFilaRetencion(null, recalcularDs));
+});
+document.getElementById('ds-nit').addEventListener('input', () => {
+  dsBuscarProveedor();
+  recalcularDs();
+});
+['ds-numero', 'ds-fecha', 'ds-nombre', 'ds-proyecto', 'ds-retencion-motivo', 'ds-retencion-detalle'].forEach((id) => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', recalcularDs);
+  el.addEventListener('change', recalcularDs);
+});
+document.querySelectorAll('input[name="ds-retencion-modo"]').forEach((r) => r.addEventListener('change', recalcularDs));
+const tablaLineasDs = document.getElementById('ds-tabla-lineas');
+tablaLineasDs.addEventListener('input', recalcularDs);
+tablaLineasDs.addEventListener('focusin', (e) => {
+  if (e.target.classList && e.target.classList.contains('ds-cuenta')) e.target.dataset.prev = e.target.value;
+});
+tablaLineasDs.addEventListener('change', (e) => {
+  if (e.target.classList.contains('ds-cuenta') && e.target.value === FX_OPCION_NUEVA) return dsCrearCuentaDesde(e.target);
+  recalcularDs();
+});
+tablaLineasDs.addEventListener('click', (e) => {
+  if (!e.target.classList.contains('ds-quitar')) return;
+  const filas = document.querySelectorAll('#ds-tabla-lineas tbody tr');
+  if (filas.length > 1) e.target.closest('tr').remove();
+  recalcularDs();
+});
+document.getElementById('ds-pdf').addEventListener('change', async (e) => {
+  const archivo = e.target.files[0];
+  const nota = document.getElementById('ds-pdf-nota');
+  ds.pdf = null;
+  if (!archivo) {
+    nota.textContent = 'Opcional, pero recomendado: queda guardado con el documento.';
+    return;
+  }
+  if (archivo.size > TAMANO_MAX_XML) {
+    nota.textContent = 'El PDF pesa demasiado (máximo 3,5 MB).';
+    e.target.value = '';
+    return;
+  }
+  try {
+    ds.pdf = { base64: await archivoABase64(archivo), nombre: archivo.name };
+    nota.textContent = `Se guardará: ${archivo.name}`;
+  } catch (err) {
+    nota.textContent = err.message;
+    e.target.value = '';
+  }
+});
+
+// Detalle de un documento soporte registrado (reutiliza la ventana de detalle).
+async function abrirDetalleDocumentoSoporte(id, avisos, mensajeOk) {
+  try {
+    const d = await api(`/compras/documentos-soporte/${id}`);
+    facturaDetalleId = id;
+    facturaDetalleModulo = 'ds';
+    const lineas = (d.detalle && d.detalle.lineas) || [];
+    const retenciones = Array.isArray(d.retenciones) ? d.retenciones : [];
+    const cuentaTxt = (codigo, nombre) => `${escHtml(codigo)} <span class="cuenta-nombre">${escHtml(nombre || '')}</span>`;
+
+    document.getElementById('titulo-factura-detalle').textContent = `Documento soporte ${d.numero || ''}`.trim();
+    const botonArchivo = document.getElementById('btn-xml-factura-detalle');
+    botonArchivo.hidden = !d.pdfDisponible;
+    botonArchivo.textContent = 'Descargar PDF';
+    document.getElementById('fd-cuerpo').innerHTML =
+      (mensajeOk ? `<div class="fd-aviso">${escHtml(mensajeOk)}</div>` : '') +
+      (avisos || []).map((a) => `<div class="fd-aviso alerta">${escHtml(a)}</div>`).join('') +
+      `<dl class="fx-resumen">` +
+      [
+        ['Proveedor', `${escHtml(d.proveedorNombre || nombreTercero(d.terceroId))}${d.proveedorNit ? '<br>NIT/CC ' + escHtml(d.proveedorNit) : ''}`],
+        ['Fecha de compra', escHtml(formatoFecha(d.fecha))],
+        ['Condición de pago', d.formaPago === 'credito' ? 'Crédito' : 'Contado'],
+        ['Proyecto', escHtml(nombreProyecto(d.proyectoId))],
+        ['Valor bruto', `<strong>${escHtml(formatoDineroDec(d.valor))}</strong>`],
+        ['Retención', escHtml(formatoDineroDec(d.retencionValor))],
+        ['A pagar al proveedor', `<strong>${escHtml(formatoDineroDec(d.netoAPagar === null || d.netoAPagar === undefined ? d.valor : d.netoAPagar))}</strong>`],
+        ['Observaciones', escHtml(d.observaciones || '—')],
+      ]
+        .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`)
+        .join('') +
+      `</dl>` +
+      (lineas.length
+        ? `<h4>Detalle</h4><table class="tabla-items-detalle"><thead><tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Vr. total</th><th>Cuenta</th></tr></thead><tbody>` +
+          lineas
+            .map((l) => `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}</td><td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td><td>${escHtml(l.cuentaCodigo)}</td></tr>`)
+            .join('') +
+          `</tbody></table>`
+        : '') +
+      (d.retencionModo === 'aplica' && retenciones.length
+        ? `<h4>Retenciones practicadas</h4><table class="tabla-items-detalle"><thead><tr><th>Concepto</th><th class="num">Tarifa</th><th class="num">Base</th><th class="num">Valor</th></tr></thead><tbody>` +
+          retenciones.map((r) => `<tr><td>${escHtml(r.nombre)}</td><td class="num">${escHtml(r.tarifa)}%</td><td class="num">${escHtml(formatoDineroDec(r.base))}</td><td class="num">${escHtml(formatoDineroDec(r.valor))}</td></tr>`).join('') +
+          `</tbody></table>`
+        : d.retencionModo === 'no_aplica'
+        ? `<h4>Retención</h4><p class="fx-texto">No aplica — ${escHtml(d.retencionMotivo || '')}</p>`
+        : '') +
+      `<h4>Asiento contable</h4>` +
+      (d.asiento && d.asiento.length
+        ? `<table class="tabla-items-detalle"><thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead><tbody>` +
+          d.asiento
+            .map(
+              (m) =>
+                `<tr><td class="${m.credito ? 'indentar' : ''}">${cuentaTxt(m.cuentaCodigo, m.cuentaNombre)}${m.centroCosto ? ` <span class="badge">${escHtml(m.centroCosto)}</span>` : ''}</td><td class="num">${
+                  m.debito ? escHtml(formatoDineroDec(m.debito)) : ''
+                }</td><td class="num">${m.credito ? escHtml(formatoDineroDec(m.credito)) : ''}</td></tr>`
+            )
+            .join('') +
+          `</tbody></table>`
+        : '<p class="fx-texto">Este documento no tiene asiento (está pendiente de contabilizar).</p>');
+
+    if (typeof dialogoDetalle.showModal === 'function') dialogoDetalle.showModal();
+    else dialogoDetalle.setAttribute('open', '');
+  } catch (err) {
+    alert(err.message);
+  }
+}
+
+function renderDocumentosSoporte(lista) {
+  document.querySelector('#tabla-documentos-soporte thead').innerHTML =
+    '<tr><th>Fecha</th><th>Número</th><th>Proveedor</th><th class="num">Valor bruto</th><th class="num">Retención</th><th class="num">A pagar</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-documentos-soporte', 7, 'Todavía no hay documentos soporte. Registra el primero con el botón de arriba.');
+  document.querySelector('#tabla-documentos-soporte tbody').innerHTML = lista
+    .map(
+      (d) =>
+        `<tr><td>${formatoFecha(d.fecha)}</td><td>${escHtml(d.numero || '—')}</td><td>${escHtml(d.proveedorNombre || nombreTercero(d.terceroId))}</td>` +
+        `<td class="num">${formatoDineroDec(d.valor)}</td><td class="num">${Number(d.retencionValor) ? formatoDineroDec(d.retencionValor) : '—'}</td>` +
+        `<td class="num">${formatoDineroDec(d.netoAPagar === null || d.netoAPagar === undefined ? d.valor : d.netoAPagar)}</td>` +
+        `<td class="acciones">${botonAccion('Ver', { accion: 'ver-documento-soporte', id: d.id })}${botonAccion('PDF', { accion: 'pdf-documento-soporte', id: d.id })}</td></tr>`
+    )
+    .join('');
+}
+
 // --- ACCIONES POR FILA (delegación de eventos sobre todo el tablero) ---
 document.getElementById('vista-dashboard').addEventListener('click', async (e) => {
   const boton = e.target.closest('.btn-accion');
@@ -3198,6 +3633,12 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
 
     case 'xml-factura-compra':
       return descargarXmlFactura(id);
+
+    case 'ver-documento-soporte':
+      return abrirDetalleDocumentoSoporte(id);
+
+    case 'pdf-documento-soporte':
+      return descargarXmlFactura(id, 'ds');
 
     case 'ver-factura-venta':
       return abrirDetalleFacturaVenta(id);

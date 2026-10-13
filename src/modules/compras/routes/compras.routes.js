@@ -35,6 +35,22 @@ router.patch('/ordenes/:id/aprobar', comprasController.aprobarOrden);
 // POST /api/compras/ordenes/:ordenId/convertir
 router.post('/ordenes/:ordenId/convertir', comprasController.convertirOrden);
 
+// Documento soporte expedido en Siigo (solo entrega PDF): se digita aquí y se contabiliza
+// GET /api/compras/documentos-soporte/opciones  (cuentas de gasto disponibles)
+router.get('/documentos-soporte/opciones', comprasController.opcionesDocumentoSoporte);
+
+// GET /api/compras/documentos-soporte
+router.get('/documentos-soporte', comprasController.listarDocumentosSoporte);
+
+// POST /api/compras/documentos-soporte
+router.post('/documentos-soporte', comprasController.registrarDocumentoSoporte);
+
+// GET /api/compras/documentos-soporte/:id/pdf
+router.get('/documentos-soporte/:id/pdf', comprasController.descargarPdfDocumentoSoporte);
+
+// GET /api/compras/documentos-soporte/:id
+router.get('/documentos-soporte/:id', comprasController.obtenerDocumentoSoporte);
+
 // POST /api/compras/documento-soporte
 router.post('/documento-soporte', comprasController.emitirDocumentoSoporte);
 

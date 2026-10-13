@@ -783,3 +783,15 @@ td.num, th.num {
 
 /* Texto de ayuda dentro de una celda de acciones (ej.: cotización aceptada) */
 .texto-suave { color: #6b7280; font-size: 0.85em; }
+
+/* Documento soporte: campos dentro del diálogo */
+.fx-bloque .campo-etiquetado { display: block; margin-bottom: 8px; }
+.fx-bloque .campo-etiquetado span { display: block; font-size: 12px; margin-bottom: 3px; }
+.fx-bloque .campo-etiquetado input, .fx-bloque input[type="file"], #ds-tabla-lineas input, #ds-tabla-lineas select {
+  width: 100%; padding: 7px 9px; border: 1px solid var(--rule-strong); font-family: var(--font-sans); font-size: 13px; background: var(--paper); box-sizing: border-box;
+}
+#ds-tabla-lineas input[type="number"] { text-align: right; }
+#ds-tabla-lineas .ds-desc { min-width: 220px; }
+#ds-tabla-lineas .ds-cant { min-width: 70px; }
+#ds-tabla-lineas .ds-unit { min-width: 120px; }
+.fx-bloque input[type="file"] { margin-bottom: 6px; }

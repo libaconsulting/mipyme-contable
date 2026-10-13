@@ -1,6 +1,7 @@
 const { mensajeError } = require('../../../core/utils/mensajeError');
 const comprasService = require('../services/compras.service');
 const facturaXmlService = require('../services/facturaXml.service');
+const documentoSoporteService = require('../services/documentoSoporte.service');
 
 async function crearOrden(req, res) {
   try {
@@ -117,7 +118,58 @@ async function descargarXmlFactura(req, res) {
   }
 }
 
+async function opcionesDocumentoSoporte(req, res) {
+  try {
+    res.json(await documentoSoporteService.opciones(req.usuario));
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function listarDocumentosSoporte(req, res) {
+  try {
+    res.json(await documentoSoporteService.listarDocumentosSoporte(req.usuario));
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function registrarDocumentoSoporte(req, res) {
+  try {
+    res.status(201).json(await documentoSoporteService.registrarDocumentoSoporte(req.body, req.usuario));
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function obtenerDocumentoSoporte(req, res) {
+  try {
+    const doc = await documentoSoporteService.obtenerDocumentoSoporte(req.params.id, req.usuario);
+    if (!doc) return res.status(404).json({ error: 'Documento soporte no encontrado.' });
+    res.json(doc);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
+async function descargarPdfDocumentoSoporte(req, res) {
+  try {
+    const pdf = await documentoSoporteService.obtenerPdf(req.params.id, req.usuario);
+    if (!pdf) return res.status(404).json({ error: 'Este documento soporte no tiene un PDF guardado.' });
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `attachment; filename="${pdf.nombre.replace(/"/g, '')}"`);
+    res.send(pdf.contenido);
+  } catch (error) {
+    res.status(400).json({ error: mensajeError(error) });
+  }
+}
+
 module.exports = {
+  opcionesDocumentoSoporte,
+  listarDocumentosSoporte,
+  registrarDocumentoSoporte,
+  obtenerDocumentoSoporte,
+  descargarPdfDocumentoSoporte,
   previsualizarFacturaXml,
   registrarFacturaXml,
   obtenerFactura,

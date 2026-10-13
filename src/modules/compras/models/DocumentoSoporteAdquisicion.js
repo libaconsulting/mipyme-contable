@@ -25,8 +25,31 @@ const DocumentoSoporteAdquisicion = sequelize.define('DocumentoSoporteAdquisicio
     defaultValue: 'pendiente',
   },
   xmlUrl: { type: DataTypes.STRING(255) },
+
+  // --- Documento soporte expedido en otro sistema (Siigo) y registrado aquí ---
+  // Siigo solo entrega el PDF (sin XML), así que los datos se digitan y el PDF
+  // se guarda como soporte. 'emitido' = el flujo con proveedor tecnológico propio.
+  origen: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'emitido' }, // 'emitido' | 'registrado'
+  numero: { type: DataTypes.STRING(40) }, // ej. "DS 44"
+  proveedorNit: { type: DataTypes.STRING(20) },
+  proveedorNombre: { type: DataTypes.STRING(200) },
+  formaPago: { type: DataTypes.STRING(20) }, // 'contado' | 'credito'
+  fechaVencimiento: { type: DataTypes.DATEONLY },
+  // Retención en la fuente que practicamos (foto al registrar), igual que en FacturaCompra.
+  retencionModo: { type: DataTypes.STRING(20) },
+  retencionMotivo: { type: DataTypes.STRING(200) },
+  retenciones: { type: DataTypes.JSON },
+  retencionValor: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  netoAPagar: { type: DataTypes.DECIMAL(15, 2) },
+  detalle: { type: DataTypes.JSON },
+  observaciones: { type: DataTypes.TEXT },
+  asientoId: { type: DataTypes.UUID },
+  proyectoId: { type: DataTypes.UUID },
+  archivoNombre: { type: DataTypes.STRING(150) },
+  archivoPdf: { type: DataTypes.TEXT('long') }, // PDF original en base64
 }, {
   tableName: 'documentos_soporte_adquisicion',
+  indexes: [{ fields: ['empresa_id', 'numero'] }],
 });
 
 module.exports = DocumentoSoporteAdquisicion;

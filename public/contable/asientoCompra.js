@@ -11,6 +11,7 @@
 //   Cr  2365 Retención en la fuente por pagar
 //   Cr  2367 ReteIVA por pagar
 //   Cr  2205 Proveedores nacionales       total - retenciones
+//       (o la cuenta que se indique en `cuentaPorPagar`, ej. 2335 en un documento soporte)
 //
 // Todo se calcula en centavos enteros para que el asiento cuadre siempre.
 (function (raiz, fabrica) {
@@ -20,6 +21,7 @@
   const CUENTAS_FIJAS = {
     IVA_DESCONTABLE: '1355',
     PROVEEDORES: '2205',
+    COSTOS_Y_GASTOS_POR_PAGAR: '2335',
     RETEFUENTE: '2365',
     RETEIVA: '2367',
   };
@@ -50,6 +52,7 @@
   //   cuentasLinea  [codigo]  cuenta destino de cada línea
   //   retenciones   [{ sobre: 'base'|'aiu'|'iva', valor }]  ya calculadas
   //   centroCosto   texto opcional (proyecto)
+  //   cuentaPorPagar  opcional, por defecto 2205
   function armarAsientoCompra(datos) {
     const lineas = datos.lineas || [];
     if (lineas.length !== (datos.cuentasLinea || []).length) {
@@ -92,7 +95,7 @@
     const reteFuente = retTotal - reteIva;
     if (reteFuente > 0) asiento.push({ cuentaCodigo: CUENTAS_FIJAS.RETEFUENTE, debito: 0, credito: pesos(reteFuente) });
     if (reteIva > 0) asiento.push({ cuentaCodigo: CUENTAS_FIJAS.RETEIVA, debito: 0, credito: pesos(reteIva) });
-    asiento.push({ cuentaCodigo: CUENTAS_FIJAS.PROVEEDORES, debito: 0, credito: pesos(totalCent - retTotal) });
+    asiento.push({ cuentaCodigo: datos.cuentaPorPagar || CUENTAS_FIJAS.PROVEEDORES, debito: 0, credito: pesos(totalCent - retTotal) });
 
     const debitos = asiento.reduce((s, l) => s + centavos(l.debito), 0);
     const creditos = asiento.reduce((s, l) => s + centavos(l.credito), 0);

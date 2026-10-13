@@ -112,3 +112,20 @@ test('repartir no pierde centavos (incluso con valores negativos)', () => {
   }
   assert.deepEqual(repartir(50, [0, 0]), [50, 0]);
 });
+
+test('Documento soporte: sin IVA, retefuente y saldo a 2335 (caso DS 44)', () => {
+  const r = armarAsientoCompra({
+    lineas: [linea(4530000)],
+    base: 4530000, iva: 0, impoconsumo: 0, total: 4530000,
+    ivaDescontable: false,
+    cuentasLinea: ['5195'],
+    retenciones: [{ sobre: 'base', valor: 271800 }],
+    cuentaPorPagar: '2335',
+  });
+  assert.equal(r.cuadra, true);
+  assert.equal(cuenta(r, '5195')[0].debito, 4530000);
+  assert.equal(cuenta(r, '2365')[0].credito, 271800);
+  assert.equal(cuenta(r, '2335')[0].credito, 4258200);
+  assert.equal(cuenta(r, '2205').length, 0);
+  assert.equal(r.netoAPagar, 4258200);
+});
