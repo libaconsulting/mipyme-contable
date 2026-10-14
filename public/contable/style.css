@@ -871,3 +871,19 @@ td.num, th.num {
 
 /* Nómina · prestaciones: un concepto por renglón dentro de la tabla de empleados */
 .nom-comp { white-space: nowrap; padding: 1px 0; }
+
+/* Selector de departamento y municipio (búsqueda por nombre) */
+.combo { position: relative; }
+.combo-entrada { width: 100%; box-sizing: border-box; }
+.combo-entrada.combo-invalido { border-color: var(--danger); }
+.combo-lista {
+  position: absolute; z-index: 30; left: 0; right: 0; top: 100%; margin: 2px 0 0; padding: 0; list-style: none;
+  max-height: 220px; overflow-y: auto; background: var(--paper); border: 1px solid var(--rule-strong);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+}
+.combo-lista[hidden] { display: none; }
+.combo-lista li { padding: 6px 9px; font-size: 13px; cursor: pointer; display: flex; justify-content: space-between; gap: 10px; }
+.combo-lista li small { color: #6b7280; font-size: 11px; }
+.combo-lista li.activo, .combo-lista li[data-i]:hover { background: var(--accent-soft, #e8efe9); }
+.combo-lista li.combo-mas { cursor: default; color: #6b7280; font-size: 12px; }
+.combo-codigo { min-height: 14px; font-size: 11px; color: #6b7280; }

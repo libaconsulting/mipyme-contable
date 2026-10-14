@@ -418,7 +418,8 @@ Hay un único documento vigente por (tipo, año, semestre). Comprobante imprimib
 **Código:** reglas en `public/contable/prestacionesNomina.js` (compartido; pruebas `tests/prestacionesNomina.test.js`), asientos en
 `asientoNomina.js` (`armarAsientoPrestaciones`, `armarAsientoPagoPlanilla`), servicio `src/modules/nomina/services/prestaciones.service.js`,
 pantallas `public/contable/nominaPrestaciones.js`. Tablas nuevas: `nomina_prestaciones`, `nomina_prestacion_lineas`, `nomina_planilla_pagos`;
-columnas nuevas: `nomina_contratos.vacaciones_dias_previos` y `tipo_documento`, `nomina_config.semana_laboral`, `codigo_departamento`, `codigo_municipio` y `centro_trabajo` (las crea `sync({ alter: true })`).
+columnas nuevas: `nomina_contratos.vacaciones_dias_previos` y `tipo_documento`, `nomina_config.semana_laboral`, `codigo_departamento`, `codigo_municipio` y `centro_trabajo`.
+**Base de datos en producción:** el servidor solo hace `sync` cuando `NODE_ENV=development`, así que en producción las tablas y columnas nuevas hay que crearlas a mano en Supabase con el SQL de cada entrega (`sql-nomina-fase2.sql`, `sql-centros-trabajo.sql`); usan `IF NOT EXISTS` y se pueden correr más de una vez.
 
 **Reglas aplicadas:**
 - Año de 360 días. **Prima:** 30 días por año (semestres 1-ene a 30-jun y 1-jul a 31-dic). **Cesantías:** un mes por año. **Intereses:** cesantías × días × 12 % ÷ 360.
@@ -442,12 +443,17 @@ y se puede anular. Hay dos descargas: el **CSV de cargue** (una fila por emplead
 Código en `public/contable/pilaArchivo.js` (pruebas `tests/pilaArchivo.test.js`, que verifican la posición inicial de los campos contra el anexo); se descarga con `GET /api/nomina/periodos/:id/planilla-pila.txt`.
 - Registro tipo 1 (encabezado, 359 posiciones) y un registro tipo 2 (686 posiciones, 97 campos) por cotizante, con saltos CRLF, solo ASCII (nombres en mayúsculas, sin tildes; la Ñ pasa a N).
 - Si en el mes hay **vacaciones, incapacidades, licencias o suspensiones** se genera una línea por cada novedad (con sus fechas y su IBC) y otra con los días ordinarios, como pide el numeral 2.1.2.2 del anexo; el sobrante de redondeo queda en la línea ordinaria, de modo que el total sea el mismo de la planilla del sistema.
-- **Datos que se exigen antes de generar** (si falta alguno, la descarga muestra la lista completa): código DANE de departamento (2 dígitos) y municipio (3), centro de trabajo, códigos de ARL y de caja (hasta 6 caracteres), NIT con dígito de verificación correcto, y por empleado: tipo de documento, código de EPS y de fondo de pensiones, primer nombre y primer apellido.
+- **Datos que se exigen antes de generar** (si falta alguno, la descarga muestra la lista completa): departamento y municipio (se eligen por nombre en Configuración y se guarda el código DANE: 2 y 3 dígitos), códigos de ARL y de caja (hasta 6 caracteres), NIT con dígito de verificación correcto, y por empleado: tipo de documento, código de EPS y de fondo de pensiones, primer nombre y primer apellido.
+- **Centro de trabajo (campo 62):** cada contrato tiene el suyo; si no elige, se usa el centro principal de la empresa y, si la empresa no tiene centros creados, el valor `centro_trabajo` de la configuración (heredado de antes).
 - Campos que asigna el operador y se dejan en cero o blanco: secuencia/número de radicación, fecha de pago y código del operador del encabezado.
 - Período del encabezado: pensión, ARL y parafiscales = mes liquidado; salud = mes siguiente (regla del numeral 2.1.1.2.4 del anexo para planillas E). Se puede pedir el mismo mes con `?periodoSalud=mismo`.
 - Supuestos de tipo: cotizante 01 (dependiente), subtipo 0, forma de presentación U (única), modalidad electrónica, tipo de aportante 01 (empleador), tarifas con punto decimal (`0.16000`; ARL en 9 posiciones, `0.0052200`).
 - **No se probó con un operador real.** Si Aportes en Línea, SOI u otro rechaza el archivo, el mensaje exacto del operador permite ajustarlo. Puntos a vigilar: línea de suspensión (SLN) con IBC 0, días de ARL en incapacidades, y el período de salud.
 - No reporta aportes voluntarios a pensión ni novedades de traslado, variación de salario (VSP/VST) o correcciones (planilla N); se avisa si el contrato tiene aporte voluntario.
+
+**Departamento y municipio, y centros de trabajo (Nómina → Configuración):**
+- El departamento y el municipio se escogen de una lista con búsqueda por nombre (sin tildes ni mayúsculas; flechas y Enter funcionan). Se guarda solo el código DANE. La lista oficial DIVIPOLA (33 departamentos, 1.122 municipios) está en `public/contable/divipola.js` y el selector en `public/contable/selectorLugar.js` (reutilizable en otras pantallas). El servidor valida que el municipio pertenezca al departamento.
+- **Centros de trabajo (ARL):** una empresa puede tener varios (por línea de negocio o sede). Cada uno tiene el código que asigna la ARL, un nombre, una clase de riesgo opcional (sugerencia al elegirlo en un contrato), principal y activo. El primero es principal automáticamente; solo hay un principal; no se elimina uno que tenga contratos (se desactiva) ni el principal mientras haya otros. API: `GET/POST /api/nomina/centros-trabajo`, `PATCH/DELETE /api/nomina/centros-trabajo/:id`. Tabla `nomina_centros_trabajo` y columna `nomina_contratos.centro_trabajo_id` (ver `sql-centros-trabajo.sql`).
 
 **Supuestos de la fase 2 a validar con el contador:**
 - Prima y cesantías con la base descrita (último salario si no hubo cambios); intereses pagados antes del 31 de enero (después, la ley obliga a pagar el doble: solo hay aviso).
@@ -457,7 +463,7 @@ Código en `public/contable/pilaArchivo.js` (pruebas `tests/pilaArchivo.test.js`
 - Aproximación PILA y mora: se contabilizan como gasto (5105xx95 y 530520).
 
 **Lo que sigue pendiente:** novedades VSP/VST en el archivo plano, planilla de correcciones, cambio de salario a mitad de mes; dos contratos de un mismo empleado en el mismo mes; saldos iniciales formales de provisiones
-(hoy se resuelven con los días de vacaciones previos del contrato y con los saldos del libro); reversión de un pago de nómina mensual.
+(hoy se resuelven con los días de vacaciones previos del contrato y con los saldos del libro); reversión de un pago de nómina mensual; usar el selector de departamento y municipio (`selectorLugar.js`) también en Mi Empresa y Terceros, que hoy son texto libre.
 
 ## Inventarios (costo promedio ponderado)
 

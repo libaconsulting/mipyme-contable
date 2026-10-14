@@ -24,6 +24,7 @@ const PeriodoContable = require('../../../core/models/PeriodoContable');
 const CuentaBancaria = require('../../tesoreria/models/CuentaBancaria');
 const MovimientoBancario = require('../../tesoreria/models/MovimientoBancario');
 const ContratoLaboral = require('../models/ContratoLaboral');
+const CentroTrabajo = require('../models/CentroTrabajo');
 const AusenciaNomina = require('../models/AusenciaNomina');
 const ConceptoNomina = require('../models/ConceptoNomina');
 const NominaPeriodo = require('../models/NominaPeriodo');
@@ -1047,10 +1048,16 @@ async function planillaArchivoPila(periodoId, usuario, opciones) {
   const emp = await empleadosDe(empresaId, liquidaciones.map((l) => l.empleadoId));
   const contratos = await ContratoLaboral.findAll({ where: { id: { [Op.in]: liquidaciones.map((l) => l.contratoId) } } });
   const contratoPorId = Object.fromEntries(contratos.map((c) => [c.id, c]));
+  // Centros de trabajo: el del contrato; si no tiene, el principal; si no hay, el valor heredado de la configuración.
+  const centros = await CentroTrabajo.findAll({ where: { empresaId } });
+  const centroPorId = Object.fromEntries(centros.map((x) => [x.id, x]));
+  const principal = centros.find((x) => x.principal && x.activo) || centros.find((x) => x.principal) || null;
   const empleados = liquidaciones.map((l) => {
     const c = contratoPorId[l.contratoId] || {};
     const e = emp[l.empleadoId] || {};
+    const centro = (c.centroTrabajoId && centroPorId[c.centroTrabajoId]) || principal;
     return {
+      centroTrabajo: centro ? centro.codigo : undefined,
       nombre: e.nombre, identificacion: e.identificacion, tipoDocumento: c.tipoDocumento || 'CC',
       epsCodigo: c.epsCodigo, afpCodigo: c.afpCodigo, salarioBase: Math.round(Number(c.salarioBase) || 0), tipoSalario: c.tipoSalario,
       contrato: { aporteVoluntarioPension: Number(c.aporteVoluntarioPension) || 0 },
@@ -1067,7 +1074,11 @@ async function planillaArchivoPila(periodoId, usuario, opciones) {
     empleados,
     opciones: { periodoSalud: opciones && opciones.periodoSalud === 'mismo' ? 'mismo' : 'siguiente' },
   });
-  return { nombre: r.nombre, contenido: r.contenido, resumen: { cotizantes: r.cotizantes, lineas: r.lineas, totales: r.totales, avisos: r.avisos, periodoOtros: r.periodoOtros, periodoSalud: r.periodoSalud } };
+  const avisos = r.avisos.slice();
+  if (!centros.length && !Number(config.centroTrabajo)) {
+    avisos.push('No hay centros de trabajo creados (Nómina > Configuración): el campo "centro de trabajo" de la ARL va en 0. Créalo con el código que te asignó la ARL.');
+  }
+  return { nombre: r.nombre, contenido: r.contenido, resumen: { cotizantes: r.cotizantes, lineas: r.lineas, totales: r.totales, avisos, periodoOtros: r.periodoOtros, periodoSalud: r.periodoSalud } };
 }
 
 module.exports = {

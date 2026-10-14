@@ -23,6 +23,7 @@ const CuentaBancaria = require('../../tesoreria/models/CuentaBancaria');
 const MovimientoBancario = require('../../tesoreria/models/MovimientoBancario');
 const ConfigNomina = require('../models/ConfigNomina');
 const ContratoLaboral = require('../models/ContratoLaboral');
+const CentroTrabajo = require('../models/CentroTrabajo');
 const AusenciaNomina = require('../models/AusenciaNomina');
 const ConceptoNomina = require('../models/ConceptoNomina');
 const NominaPeriodo = require('../models/NominaPeriodo');
@@ -32,6 +33,7 @@ const { aprovisionarContabilidadBase } = require('../../../core/services/seedSer
 const auditoria = require('../../../core/services/auditoria');
 const { asegurarCuentaContable } = require('../../tesoreria/services/contabilidadBancaria');
 const PL = require('../../../../public/contable/parametrosLaborales');
+const DIVIPOLA = require('../../../../public/contable/divipola');
 const { liquidarEmpleado, resumenPlanilla } = require('../../../../public/contable/liquidacionNomina');
 const AN = require('../../../../public/contable/asientoNomina');
 const PN = require('../../../../public/contable/prestacionesNomina');
@@ -129,6 +131,16 @@ async function guardarConfig(datos, usuario) {
     if (t && !/^\d{3}$/.test(t)) throw new Error('El código del municipio son 3 dígitos (DANE), por ejemplo 001 para Bogotá.');
     cambios.codigoMunicipio = t || null;
   }
+  {
+    // El municipio tiene que existir dentro del departamento (lista oficial DIVIPOLA del DANE).
+    const depto = cambios.codigoDepartamento !== undefined ? cambios.codigoDepartamento : cfg.codigoDepartamento;
+    const mpio = cambios.codigoMunicipio !== undefined ? cambios.codigoMunicipio : cfg.codigoMunicipio;
+    if (cambios.codigoDepartamento && !DIVIPOLA.nombreDepartamento(cambios.codigoDepartamento)) throw new Error(`El código de departamento ${cambios.codigoDepartamento} no existe en la lista del DANE.`);
+    if (mpio && !depto) throw new Error('Elige primero el departamento del municipio.');
+    if ((cambios.codigoMunicipio || cambios.codigoDepartamento) && depto && mpio && !DIVIPOLA.nombreMunicipio(depto, mpio)) {
+      throw new Error(`El municipio ${mpio} no pertenece al departamento ${depto} en la lista del DANE.`);
+    }
+  }
   if (datos.centroTrabajo !== undefined) cambios.centroTrabajo = entero(datos.centroTrabajo, 'El centro de trabajo', { min: 0, max: 999999999 });
   if (datos.semanaLaboral !== undefined) {
     if (![5, 6].includes(Number(datos.semanaLaboral))) throw new Error('La semana laboral es de 5 días (lunes a viernes) o de 6 (con sábado).');
@@ -152,13 +164,15 @@ async function opciones(usuario) {
   const hoy = hoyColombia();
   const anio = Number(hoy.slice(0, 4));
   const P = PL.parametros(anio);
-  const [empleados, bancos, cfg] = await Promise.all([
+  const [empleados, bancos, cfg, centros] = await Promise.all([
     Tercero.findAll({ where: { empresaId, tipo: 'empleado' }, order: [['nombre', 'ASC']] }),
     CuentaBancaria.findAll({ where: { empresaId }, order: [['createdAt', 'ASC']] }),
     obtenerConfigFila(empresaId),
+    CentroTrabajo.findAll({ where: { empresaId }, order: [['codigo', 'ASC']] }),
   ]);
   return {
     config: plano(cfg),
+    centrosTrabajo: centros.map(plano),
     empleados: empleados.map((e) => ({ id: e.id, nombre: e.nombre, identificacion: e.identificacion })),
     cuentasBancarias: bancos.map((b) => ({ id: b.id, banco: b.banco, numero: String(b.numero).slice(-4), tipoCuenta: b.tipoCuenta })),
     parametros: { anio, smmlv: P.smmlv, auxilioTransporte: P.auxilioTransporte, uvt: P.uvt, estimado: P.estimado },
@@ -251,6 +265,7 @@ function normalizarContrato(d, actual) {
     medicinaPrepagada: dinero(v('medicinaPrepagada'), 'La medicina prepagada'),
     aporteVoluntarioPension: dinero(v('aporteVoluntarioPension'), 'El aporte voluntario a pensión'),
     aporteAfc: dinero(v('aporteAfc'), 'El aporte a AFC'),
+    centroTrabajoId: v('centroTrabajoId') || null,
     tipoDocumento: (() => {
       const t = String(v('tipoDocumento') || 'CC').toUpperCase();
       if (!['CC', 'CE', 'TI', 'PA', 'CD', 'SC', 'PE', 'RC'].includes(t)) throw new Error('El tipo de documento no es válido (CC, CE, TI, PA, CD, SC, PE o RC).');
@@ -295,10 +310,89 @@ async function validarSinCruce(empresaId, empleadoId, ingreso, terminacion, excl
   }
 }
 
+// --- Centros de trabajo (ARL) -----------------------------------------------------
+async function validarCentro(empresaId, id) {
+  if (!id) return;
+  const c = await CentroTrabajo.findOne({ where: { id, empresaId } });
+  if (!c) throw new Error('El centro de trabajo no es de tu empresa.');
+  if (!c.activo) throw new Error(`El centro de trabajo ${c.codigo} · ${c.nombre} está inactivo.`);
+}
+
+function leerCentro(d, actual) {
+  const base = actual ? plano(actual) : {};
+  const v = (k) => (d[k] !== undefined ? d[k] : base[k]);
+  const codigo = Number(v('codigo'));
+  if (v('codigo') === undefined || v('codigo') === null || v('codigo') === '' || !Number.isInteger(codigo) || codigo < 0 || codigo > 999999999) {
+    throw new Error('El código del centro de trabajo es un número entero (el que te asignó la ARL).');
+  }
+  const nombre = limpiarTexto(v('nombre'), 100, 'El nombre del centro de trabajo', true);
+  let claseRiesgo = null;
+  if (v('claseRiesgo') !== null && v('claseRiesgo') !== undefined && v('claseRiesgo') !== '') {
+    claseRiesgo = Number(v('claseRiesgo'));
+    if (!Number.isInteger(claseRiesgo) || claseRiesgo < 1 || claseRiesgo > 5) throw new Error('La clase de riesgo del centro es de 1 a 5.');
+  }
+  return { codigo, nombre, claseRiesgo, principal: !!v('principal'), activo: v('activo') === undefined ? true : !!v('activo') };
+}
+
+async function crearCentro(datos, usuario) {
+  const empresaId = usuario.empresaId;
+  const c = leerCentro(datos);
+  const existentes = await CentroTrabajo.findAll({ where: { empresaId } });
+  if (existentes.some((x) => x.codigo === c.codigo)) throw new Error(`Ya tienes un centro de trabajo con el código ${c.codigo}.`);
+  if (!existentes.length) c.principal = true;
+  const creado = await sequelize.transaction(async (transaction) => {
+    if (c.principal) await CentroTrabajo.update({ principal: false }, { where: { empresaId }, transaction });
+    return CentroTrabajo.create({ id: uuidv4(), empresaId, ...c }, { transaction });
+  });
+  await auditoria.registrar({ empresaId, usuarioId: usuario.id, accion: 'nomina_centro_creado', entidad: 'CentroTrabajo', entidadId: creado.id, detalle: `${c.codigo} ${c.nombre}`.slice(0, 250) });
+  return plano(creado);
+}
+
+async function actualizarCentro(id, datos, usuario) {
+  const empresaId = usuario.empresaId;
+  const actual = await CentroTrabajo.findOne({ where: { id, empresaId } });
+  if (!actual) throw new Error('Centro de trabajo no encontrado.');
+  const c = leerCentro(datos, actual);
+  const otros = await CentroTrabajo.findAll({ where: { empresaId, id: { [Op.ne]: id } } });
+  if (otros.some((x) => x.codigo === c.codigo)) throw new Error(`Ya tienes un centro de trabajo con el código ${c.codigo}.`);
+  if (actual.principal && !c.principal) throw new Error('Siempre debe haber un centro principal: marca como principal a otro centro y este se desmarca solo.');
+  if (actual.principal && !c.activo) throw new Error('El centro principal no se puede desactivar: primero marca otro como principal.');
+  await sequelize.transaction(async (transaction) => {
+    if (c.principal && !actual.principal) await CentroTrabajo.update({ principal: false }, { where: { empresaId }, transaction });
+    await actual.update(c, { transaction });
+  });
+  await auditoria.registrar({ empresaId, usuarioId: usuario.id, accion: 'nomina_centro_actualizado', entidad: 'CentroTrabajo', entidadId: actual.id, detalle: `${c.codigo} ${c.nombre}`.slice(0, 250) });
+  return plano(actual);
+}
+
+async function eliminarCentro(id, usuario) {
+  const empresaId = usuario.empresaId;
+  const actual = await CentroTrabajo.findOne({ where: { id, empresaId } });
+  if (!actual) throw new Error('Centro de trabajo no encontrado.');
+  if (actual.principal) {
+    const otros = await CentroTrabajo.count({ where: { empresaId, id: { [Op.ne]: id } } });
+    if (otros) throw new Error('Es el centro principal: marca otro como principal antes de eliminarlo.');
+  }
+  const usado = await ContratoLaboral.count({ where: { empresaId, centroTrabajoId: id } });
+  if (usado) throw new Error(`Hay ${usado} contrato(s) con este centro de trabajo. Cámbiales el centro o desactívalo en vez de eliminarlo.`);
+  await actual.destroy();
+  await auditoria.registrar({ empresaId, usuarioId: usuario.id, accion: 'nomina_centro_eliminado', entidad: 'CentroTrabajo', entidadId: id, detalle: `${actual.codigo} ${actual.nombre}`.slice(0, 250) });
+  return { ok: true };
+}
+
+async function listarCentros(usuario) {
+  const lista = await CentroTrabajo.findAll({ where: { empresaId: usuario.empresaId }, order: [['codigo', 'ASC']] });
+  const usos = await ContratoLaboral.findAll({ where: { empresaId: usuario.empresaId, centroTrabajoId: { [Op.ne]: null } }, attributes: ['centroTrabajoId'] });
+  const cuenta = {};
+  for (const x of usos) cuenta[x.centroTrabajoId] = (cuenta[x.centroTrabajoId] || 0) + 1;
+  return lista.map((c) => Object.assign(plano(c), { contratos: cuenta[c.id] || 0 }));
+}
+
 async function crearContrato(datos, usuario) {
   const empresaId = usuario.empresaId;
   const empleadoExistente = datos.empleadoId || null;
   const contrato = normalizarContrato(datos);
+  await validarCentro(empresaId, contrato.centroTrabajoId);
 
   // Todas las validaciones (lecturas) antes de abrir la transacción.
   let nuevo = null;
@@ -342,6 +436,7 @@ async function actualizarContrato(id, datos, usuario) {
   const actual = await ContratoLaboral.findOne({ where: { id, empresaId } });
   if (!actual) throw new Error('Contrato no encontrado.');
   const cambios = normalizarContrato(datos, actual);
+  if (cambios.centroTrabajoId !== (actual.centroTrabajoId || null)) await validarCentro(empresaId, cambios.centroTrabajoId);
 
   const cerrados = await NominaPeriodo.findAll({ where: { empresaId, estado: { [Op.in]: ['contabilizada', 'pagada'] } }, attributes: ['id'] });
   const usado = cerrados.length
@@ -1033,6 +1128,7 @@ module.exports = {
   listarPeriodos, crearPeriodo, preliquidar, detallePeriodo, detalleLiquidacion,
   contabilizarPeriodo, reabrirPeriodo, registrarPago,
   provisionesAcumuladas, planillaAportes, planillaCsv,
+  listarCentros, crearCentro, actualizarCentro, eliminarCentro,
   // Ayudas que usa prestaciones.service.js
   _interno: {
     armarEntrada, obtenerConfigFila, fechaValida, hoyColombia, limpiarTexto, dinero, entero, mesTexto, plano, empleadosDe,

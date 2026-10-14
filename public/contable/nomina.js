@@ -426,6 +426,15 @@
     medicinaPrepagada: 0, aporteVoluntarioPension: 0, aporteAfc: 0, vacacionesDiasPrevios: 0, tipoDocumento: 'CC',
   };
 
+  // Centros de trabajo para elegir en un contrato: los activos (y el que ya tiene el contrato, aunque se haya desactivado).
+  function opcionesCentros(elegido) {
+    const centros = (nom.opciones.centrosTrabajo || []).filter((x) => x.activo || x.id === elegido);
+    const principal = centros.find((x) => x.principal);
+    const etq = (x) => `${x.codigo} · ${x.nombre}${x.activo ? '' : ' (inactivo)'}`;
+    const primera = `<option value=""${elegido ? '' : ' selected'}>${principal ? `Principal por defecto — ${esc(etq(principal))}` : 'Sin centros creados (Configuración)'}</option>`;
+    return primera + centros.map((x) => `<option value="${esc(x.id)}"${x.id === elegido ? ' selected' : ''}>${esc(etq(x))}${x.principal ? ' · principal' : ''}</option>`).join('');
+  }
+
   function formularioContrato(c, esNuevo) {
     const o = nom.opciones;
     const areas = Object.entries(o.areas);
@@ -454,6 +463,7 @@
           ${campo('El auxilio es de…', `<select id="nc-tipo-aux">${opcionesSelect([['transporte', 'Transporte (trabajo presencial)'], ['conectividad', 'Conectividad (trabajo remoto)']], c.tipoAuxilio)}</select>`)}
         </div>
         <div class="fx-bloque"><h4>Riesgo y gasto</h4>
+          ${campo('Centro de trabajo (ARL)', `<select id="nc-centro">${opcionesCentros(c.centroTrabajoId)}</select>`)}
           ${campo('Clase de riesgo (ARL)', `<select id="nc-riesgo">${opcionesSelect(riesgos, c.claseRiesgo)}</select>`)}
           ${campo('Área donde va el gasto', `<select id="nc-area">${opcionesSelect(areas, c.areaGasto)}</select>`)}
           ${campo('Horas por semana (solo si no es la jornada máxima)', `<input type="number" id="nc-horas" min="1" max="48" step="1" value="${c.horasSemanales || ''}">`)}
@@ -497,7 +507,7 @@
       vacacionesDiasPrevios: num('nc-vac-previos'),
       retencionFuente: v('nc-retencion'), retencionManual: num('nc-ret-manual'), dependientes: num('nc-dependientes'),
       interesesVivienda: num('nc-vivienda'), medicinaPrepagada: num('nc-prepagada'), aporteVoluntarioPension: num('nc-voluntario'), aporteAfc: num('nc-afc'),
-      tipoDocumento: v('nc-tipodoc') || 'CC', epsNombre: v('nc-eps'), epsCodigo: v('nc-eps-cod'), afpNombre: v('nc-afp'), afpCodigo: v('nc-afp-cod'),
+      centroTrabajoId: v('nc-centro') || null, tipoDocumento: v('nc-tipodoc') || 'CC', epsNombre: v('nc-eps'), epsCodigo: v('nc-eps-cod'), afpNombre: v('nc-afp'), afpCodigo: v('nc-afp-cod'),
       fondoCesantiasNombre: v('nc-ces'), fondoCesantiasCodigo: v('nc-ces-cod'), observaciones: v('nc-obs'),
     };
     if (!esNuevo) c.fechaTerminacion = v('nc-terminacion') || null;
@@ -538,8 +548,17 @@
       if ($('nc-empleado')) $('nc-nuevo-empleado').hidden = !!$('nc-empleado').value;
       simularContrato();
     };
+    // Al elegir un centro que tiene clase de riesgo, se propone esa clase en el contrato.
+    const aplicarRiesgoDelCentro = () => {
+      const centros = nom.opciones.centrosTrabajo || [];
+      const elegido = centros.find((x) => x.id === v('nc-centro')) || centros.find((x) => x.principal);
+      if (elegido && elegido.claseRiesgo && $('nc-riesgo')) $('nc-riesgo').value = String(elegido.claseRiesgo);
+    };
     cuerpo.oninput = alCambiar;
-    cuerpo.onchange = alCambiar;
+    cuerpo.onchange = (e) => {
+      if (e.target && e.target.id === 'nc-centro') aplicarRiesgoDelCentro();
+      alCambiar();
+    };
     alCambiar();
   }
 
@@ -886,9 +905,7 @@
           ${campo('Código ARL (PILA)', `<input type="text" id="cf-arl-cod" maxlength="20" value="${esc(c.arlCodigo || '')}"${dis}>`)}
           ${campo('Caja de compensación', `<input type="text" id="cf-ccf" maxlength="100" value="${esc(c.ccfNombre || '')}"${dis} placeholder="Ej.: Compensar">`)}
           ${campo('Código caja (PILA)', `<input type="text" id="cf-ccf-cod" maxlength="20" value="${esc(c.ccfCodigo || '')}"${dis}>`)}
-          ${campo('Departamento: código DANE (2 dígitos)', `<input type="text" id="cf-depto" maxlength="2" inputmode="numeric" value="${esc(c.codigoDepartamento || '')}"${dis} placeholder="Ej.: 11 (Bogotá)">`)}
-          ${campo('Municipio: código DANE (3 dígitos)', `<input type="text" id="cf-mpio" maxlength="3" inputmode="numeric" value="${esc(c.codigoMunicipio || '')}"${dis} placeholder="Ej.: 001 (Bogotá)">`)}
-          ${campo('Centro de trabajo de la ARL', `<input type="number" id="cf-ct" min="0" step="1" value="${c.centroTrabajo || 0}"${dis}>`)}
+          ${window.SelectorLugar.html('cf', { depto: c.codigoDepartamento, mpio: c.codigoMunicipio, deshabilitado: !editar })}
           ${campo('Operador de PILA', `<input type="text" id="cf-operador" maxlength="100" value="${esc(c.operadorPila || '')}"${dis} placeholder="Ej.: Aportes en Línea, SOI, Mi Planilla">`)}
         </div>
         <div class="fx-bloque"><h4>Cómo se liquida</h4>
@@ -906,6 +923,7 @@
           <p class="nota-aiu">Vienen del sistema (no se digitan). Cada enero hay que actualizarlos junto con el contador.</p>
         </div>
       </form>
+      <div id="cf-centros"></div>
       <details class="nom-detalles"><summary>Supuestos legales que usa la liquidación (revísalos con tu contador)</summary>
         <ul class="nom-lista">
           <li>Mes comercial de 30 días. El auxilio de transporte aplica a quien devenga hasta 2 SMMLV y solo por días trabajados (no en vacaciones, incapacidad ni licencias).</li>
@@ -923,19 +941,27 @@
           <li>El pago de prestaciones se registra contra la provisión del libro de cada empleado: lo que falte va al gasto y, si se liquida todo y sobró, se libera.</li>
           <li>El cambio de salario a mitad de mes no está soportado: aplica a todo el mes. Un empleado con dos contratos en el mismo mes tampoco.</li>
         </ul></details>`;
+    window.SelectorLugar.montar('cf');
+    cargarCentros();
     const form = $('nom-form-config');
     if (editar) {
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const err = $('cf-error');
         err.hidden = true;
+        const lugar = window.SelectorLugar.leer('cf');
+        if (lugar.error) {
+          err.textContent = lugar.error;
+          err.hidden = false;
+          return;
+        }
         try {
           nom.opciones.config = await api('/nomina/config', {
             method: 'PUT',
             body: JSON.stringify({
               arlNombre: v('cf-arl'), arlCodigo: v('cf-arl-cod'), ccfNombre: v('cf-ccf'), ccfCodigo: v('cf-ccf-cod'),
               operadorPila: v('cf-operador'), exoneraArt114: $('cf-exonera').checked, areaGastoPorDefecto: v('cf-area'), semanaLaboral: Number(v('cf-semana')),
-              codigoDepartamento: v('cf-depto'), codigoMunicipio: v('cf-mpio'), centroTrabajo: num('cf-ct'),
+              codigoDepartamento: lugar.depto, codigoMunicipio: lugar.mpio,
             }),
           });
           alert('Configuración guardada.');
@@ -945,6 +971,65 @@
         }
       });
     }
+  }
+
+  // --- Centros de trabajo (ARL) ---------------------------------------------------
+  async function cargarCentros() {
+    try {
+      nom.centros = await api('/nomina/centros-trabajo');
+      nom.opciones.centrosTrabajo = nom.centros;
+    } catch (err) {
+      nom.centros = nom.opciones.centrosTrabajo || [];
+    }
+    renderCentros();
+  }
+
+  function renderCentros() {
+    const caja = $('cf-centros');
+    if (!caja) return;
+    const editar = puedeEditar();
+    const lista = nom.centros || [];
+    let html = `<div class="fx-titulo-con-accion nom-titulo-sep"><h4>Centros de trabajo (ARL)</h4>${editar ? boton('+ Agregar centro', 'nuevo-centro', {}, 'btn-primario btn-chico') : ''}</div>
+      <p class="nota-aiu">La ARL asigna un código a cada centro de trabajo. Si la empresa tiene varias líneas de negocio o sedes con distinta clase de riesgo, crea un centro por cada una y elige el que corresponde en el contrato de cada empleado. Ese código es el que va en la planilla PILA. Los contratos sin centro usan el principal.</p>`;
+    if (!lista.length) {
+      html += '<p class="vacio">Aún no hay centros de trabajo. Agrega el que te dio la ARL (normalmente el código es 1 o 0).</p>';
+    } else {
+      html += `<div class="tabla-envoltorio"><table><thead><tr><th>Código ARL</th><th>Nombre o línea de negocio</th><th>Clase de riesgo</th><th class="num">Contratos</th><th>Estado</th><th></th></tr></thead><tbody>
+        ${lista.map((x) => `<tr><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}${x.principal ? ' <span class="badge pagada">Principal</span>' : ''}</td>
+          <td>${x.claseRiesgo ? esc((nom.opciones.clasesRiesgo || {})[x.claseRiesgo] || x.claseRiesgo) : '<span class="texto-suave">—</span>'}</td>
+          <td class="num">${x.contratos || 0}</td><td>${x.activo ? 'Activo' : '<span class="texto-suave">Inactivo</span>'}</td>
+          <td class="acciones">${editar ? boton('Editar', 'editar-centro', { id: x.id }) + ' ' + boton('Eliminar', 'eliminar-centro', { id: x.id }, 'btn-accion destructivo') : ''}</td></tr>`).join('')}
+        </tbody></table></div>`;
+    }
+    caja.innerHTML = html;
+  }
+
+  function dialogoCentro(x) {
+    const esNuevo = !x;
+    const d = x || { codigo: '', nombre: '', claseRiesgo: null, principal: !(nom.centros || []).length, activo: true };
+    const riesgos = [['', '— Sin definir —']].concat(Object.entries(nom.opciones.clasesRiesgo || {}));
+    abrirDialogo({
+      titulo: esNuevo ? 'Nuevo centro de trabajo' : `Centro de trabajo ${x.codigo}`,
+      ancho: true,
+      cuerpo: `<div class="fila-campos">${campo('Código que asignó la ARL', `<input type="number" id="ct-codigo" min="0" max="999999999" step="1" value="${esc(d.codigo)}">`)}
+          ${campo('Nombre o línea de negocio', `<input type="text" id="ct-nombre" maxlength="100" value="${esc(d.nombre)}" placeholder="Ej.: Taller, Sede Medellín, Obra norte">`)}</div>
+        <div class="fila-campos">${campo('Clase de riesgo (opcional)', `<select id="ct-riesgo">${opcionesSelect(riesgos, d.claseRiesgo || '')}</select>`)}</div>
+        <label class="check-linea"><input type="checkbox" id="ct-principal"${d.principal ? ' checked' : ''}${d.principal && !esNuevo ? ' disabled' : ''}> <span>Centro principal (lo usan los contratos que no eligen uno). Solo puede haber uno.</span></label>
+        ${esNuevo ? '' : `<label class="check-linea"><input type="checkbox" id="ct-activo"${d.activo ? ' checked' : ''}${d.principal ? ' disabled' : ''}> <span>Activo (si se desactiva, ya no se puede elegir en contratos nuevos)</span></label>`}
+        <p class="nota-aiu">La clase de riesgo solo sirve de sugerencia: al elegir este centro en un contrato se propone esa clase. La tarifa de ARL sale de la clase del contrato.</p>`,
+      guardar: {
+        texto: esNuevo ? 'Crear centro' : 'Guardar cambios',
+        fn: async () => {
+          const cuerpo = {
+            codigo: v('ct-codigo'), nombre: v('ct-nombre'), claseRiesgo: v('ct-riesgo') || null, principal: $('ct-principal').checked,
+          };
+          if (!esNuevo) cuerpo.activo = $('ct-activo').checked;
+          if (esNuevo) await api('/nomina/centros-trabajo', { method: 'POST', body: JSON.stringify(cuerpo) });
+          else await api(`/nomina/centros-trabajo/${x.id}`, { method: 'PATCH', body: JSON.stringify(cuerpo) });
+          await cargarCentros();
+        },
+      },
+    });
   }
 
   // ===================================================================================
@@ -984,6 +1069,13 @@
       case 'ir-planilla':
         nom.planillaPeriodoId = id;
         return mostrarSub('planilla');
+      case 'nuevo-centro': return dialogoCentro(null);
+      case 'editar-centro': return dialogoCentro((nom.centros || []).find((x) => x.id === id));
+      case 'eliminar-centro':
+        if (confirm('¿Eliminar este centro de trabajo? Si tiene contratos, desactívalo en vez de eliminarlo.')) {
+          try { await api(`/nomina/centros-trabajo/${id}`, { method: 'DELETE' }); await cargarCentros(); } catch (err) { mostrarError(err); }
+        }
+        return;
       case 'nuevo-contrato': return dialogoContrato(null);
       case 'editar-contrato': return dialogoContrato(nom.contratos.find((c) => c.id === id));
       case 'nueva-ausencia': return dialogoAusencia();

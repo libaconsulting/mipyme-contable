@@ -15,6 +15,12 @@ router.get('/opciones', puedeVer, c.opciones);
 router.get('/config', puedeVer, c.obtenerConfig);
 router.put('/config', puedeModificar, c.guardarConfig);
 
+// Centros de trabajo de la ARL (varios por empresa)
+router.get('/centros-trabajo', puedeVer, c.listarCentros);
+router.post('/centros-trabajo', puedeModificar, c.crearCentro);
+router.patch('/centros-trabajo/:id', puedeModificar, c.actualizarCentro);
+router.delete('/centros-trabajo/:id', puedeModificar, c.eliminarCentro);
+
 // Contratos
 router.get('/contratos', puedeVer, c.listarContratos);
 router.post('/contratos', puedeModificar, c.crearContrato);

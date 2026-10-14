@@ -225,3 +225,23 @@ test('Línea de un empleado sin novedades: IBC mensual con ceros a la izquierda 
   assert.equal(en(r.registros[0], 37, 56).trim(), 'MARTINEZ');
   assert.equal(en(r.registros[0], 57, 86).trim(), 'DE LA TORRE QUINTERO'.slice(0, 30));
 });
+
+test('Centro de trabajo por empleado: cada línea lleva el del contrato; sin centro se usa el de la configuración', () => {
+  const L1 = liquidar({ salarioBase: SMMLV });
+  const L2 = liquidar({ salarioBase: 3000000 });
+  const L3 = liquidar({ salarioBase: 2500000 });
+  const r = armar([
+    empleado('Ana Pérez Gómez', '1020304050', L1, { salarioBase: SMMLV, centroTrabajo: 7 }),
+    empleado('Luis Mora Cano', '80123123', L2, { salarioBase: 3000000, centroTrabajo: 123456789 }),
+    empleado('Rosa Díaz Roa', '52111222', L3, { salarioBase: 2500000 }),
+  ]);
+  assert.equal(en(r.registros[0], 390, 398), '000000007');
+  assert.equal(en(r.registros[1], 390, 398), '123456789');
+  assert.equal(en(r.registros[2], 390, 398), '000000001'); // el de BASE.config
+});
+
+test('Centro de trabajo no numérico o demasiado largo: se avisa en los datos que faltan', () => {
+  const L = liquidar({});
+  assert.throws(() => armar([empleado('Ana Pérez Gómez', '1020304050', L, { salarioBase: SMMLV, centroTrabajo: 'A1' })]), /centro de trabajo/);
+  assert.throws(() => armar([empleado('Ana Pérez Gómez', '1020304050', L, { salarioBase: SMMLV, centroTrabajo: 1234567890 })]), /centro de trabajo/);
+});

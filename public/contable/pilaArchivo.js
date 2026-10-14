@@ -262,7 +262,7 @@
       salarioBasico: e.salarioBase,
       salarioIntegral: e.tipoSalario === 'integral' ? 'X' : '',
       tarifaPension: tarifa.pension, tarifaSalud: tarifa.salud, tarifaArl: tarifa.arl,
-      centroTrabajo: ctx.centroTrabajo,
+      centroTrabajo: e.centroTrabajo != null && e.centroTrabajo !== '' ? Number(e.centroTrabajo) : ctx.centroTrabajo,
       tarifaCcf: tarifa.ccf, tarifaSena: tarifa.sena, tarifaIcbf: tarifa.icbf, tarifaEsap: 0, tarifaMen: 0,
       exonerado: exonerado ? 'S' : 'N',
       codigoArl: limpiarCodigo(ctx.arlCodigo),
@@ -322,6 +322,7 @@
       else if (limpiarCodigo(e.epsCodigo).length > 6) f.push(`${quien}: el código de la EPS admite máximo 6 caracteres.`);
       if (!limpiarCodigo(e.afpCodigo)) f.push(`${quien}: falta el código del fondo de pensiones en su contrato.`);
       else if (limpiarCodigo(e.afpCodigo).length > 6) f.push(`${quien}: el código del fondo de pensiones admite máximo 6 caracteres.`);
+      if (e.centroTrabajo != null && e.centroTrabajo !== '' && !/^\d{1,9}$/.test(String(e.centroTrabajo))) f.push(`${quien}: el código del centro de trabajo debe ser numérico de máximo 9 dígitos.`);
     }
     return f;
   }
@@ -330,7 +331,7 @@
   // entrada: {
   //   aportante: { razonSocial, nit }, periodo: { anio, mes },
   //   config: { arlCodigo, ccfCodigo, codigoDepartamento, codigoMunicipio, centroTrabajo },
-  //   empleados: [{ nombre, identificacion, tipoDocumento?, epsCodigo, afpCodigo, salarioBase, tipoSalario, contrato?, liquidacion }],
+  //   empleados: [{ nombre, identificacion, tipoDocumento?, centroTrabajo? (código ARL; si falta se usa config.centroTrabajo), epsCodigo, afpCodigo, salarioBase, tipoSalario, contrato?, liquidacion }],
   //   opciones: { periodoSalud: 'siguiente' (por defecto, según el anexo) | 'mismo' }
   // }
   function construirArchivo(entrada) {

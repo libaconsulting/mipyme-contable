@@ -21,6 +21,11 @@ module.exports = {
   obtenerConfig: accion((req) => nominaService.obtenerConfig(u(req))),
   guardarConfig: accion((req) => nominaService.guardarConfig(req.body, u(req))),
 
+  listarCentros: accion((req) => nominaService.listarCentros(u(req))),
+  crearCentro: accion((req) => nominaService.crearCentro(req.body, u(req)), 201),
+  actualizarCentro: accion((req) => nominaService.actualizarCentro(req.params.id, req.body, u(req))),
+  eliminarCentro: accion((req) => nominaService.eliminarCentro(req.params.id, u(req))),
+
   listarContratos: accion((req) => nominaService.listarContratos(u(req))),
   crearContrato: accion((req) => nominaService.crearContrato(req.body, u(req)), 201),
   actualizarContrato: accion((req) => nominaService.actualizarContrato(req.params.id, req.body, u(req))),
