@@ -864,6 +864,8 @@ async function asegurarReglasNomina(empresaId, transaction) {
     { evento: 'nomina_pago', debito: '2505', credito: '1110' },
     { evento: 'nomina_prestaciones', debito: '2520', credito: '1110' },
     { evento: 'nomina_planilla_pago', debito: '237005', credito: '1110' },
+    { evento: 'nomina_aportes_contratistas', debito: '2335', credito: '237005' },
+    { evento: 'nomina_aportes_contratistas_pago', debito: '237005', credito: '1110' },
   ];
   const cuentas = await cuentasPorCodigo(empresaId, reglas.flatMap((r) => [r.debito, r.credito]), transaction);
   for (const r of reglas) {

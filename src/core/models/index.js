@@ -34,6 +34,8 @@ const NominaPrestacion = require('../../modules/nomina/models/NominaPrestacion')
 const NominaPrestacionLinea = require('../../modules/nomina/models/NominaPrestacionLinea');
 const NominaPlanillaPago = require('../../modules/nomina/models/NominaPlanillaPago');
 const CentroTrabajo = require('../../modules/nomina/models/CentroTrabajo');
+const ContratoContratista = require('../../modules/nomina/models/ContratoContratista');
+const AportesContratistas = require('../../modules/nomina/models/AportesContratistas');
 const Producto = require('../../modules/inventarios/models/Producto');
 const KardexMovimiento = require('../../modules/inventarios/models/KardexMovimiento');
 const ActivoFijo = require('../../modules/activosFijos/models/ActivoFijo');
@@ -69,6 +71,8 @@ module.exports = {
   NominaPrestacionLinea,
   NominaPlanillaPago,
   CentroTrabajo,
+  ContratoContratista,
+  AportesContratistas,
   Producto,
   KardexMovimiento,
   ActivoFijo,

@@ -75,3 +75,20 @@ router.post('/prestaciones/:id/anular', puedeModificar, c.anularPrestacion);
 router.delete('/prestaciones/:id', puedeModificar, c.eliminarPrestacion);
 
 module.exports = router;
+
+// Aportes de contratistas independientes (planilla Y de la PILA)
+router.get('/contratistas/opciones', puedeVer, c.contratistasOpciones);
+router.get('/contratistas/contratos', puedeVer, c.listarContratosContratistas);
+router.post('/contratistas/contratos', puedeModificar, c.crearContratoContratista);
+router.patch('/contratistas/contratos/:id', puedeModificar, c.actualizarContratoContratista);
+router.delete('/contratistas/contratos/:id', puedeModificar, c.eliminarContratoContratista);
+router.get('/contratistas/aportes', puedeVer, c.listarAportesContratistas);
+router.post('/contratistas/aportes', puedeModificar, c.crearAportesContratistas);
+router.get('/contratistas/aportes/:id', puedeVer, c.obtenerAportesContratistas);
+router.post('/contratistas/aportes/:id/recalcular', puedeModificar, c.recalcularAportesContratistas);
+router.delete('/contratistas/aportes/:id', puedeModificar, c.eliminarAportesContratistas);
+router.post('/contratistas/aportes/:id/contabilizar', puedeModificar, c.contabilizarAportesContratistas);
+router.post('/contratistas/aportes/:id/reabrir', puedeModificar, c.reabrirAportesContratistas);
+router.post('/contratistas/aportes/:id/pago', puedeModificar, c.pagarAportesContratistas);
+router.post('/contratistas/aportes/:id/anular-pago', puedeModificar, c.anularPagoAportesContratistas);
+router.get('/contratistas/aportes/:id/cargue.csv', puedeVer, c.cargueAportesContratistas);

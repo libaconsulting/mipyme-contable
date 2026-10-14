@@ -1,6 +1,7 @@
 const { mensajeError } = require('../../../core/utils/mensajeError');
 const nominaService = require('../services/nomina.service');
 const prestaciones = require('../services/prestaciones.service');
+const contratistas = require('../services/contratistas.service');
 
 // Cada acción: llama al servicio con (req.body / params / query, req.usuario) y responde JSON.
 function accion(fn, estado) {
@@ -25,6 +26,33 @@ module.exports = {
   crearCentro: accion((req) => nominaService.crearCentro(req.body, u(req)), 201),
   actualizarCentro: accion((req) => nominaService.actualizarCentro(req.params.id, req.body, u(req))),
   eliminarCentro: accion((req) => nominaService.eliminarCentro(req.params.id, u(req))),
+
+  // Aportes de contratistas (planilla Y)
+  contratistasOpciones: accion((req) => contratistas.opciones(u(req))),
+  listarContratosContratistas: accion((req) => contratistas.listarContratos(u(req))),
+  crearContratoContratista: accion((req) => contratistas.crearContrato(req.body, u(req)), 201),
+  actualizarContratoContratista: accion((req) => contratistas.actualizarContrato(req.params.id, req.body, u(req))),
+  eliminarContratoContratista: accion((req) => contratistas.eliminarContrato(req.params.id, u(req))),
+  listarAportesContratistas: accion((req) => contratistas.listarPeriodos(u(req))),
+  crearAportesContratistas: accion((req) => contratistas.crearPeriodo(req.body, u(req)), 201),
+  obtenerAportesContratistas: accion((req) => contratistas.detalle(req.params.id, u(req))),
+  recalcularAportesContratistas: accion((req) => contratistas.recalcular(req.params.id, u(req))),
+  eliminarAportesContratistas: accion((req) => contratistas.eliminar(req.params.id, u(req))),
+  contabilizarAportesContratistas: accion((req) => contratistas.contabilizar(req.params.id, u(req))),
+  reabrirAportesContratistas: accion((req) => contratistas.reabrir(req.params.id, req.body, u(req))),
+  pagarAportesContratistas: accion((req) => contratistas.pagar(req.params.id, req.body, u(req))),
+  anularPagoAportesContratistas: accion((req) => contratistas.anularPago(req.params.id, req.body, u(req))),
+
+  async cargueAportesContratistas(req, res) {
+    try {
+      const { nombre, contenido } = await contratistas.cargueCsv(req.params.id, u(req));
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+      res.send(contenido);
+    } catch (error) {
+      res.status(400).json({ error: mensajeError(error) });
+    }
+  },
 
   listarContratos: accion((req) => nominaService.listarContratos(u(req))),
   crearContrato: accion((req) => nominaService.crearContrato(req.body, u(req)), 201),

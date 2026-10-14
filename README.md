@@ -419,7 +419,7 @@ Hay un único documento vigente por (tipo, año, semestre). Comprobante imprimib
 `asientoNomina.js` (`armarAsientoPrestaciones`, `armarAsientoPagoPlanilla`), servicio `src/modules/nomina/services/prestaciones.service.js`,
 pantallas `public/contable/nominaPrestaciones.js`. Tablas nuevas: `nomina_prestaciones`, `nomina_prestacion_lineas`, `nomina_planilla_pagos`;
 columnas nuevas: `nomina_contratos.vacaciones_dias_previos` y `tipo_documento`, `nomina_config.semana_laboral`, `codigo_departamento`, `codigo_municipio` y `centro_trabajo`.
-**Base de datos en producción:** el servidor solo hace `sync` cuando `NODE_ENV=development`, así que en producción las tablas y columnas nuevas hay que crearlas a mano en Supabase con el SQL de cada entrega (`sql-nomina-fase2.sql`, `sql-centros-trabajo.sql`); usan `IF NOT EXISTS` y se pueden correr más de una vez.
+**Base de datos en producción:** el servidor solo hace `sync` cuando `NODE_ENV=development`, así que en producción las tablas y columnas nuevas hay que crearlas a mano en Supabase con el SQL de cada entrega (`sql-nomina-fase2.sql`, `sql-centros-trabajo.sql`, `sql-contratistas-planilla-y.sql`); usan `IF NOT EXISTS` y se pueden correr más de una vez.
 
 **Reglas aplicadas:**
 - Año de 360 días. **Prima:** 30 días por año (semestres 1-ene a 30-jun y 1-jul a 31-dic). **Cesantías:** un mes por año. **Intereses:** cesantías × días × 12 % ÷ 360.
@@ -454,6 +454,19 @@ Código en `public/contable/pilaArchivo.js` (pruebas `tests/pilaArchivo.test.js`
 **Departamento y municipio, y centros de trabajo (Nómina → Configuración):**
 - El departamento y el municipio se escogen de una lista con búsqueda por nombre (sin tildes ni mayúsculas; flechas y Enter funcionan). Se guarda solo el código DANE. La lista oficial DIVIPOLA (33 departamentos, 1.122 municipios) está en `public/contable/divipola.js` y el selector en `public/contable/selectorLugar.js` (reutilizable en otras pantallas). El servidor valida que el municipio pertenezca al departamento.
 - **Centros de trabajo (ARL):** una empresa puede tener varios (por línea de negocio o sede). Cada uno tiene el código que asigna la ARL, un nombre, una clase de riesgo opcional (sugerencia al elegirlo en un contrato), principal y activo. El primero es principal automáticamente; solo hay un principal; no se elimina uno que tenga contratos (se desactiva) ni el principal mientras haya otros. API: `GET/POST /api/nomina/centros-trabajo`, `PATCH/DELETE /api/nomina/centros-trabajo/:id`. Tabla `nomina_centros_trabajo` y columna `nomina_contratos.centro_trabajo_id` (ver `sql-centros-trabajo.sql`).
+
+### Nómina · contratistas independientes (planilla Y)
+
+Subpestaña **Nómina → Contratistas (planilla Y)**. Para los contratistas de prestación de servicios con quienes se acordó que la empresa pague sus aportes a seguridad social (planilla Y, cotizante 59, aportante 15; Resolución 467 de 2025 del Ministerio de Salud). La empresa los paga por su operador (p. ej. Asopagos); aquí se calculan, se contabilizan y se registra el pago. Siigo sigue emitiendo factura o documento soporte.
+
+- **Contratos** (`nomina_contratistas`): contratista (tercero proveedor; se crea con cédula y nombre o se elige uno existente), fechas, **valor mensualizado sin IVA**, clase de riesgo, área del gasto (ARL que asume la empresa), cuenta por pagar (2335 documento soporte o 2205 factura) y entidades (EPS/AFP con código).
+- **Cálculo mensual** (`public/contable/aportesContratistas.js`, función pura): IBC = 40 % del valor **mensualizado** (no de lo pagado en el mes), con mínimo 1 SMMLV y máximo 25 SMMLV, proporcionales a los días si el contrato empieza o termina en el mes (mes comercial de 30 días); varios contratos del mismo contratista se suman y rige la clase de riesgo más alta. Salud 12,5 %, pensión 16 %, fondo de solidaridad desde 4 SMMLV, ARL por clase; cada aporte se aproxima al múltiplo de 100. **ARL clases I a III: se descuenta al contratista; clases IV y V: la asume la empresa.**
+- **Contabilización (fin de mes):** Db 2335/2205 (con el contratista) por lo que se le descuenta; Db 5105xx68/5205xx68 por la ARL que asume la empresa; Cr 237005 salud, Cr 238030 pensión y solidaridad (igual que la nómina), Cr 237006 ARL. Reglas `nomina_aportes_contratistas` y `nomina_aportes_contratistas_pago`.
+- **Pago de la planilla (mes vencido):** Db 237005/238030/237006 (con el contratista), Db 530520 si hubo mora, Cr banco o caja; deja un egreso pendiente de conciliar. Se puede reabrir un mes contabilizado (motivo ≥ 10 caracteres) o anular el pago.
+- **CSV de cargue** (`planilla-y-cargue-AAAA-MM.csv`) para digitar en el operador, con novedad RET-T cuando el contrato termina en el mes.
+- API bajo `/api/nomina/contratistas/` (`opciones`, `contratos`, `aportes`, `aportes/:id/recalcular|contabilizar|reabrir|pago|anular-pago|cargue.csv`). Ver: contador, dueño y revisor; modificar: contador y dueño. Tablas `nomina_contratistas` y `nomina_aportes_contratistas` (ver `sql-contratistas-planilla-y.sql`).
+- **A validar con el contador:** que la pensión use 238030 (como la nómina) y no una subcuenta de 2370; que el descuento se cause a fin de mes contra la cuenta por pagar del contratista; el pago neto al contratista se hace aparte (la app aún no cruza pagos a proveedores).
+- **Pendiente:** archivo plano de la planilla Y (anexo de la Resolución 467), caja de compensación voluntaria, novedades RET-T/ING en el plano y reintegro del contratista a la planilla I.
 
 **Supuestos de la fase 2 a validar con el contador:**
 - Prima y cesantías con la base descrita (último salario si no hubo cambios); intereses pagados antes del 31 de enero (después, la ley obliga a pagar el doble: solo hay aviso).
