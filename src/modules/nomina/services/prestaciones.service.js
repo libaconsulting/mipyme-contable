@@ -39,6 +39,7 @@ const PL = require('../../../../public/contable/parametrosLaborales');
 const { liquidarEmpleado, aMultiplo100 } = require('../../../../public/contable/liquidacionNomina');
 const AN = require('../../../../public/contable/asientoNomina');
 const PN = require('../../../../public/contable/prestacionesNomina');
+const PILA = require('../../../../public/contable/pilaArchivo');
 const nominaService = require('./nomina.service');
 
 const {
@@ -1036,7 +1037,41 @@ async function planillaCargueCsv(periodoId, usuario) {
   return { nombre: `pila-cargue-${mesTexto(periodo.anio, periodo.mes)}.csv`, contenido: '﻿' + texto };
 }
 
+// Archivo plano de la PILA (archivo tipo 2 del Anexo Técnico 2): encabezado + un registro por cotizante.
+async function planillaArchivoPila(periodoId, usuario, opciones) {
+  const empresaId = usuario.empresaId;
+  const periodo = await nominaService._interno.periodoDe(periodoId, empresaId);
+  const config = await obtenerConfigFila(empresaId);
+  const empresa = await Empresa.findByPk(empresaId);
+  const liquidaciones = (await NominaLiquidacion.findAll({ where: { periodoId: periodo.id } })).filter((l) => !l.error && l.resultado);
+  const emp = await empleadosDe(empresaId, liquidaciones.map((l) => l.empleadoId));
+  const contratos = await ContratoLaboral.findAll({ where: { id: { [Op.in]: liquidaciones.map((l) => l.contratoId) } } });
+  const contratoPorId = Object.fromEntries(contratos.map((c) => [c.id, c]));
+  const empleados = liquidaciones.map((l) => {
+    const c = contratoPorId[l.contratoId] || {};
+    const e = emp[l.empleadoId] || {};
+    return {
+      nombre: e.nombre, identificacion: e.identificacion, tipoDocumento: c.tipoDocumento || 'CC',
+      epsCodigo: c.epsCodigo, afpCodigo: c.afpCodigo, salarioBase: Math.round(Number(c.salarioBase) || 0), tipoSalario: c.tipoSalario,
+      contrato: { aporteVoluntarioPension: Number(c.aporteVoluntarioPension) || 0 },
+      liquidacion: l.resultado,
+    };
+  });
+  const r = PILA.construirArchivo({
+    aportante: { razonSocial: empresa ? empresa.razonSocial : '', nit: empresa ? empresa.nit : '' },
+    periodo: { anio: periodo.anio, mes: periodo.mes },
+    config: {
+      arlCodigo: config.arlCodigo, ccfCodigo: config.ccfCodigo,
+      codigoDepartamento: config.codigoDepartamento, codigoMunicipio: config.codigoMunicipio, centroTrabajo: config.centroTrabajo,
+    },
+    empleados,
+    opciones: { periodoSalud: opciones && opciones.periodoSalud === 'mismo' ? 'mismo' : 'siguiente' },
+  });
+  return { nombre: r.nombre, contenido: r.contenido, resumen: { cotizantes: r.cotizantes, lineas: r.lineas, totales: r.totales, avisos: r.avisos, periodoOtros: r.periodoOtros, periodoSalud: r.periodoSalud } };
+}
+
 module.exports = {
+  planillaArchivoPila,
   listarPrestaciones, crearLote, crearVacaciones, crearLiquidacion, obtener, recalcular, eliminar, pagar, anular, comprobante,
   resumenVacaciones, pagarPlanilla, anularPagoPlanilla, estadoPagoPlanilla, agruparPlanilla, planillaCargueCsv,
   _prueba: { saldosProvision, cargarContexto, mesesDe },

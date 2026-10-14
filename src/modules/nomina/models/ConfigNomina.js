@@ -16,6 +16,10 @@ const ConfigNomina = sequelize.define('ConfigNomina', {
   ccfNombre: { type: DataTypes.STRING(100) },
   ccfCodigo: { type: DataTypes.STRING(20) },
   operadorPila: { type: DataTypes.STRING(100) },
+  // Archivo plano de la PILA: ubicación laboral (códigos DANE/DIVIPOLA) y centro de trabajo de la ARL.
+  codigoDepartamento: { type: DataTypes.STRING(2) },
+  codigoMunicipio: { type: DataTypes.STRING(3) },
+  centroTrabajo: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
   // Días que se trabajan a la semana (5: lunes a viernes, 6: con sábado). Define qué
   // días son hábiles al descontar vacaciones.
   semanaLaboral: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 5 },

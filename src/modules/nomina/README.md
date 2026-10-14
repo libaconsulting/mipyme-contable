@@ -1,6 +1,6 @@
 # Módulo: nomina
 
-Liquidación mensual de nómina, provisiones, contabilización, pago, planilla de aportes (con pago y CSV de cargue PILA), prestaciones sociales, vacaciones y liquidación final. La documentación
+Liquidación mensual de nómina, provisiones, contabilización, pago, planilla de aportes (con pago y CSV de cargue PILA) y archivo plano PILA, prestaciones sociales, vacaciones y liquidación final. La documentación
 completa (flujo, qué calcula, cuentas, supuestos legales y pendientes) está en la sección **Nómina** del
 `README.md` de la raíz.
 

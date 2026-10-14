@@ -51,6 +51,7 @@ router.get('/provisiones', puedeVer, c.provisiones);
 router.post('/periodos/:id/planilla-pago', puedeModificar, c.pagarPlanilla);
 router.post('/planilla-pagos/:pagoId/anular', puedeModificar, c.anularPagoPlanilla);
 router.get('/periodos/:id/planilla-cargue.csv', puedeVer, c.planillaCargueCsv);
+router.get('/periodos/:id/planilla-pila.txt', puedeVer, c.planillaArchivoPila);
 
 // Vacaciones: saldo por empleado
 router.get('/vacaciones', puedeVer, c.resumenVacaciones);

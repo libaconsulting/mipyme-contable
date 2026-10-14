@@ -29,6 +29,8 @@ const ContratoLaboral = sequelize.define('ContratoLaboral', {
   medicinaPrepagada: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   aporteVoluntarioPension: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   aporteAfc: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  // Tipo de documento de identidad para la PILA (CC, CE, TI, PA, CD, SC, PE, RC)
+  tipoDocumento: { type: DataTypes.STRING(2), allowNull: false, defaultValue: 'CC' },
   // Entidades de seguridad social del empleado (nombre y código PILA)
   epsNombre: { type: DataTypes.STRING(100) },
   epsCodigo: { type: DataTypes.STRING(20) },

@@ -423,7 +423,7 @@
   const CONTRATO_VACIO = {
     tipoContrato: 'indefinido', tipoSalario: 'ordinario', auxilioTransporte: 'auto', tipoAuxilio: 'transporte', claseRiesgo: 1,
     areaGasto: 'administracion', retencionFuente: 'calculada', retencionManual: 0, dependientes: 0, interesesVivienda: 0,
-    medicinaPrepagada: 0, aporteVoluntarioPension: 0, aporteAfc: 0, vacacionesDiasPrevios: 0,
+    medicinaPrepagada: 0, aporteVoluntarioPension: 0, aporteAfc: 0, vacacionesDiasPrevios: 0, tipoDocumento: 'CC',
   };
 
   function formularioContrato(c, esNuevo) {
@@ -472,6 +472,7 @@
           ${campo('Aporte a cuenta AFC al mes', `<input type="number" id="nc-afc" min="0" step="1" value="${c.aporteAfc || ''}">`)}
         </div>
         <div class="fx-bloque"><h4>Entidades del empleado</h4>
+          ${campo('Tipo de documento (PILA)', `<select id="nc-tipodoc">${opcionesSelect([['CC', 'CC · Cédula de ciudadanía'], ['CE', 'CE · Cédula de extranjería'], ['TI', 'TI · Tarjeta de identidad'], ['PA', 'PA · Pasaporte'], ['PE', 'PE · Permiso especial de permanencia'], ['CD', 'CD · Carné diplomático'], ['SC', 'SC · Salvoconducto'], ['RC', 'RC · Registro civil']], c.tipoDocumento || 'CC')}</select>`)}
           ${campo('EPS', `<input type="text" id="nc-eps" maxlength="100" value="${esc(c.epsNombre || '')}" placeholder="Ej.: Sanitas">`)}
           ${campo('Código EPS (PILA)', `<input type="text" id="nc-eps-cod" maxlength="20" value="${esc(c.epsCodigo || '')}" placeholder="Ej.: EPS005">`)}
           ${campo('Fondo de pensiones', `<input type="text" id="nc-afp" maxlength="100" value="${esc(c.afpNombre || '')}" placeholder="Ej.: Porvenir">`)}
@@ -496,7 +497,7 @@
       vacacionesDiasPrevios: num('nc-vac-previos'),
       retencionFuente: v('nc-retencion'), retencionManual: num('nc-ret-manual'), dependientes: num('nc-dependientes'),
       interesesVivienda: num('nc-vivienda'), medicinaPrepagada: num('nc-prepagada'), aporteVoluntarioPension: num('nc-voluntario'), aporteAfc: num('nc-afc'),
-      epsNombre: v('nc-eps'), epsCodigo: v('nc-eps-cod'), afpNombre: v('nc-afp'), afpCodigo: v('nc-afp-cod'),
+      tipoDocumento: v('nc-tipodoc') || 'CC', epsNombre: v('nc-eps'), epsCodigo: v('nc-eps-cod'), afpNombre: v('nc-afp'), afpCodigo: v('nc-afp-cod'),
       fondoCesantiasNombre: v('nc-ces'), fondoCesantiasCodigo: v('nc-ces-cod'), observaciones: v('nc-obs'),
     };
     if (!esNuevo) c.fechaTerminacion = v('nc-terminacion') || null;
@@ -722,7 +723,8 @@
     const pl = await api(`/nomina/periodos/${nom.planillaPeriodoId}/planilla`);
     html += `<div class="fila-campos"><label class="campo-etiquetado nom-anio"><span>Nómina</span><select id="pla-periodo">${opcionesSelect(lista.map((p) => [p.id, `${nombreMes(p.anio, p.mes)} · ${ESTADOS[p.estado]}`]), nom.planillaPeriodoId)}</select></label>
       ${boton('Descargar CSV', 'planilla-csv', {}, 'btn-secundario')}
-      ${boton('CSV de cargue PILA', 'planilla-cargue', {}, 'btn-secundario')}</div>`;
+      ${boton('CSV de cargue PILA', 'planilla-cargue', {}, 'btn-secundario')}
+      ${boton('Archivo plano PILA (.txt)', 'planilla-pila', {}, 'btn-primario')}</div>`;
     html += `<p class="nota-aiu">Aportante: <strong>${esc(pl.aportante.razonSocial)}</strong> · NIT ${esc(pl.aportante.nit)} · ARL: ${esc(pl.aportante.arl || '—')} · Caja: ${esc(pl.aportante.ccf || '—')} · ${pl.exoneraArt114 ? 'Con exoneración del art. 114-1 (salud, SENA e ICBF para quien gana menos de 10 SMMLV)' : 'Sin exoneración del art. 114-1'}.</p>`;
     if (pl.avisos.length) html += aviso('confirmar', '<strong>Para completar la planilla:</strong><br>' + pl.avisos.map(esc).join('<br>'));
     html += `<h4>Por entidad</h4><div class="tabla-envoltorio"><table><thead><tr><th>Tipo</th><th>Entidad</th><th>Conceptos</th><th class="num">Empleados</th><th class="num">Liquidado</th><th class="num">Valor PILA</th></tr></thead><tbody>
@@ -822,6 +824,36 @@
     }
   }
 
+  // Archivo plano de la PILA: se descarga y se muestra qué contiene y qué revisar.
+  async function descargarArchivoPila() {
+    try {
+      const res = await fetch(`/api/nomina/periodos/${nom.planillaPeriodoId}/planilla-pila.txt`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo generar el archivo.');
+      const nombre = ((res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || 'PILA.txt';
+      let resumen = null;
+      try { resumen = JSON.parse(decodeURIComponent(res.headers.get('X-Pila-Resumen') || '')); } catch (e) { /* sin resumen */ }
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = nombre;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+      if (resumen) {
+        abrirDialogo({
+          titulo: 'Archivo plano de la PILA generado',
+          cuerpo: `<p>Se descargó <strong>${esc(nombre)}</strong>: ${resumen.cotizantes} cotizante(s) en ${resumen.lineas} registro(s). Período de pensión, ARL y parafiscales: <strong>${esc(resumen.periodoOtros)}</strong>; período de salud: <strong>${esc(resumen.periodoSalud)}</strong>.</p>
+            <p>Total que debe dar la planilla en el operador: <strong>${dinero(resumen.totales.total)}</strong> (salud ${dinero(resumen.totales.salud)}, pensión ${dinero(resumen.totales.pension)}, solidaridad ${dinero(resumen.totales.fsp)}, ARL ${dinero(resumen.totales.arl)}, caja ${dinero(resumen.totales.ccf)}, SENA ${dinero(resumen.totales.sena)}, ICBF ${dinero(resumen.totales.icbf)}).</p>
+            ${resumen.avisos.length ? aviso('confirmar', '<strong>Revisa:</strong><br>' + resumen.avisos.map(esc).join('<br>')) : ''}
+            <p class="nota-aiu">Cárgalo en el operador como planilla tipo E (modalidad electrónica, archivo plano). El operador valida la estructura: si rechaza alguna línea, dime el mensaje exacto para ajustar el archivo.</p>`,
+        });
+      }
+    } catch (err) {
+      mostrarError(err);
+    }
+  }
+
   async function descargarPlanillaCsv() {
     try {
       const res = await fetch(`/api/nomina/periodos/${nom.planillaPeriodoId}/planilla.csv`, { headers: { Authorization: `Bearer ${token}` } });
@@ -854,6 +886,9 @@
           ${campo('Código ARL (PILA)', `<input type="text" id="cf-arl-cod" maxlength="20" value="${esc(c.arlCodigo || '')}"${dis}>`)}
           ${campo('Caja de compensación', `<input type="text" id="cf-ccf" maxlength="100" value="${esc(c.ccfNombre || '')}"${dis} placeholder="Ej.: Compensar">`)}
           ${campo('Código caja (PILA)', `<input type="text" id="cf-ccf-cod" maxlength="20" value="${esc(c.ccfCodigo || '')}"${dis}>`)}
+          ${campo('Departamento: código DANE (2 dígitos)', `<input type="text" id="cf-depto" maxlength="2" inputmode="numeric" value="${esc(c.codigoDepartamento || '')}"${dis} placeholder="Ej.: 11 (Bogotá)">`)}
+          ${campo('Municipio: código DANE (3 dígitos)', `<input type="text" id="cf-mpio" maxlength="3" inputmode="numeric" value="${esc(c.codigoMunicipio || '')}"${dis} placeholder="Ej.: 001 (Bogotá)">`)}
+          ${campo('Centro de trabajo de la ARL', `<input type="number" id="cf-ct" min="0" step="1" value="${c.centroTrabajo || 0}"${dis}>`)}
           ${campo('Operador de PILA', `<input type="text" id="cf-operador" maxlength="100" value="${esc(c.operadorPila || '')}"${dis} placeholder="Ej.: Aportes en Línea, SOI, Mi Planilla">`)}
         </div>
         <div class="fx-bloque"><h4>Cómo se liquida</h4>
@@ -900,6 +935,7 @@
             body: JSON.stringify({
               arlNombre: v('cf-arl'), arlCodigo: v('cf-arl-cod'), ccfNombre: v('cf-ccf'), ccfCodigo: v('cf-ccf-cod'),
               operadorPila: v('cf-operador'), exoneraArt114: $('cf-exonera').checked, areaGastoPorDefecto: v('cf-area'), semanaLaboral: Number(v('cf-semana')),
+              codigoDepartamento: v('cf-depto'), codigoMunicipio: v('cf-mpio'), centroTrabajo: num('cf-ct'),
             }),
           });
           alert('Configuración guardada.');
@@ -963,6 +999,7 @@
         }
         return;
       case 'planilla-csv': return descargarPlanillaCsv();
+      case 'planilla-pila': return descargarArchivoPila();
       case 'planilla-cargue': return descargarArchivo(`/nomina/periodos/${nom.planillaPeriodoId}/planilla-cargue.csv`, 'pila-cargue.csv');
       case 'pagar-planilla': return dialogoPagoPlanilla();
       case 'anular-pago-planilla': return dialogoAnularPagoPlanilla(id);

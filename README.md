@@ -393,7 +393,7 @@ del contrato; 2505 salarios por pagar y 2510/2515/2520/2525 prestaciones (por em
 
 **Planilla de aportes:** resumen por empleado y por entidad (EPS, AFP, ARL, CCF, SENA, ICBF) con novedades PILA
 (ING, RET, VAC, IGE, IRL, LMA, SLN) y aproximación de cada aporte al múltiplo de 100 hacia arriba, como exige la PILA.
-Se descarga en CSV (`;`, UTF-8 con BOM). **No es el archivo plano** que se carga en el operador de información.
+Se descarga en CSV (`;`, UTF-8 con BOM). El archivo que se carga en el operador (plano de ancho fijo) se genera aparte: ver *Nómina · fase 2*.
 
 **Supuestos a validar con el contador antes de usar en producción:**
 - ARL durante vacaciones se cotiza por los días trabajados + vacaciones.
@@ -418,7 +418,7 @@ Hay un único documento vigente por (tipo, año, semestre). Comprobante imprimib
 **Código:** reglas en `public/contable/prestacionesNomina.js` (compartido; pruebas `tests/prestacionesNomina.test.js`), asientos en
 `asientoNomina.js` (`armarAsientoPrestaciones`, `armarAsientoPagoPlanilla`), servicio `src/modules/nomina/services/prestaciones.service.js`,
 pantallas `public/contable/nominaPrestaciones.js`. Tablas nuevas: `nomina_prestaciones`, `nomina_prestacion_lineas`, `nomina_planilla_pagos`;
-columnas nuevas: `contratos_laborales.vacaciones_dias_previos`, `config_nomina.semana_laboral` (las crea `sync({ alter: true })`).
+columnas nuevas: `nomina_contratos.vacaciones_dias_previos` y `tipo_documento`, `nomina_config.semana_laboral`, `codigo_departamento`, `codigo_municipio` y `centro_trabajo` (las crea `sync({ alter: true })`).
 
 **Reglas aplicadas:**
 - Año de 360 días. **Prima:** 30 días por año (semestres 1-ene a 30-jun y 1-jul a 31-dic). **Cesantías:** un mes por año. **Intereses:** cesantías × días × 12 % ÷ 360.
@@ -435,10 +435,19 @@ columnas nuevas: `contratos_laborales.vacaciones_dias_previos`, `config_nomina.s
 si el valor supera la provisión que hay en el libro, la diferencia va a gasto (5105xx/5205xx con sufijos 36, 30, 33, 39) y si se liquida todo y sobra provisión, se libera contra el gasto;
 indemnización a 510560/520560; otros pagos a 5105xx95; Cr 236505 retención, Cr descuentos (1365, 2370xx), Cr banco o caja. Saldo de provisión = movimientos del empleado en esa cuenta hasta el fin del mes de la fecha de corte.
 
-**Planilla PILA:** en *Planilla de aportes* se registra el **pago de la planilla** (Db 237005/238030/237006/237010 por lo liquidado, Db 5105xx95 por la aproximación a múltiplos de 100, Db 530520 intereses de mora; Cr banco o caja; evento `nomina_planilla_pago`),
-se puede anular, y se descarga el **CSV de cargue** (una fila por empleado con tipo de documento, novedades con fechas, días, IBC, tarifas y cotizaciones por subsistema). 
-**No genera el archivo plano oficial** (.txt de ancho fijo, Anexo Técnico 2 de la Resolución 2388 de 2016 y sus modificaciones) porque falta el diseño de registros del tipo 2; el CSV sirve para digitar o importar en el operador (Aportes en Línea, SOI, Simple, etc.).
-Los nombres se separan con una regla simple (de tres palabras: 1 nombre y 2 apellidos; de cuatro: 2 y 2): revisa los empleados con nombres compuestos antes de cargar. El tipo de cotizante (01) y el tipo de documento (CC) están fijos.
+**Planilla PILA:** en *Planilla de aportes* se registra el **pago de la planilla** (Db 237005/238030/237006/237010 por lo liquidado, Db 5105xx95 por la aproximación a múltiplos de 100, Db 530520 intereses de mora; Cr banco o caja; evento `nomina_planilla_pago`)
+y se puede anular. Hay dos descargas: el **CSV de cargue** (una fila por empleado, para digitar o importar; separa los nombres con una regla simple, de tres palabras 1 nombre y 2 apellidos, y de cuatro 2 y 2: revisa los nombres compuestos) y el **archivo plano oficial (.txt)**.
+
+**Archivo plano PILA (`PILA-E-AAAA-MM.txt`):** archivo tipo 2 del Anexo Técnico 2 (Resolución 2388 de 2016, versión 09), planilla **tipo E** de empleados.
+Código en `public/contable/pilaArchivo.js` (pruebas `tests/pilaArchivo.test.js`, que verifican la posición inicial de los campos contra el anexo); se descarga con `GET /api/nomina/periodos/:id/planilla-pila.txt`.
+- Registro tipo 1 (encabezado, 359 posiciones) y un registro tipo 2 (686 posiciones, 97 campos) por cotizante, con saltos CRLF, solo ASCII (nombres en mayúsculas, sin tildes; la Ñ pasa a N).
+- Si en el mes hay **vacaciones, incapacidades, licencias o suspensiones** se genera una línea por cada novedad (con sus fechas y su IBC) y otra con los días ordinarios, como pide el numeral 2.1.2.2 del anexo; el sobrante de redondeo queda en la línea ordinaria, de modo que el total sea el mismo de la planilla del sistema.
+- **Datos que se exigen antes de generar** (si falta alguno, la descarga muestra la lista completa): código DANE de departamento (2 dígitos) y municipio (3), centro de trabajo, códigos de ARL y de caja (hasta 6 caracteres), NIT con dígito de verificación correcto, y por empleado: tipo de documento, código de EPS y de fondo de pensiones, primer nombre y primer apellido.
+- Campos que asigna el operador y se dejan en cero o blanco: secuencia/número de radicación, fecha de pago y código del operador del encabezado.
+- Período del encabezado: pensión, ARL y parafiscales = mes liquidado; salud = mes siguiente (regla del numeral 2.1.1.2.4 del anexo para planillas E). Se puede pedir el mismo mes con `?periodoSalud=mismo`.
+- Supuestos de tipo: cotizante 01 (dependiente), subtipo 0, forma de presentación U (única), modalidad electrónica, tipo de aportante 01 (empleador), tarifas con punto decimal (`0.16000`; ARL en 9 posiciones, `0.0052200`).
+- **No se probó con un operador real.** Si Aportes en Línea, SOI u otro rechaza el archivo, el mensaje exacto del operador permite ajustarlo. Puntos a vigilar: línea de suspensión (SLN) con IBC 0, días de ARL en incapacidades, y el período de salud.
+- No reporta aportes voluntarios a pensión ni novedades de traslado, variación de salario (VSP/VST) o correcciones (planilla N); se avisa si el contrato tiene aporte voluntario.
 
 **Supuestos de la fase 2 a validar con el contador:**
 - Prima y cesantías con la base descrita (último salario si no hubo cambios); intereses pagados antes del 31 de enero (después, la ley obliga a pagar el doble: solo hay aviso).
@@ -447,7 +456,7 @@ Los nombres se separan con una regla simple (de tres palabras: 1 nombre y 2 apel
 - La indemnización del art. 64 se calcula sobre salario ordinario; con salario variable conviene confirmar la base.
 - Aproximación PILA y mora: se contabilizan como gasto (5105xx95 y 530520).
 
-**Lo que sigue pendiente:** archivo plano PILA oficial; cambio de salario a mitad de mes; dos contratos de un mismo empleado en el mismo mes; saldos iniciales formales de provisiones
+**Lo que sigue pendiente:** novedades VSP/VST en el archivo plano, planilla de correcciones, cambio de salario a mitad de mes; dos contratos de un mismo empleado en el mismo mes; saldos iniciales formales de provisiones
 (hoy se resuelven con los días de vacaciones previos del contrato y con los saldos del libro); reversión de un pago de nómina mensual.
 
 ## Inventarios (costo promedio ponderado)

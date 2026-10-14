@@ -119,6 +119,17 @@ async function guardarConfig(datos, usuario) {
   if (datos.ccfNombre !== undefined) cambios.ccfNombre = limpiarTexto(datos.ccfNombre, 100, 'El nombre de la caja de compensación');
   if (datos.ccfCodigo !== undefined) cambios.ccfCodigo = codigoEntidad(datos.ccfCodigo, 'El código de la caja de compensación');
   if (datos.operadorPila !== undefined) cambios.operadorPila = limpiarTexto(datos.operadorPila, 100, 'El operador de PILA');
+  if (datos.codigoDepartamento !== undefined) {
+    const t = String(datos.codigoDepartamento || '').trim();
+    if (t && !/^\d{2}$/.test(t)) throw new Error('El código del departamento son 2 dígitos (DANE), por ejemplo 11 para Bogotá.');
+    cambios.codigoDepartamento = t || null;
+  }
+  if (datos.codigoMunicipio !== undefined) {
+    const t = String(datos.codigoMunicipio || '').trim();
+    if (t && !/^\d{3}$/.test(t)) throw new Error('El código del municipio son 3 dígitos (DANE), por ejemplo 001 para Bogotá.');
+    cambios.codigoMunicipio = t || null;
+  }
+  if (datos.centroTrabajo !== undefined) cambios.centroTrabajo = entero(datos.centroTrabajo, 'El centro de trabajo', { min: 0, max: 999999999 });
   if (datos.semanaLaboral !== undefined) {
     if (![5, 6].includes(Number(datos.semanaLaboral))) throw new Error('La semana laboral es de 5 días (lunes a viernes) o de 6 (con sábado).');
     cambios.semanaLaboral = Number(datos.semanaLaboral);
@@ -240,6 +251,11 @@ function normalizarContrato(d, actual) {
     medicinaPrepagada: dinero(v('medicinaPrepagada'), 'La medicina prepagada'),
     aporteVoluntarioPension: dinero(v('aporteVoluntarioPension'), 'El aporte voluntario a pensión'),
     aporteAfc: dinero(v('aporteAfc'), 'El aporte a AFC'),
+    tipoDocumento: (() => {
+      const t = String(v('tipoDocumento') || 'CC').toUpperCase();
+      if (!['CC', 'CE', 'TI', 'PA', 'CD', 'SC', 'PE', 'RC'].includes(t)) throw new Error('El tipo de documento no es válido (CC, CE, TI, PA, CD, SC, PE o RC).');
+      return t;
+    })(),
     epsNombre: limpiarTexto(v('epsNombre'), 100, 'El nombre de la EPS'),
     epsCodigo: codigoEntidad(v('epsCodigo'), 'El código de la EPS'),
     afpNombre: limpiarTexto(v('afpNombre'), 100, 'El nombre del fondo de pensiones'),

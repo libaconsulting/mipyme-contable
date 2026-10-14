@@ -73,6 +73,18 @@ module.exports = {
     }
   },
 
+  async planillaArchivoPila(req, res) {
+    try {
+      const r = await prestaciones.planillaArchivoPila(req.params.id, u(req), req.query);
+      res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
+      res.setHeader('Content-Disposition', `attachment; filename="${r.nombre}"`);
+      res.setHeader('X-Pila-Resumen', encodeURIComponent(JSON.stringify(r.resumen)));
+      res.send(Buffer.from(r.contenido, 'latin1'));
+    } catch (error) {
+      res.status(400).json({ error: mensajeError(error) });
+    }
+  },
+
   async planillaCsv(req, res) {
     try {
       const { nombre, contenido } = await nominaService.planillaCsv(req.params.id, u(req));
