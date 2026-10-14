@@ -17,6 +17,8 @@
     ['planilla', 'Planilla de aportes'],
     ['config', 'Configuración'],
   ];
+  // Pestañas que agrega nominaPrestaciones.js (prestaciones y vacaciones).
+  const subsExternas = {};
   const TIPOS_CONTRATO = { indefinido: 'Indefinido', fijo: 'Término fijo', obra_labor: 'Obra o labor' };
   const ESTADOS = { borrador: 'Borrador', contabilizada: 'Contabilizada', pagada: 'Pagada' };
 
@@ -125,6 +127,7 @@
     contenido().innerHTML = '<p class="nota-panel">Cargando…</p>';
     try {
       if (!nom.opciones) await cargarOpciones();
+      if (subsExternas[sub]) return await subsExternas[sub]();
       if (sub === 'liquidacion') {
         nom.periodos = await api('/nomina/periodos');
         if (nom.detalle) nom.detalle = await api(`/nomina/periodos/${nom.detalle.periodo.id}`).catch(() => null);
@@ -420,7 +423,7 @@
   const CONTRATO_VACIO = {
     tipoContrato: 'indefinido', tipoSalario: 'ordinario', auxilioTransporte: 'auto', tipoAuxilio: 'transporte', claseRiesgo: 1,
     areaGasto: 'administracion', retencionFuente: 'calculada', retencionManual: 0, dependientes: 0, interesesVivienda: 0,
-    medicinaPrepagada: 0, aporteVoluntarioPension: 0, aporteAfc: 0,
+    medicinaPrepagada: 0, aporteVoluntarioPension: 0, aporteAfc: 0, vacacionesDiasPrevios: 0,
   };
 
   function formularioContrato(c, esNuevo) {
@@ -454,6 +457,8 @@
           ${campo('Clase de riesgo (ARL)', `<select id="nc-riesgo">${opcionesSelect(riesgos, c.claseRiesgo)}</select>`)}
           ${campo('Área donde va el gasto', `<select id="nc-area">${opcionesSelect(areas, c.areaGasto)}</select>`)}
           ${campo('Horas por semana (solo si no es la jornada máxima)', `<input type="number" id="nc-horas" min="1" max="48" step="1" value="${c.horasSemanales || ''}">`)}
+          ${campo('Vacaciones: días hábiles ya tomados antes de usar el sistema', `<input type="number" id="nc-vac-previos" min="0" max="1000" step="0.5" value="${c.vacacionesDiasPrevios || 0}">`)}
+          <p class="nota-aiu">Con esto el saldo de vacaciones arranca bien: se suman los días disfrutados o pagados en dinero desde el ingreso hasta hoy.</p>
         </div>
       </div>
       <div class="fx-rejilla">
@@ -488,6 +493,7 @@
       fechaFinPactada: v('nc-fin-pactada') || null,
       salarioBase: num('nc-salario'), tipoSalario: v('nc-tipo-salario'), auxilioTransporte: v('nc-aux'), tipoAuxilio: v('nc-tipo-aux'),
       claseRiesgo: num('nc-riesgo'), areaGasto: v('nc-area'), horasSemanales: v('nc-horas') ? num('nc-horas') : null,
+      vacacionesDiasPrevios: num('nc-vac-previos'),
       retencionFuente: v('nc-retencion'), retencionManual: num('nc-ret-manual'), dependientes: num('nc-dependientes'),
       interesesVivienda: num('nc-vivienda'), medicinaPrepagada: num('nc-prepagada'), aporteVoluntarioPension: num('nc-voluntario'), aporteAfc: num('nc-afc'),
       epsNombre: v('nc-eps'), epsCodigo: v('nc-eps-cod'), afpNombre: v('nc-afp'), afpCodigo: v('nc-afp-cod'),
@@ -715,7 +721,8 @@
     if (!nom.planillaPeriodoId || !lista.find((p) => p.id === nom.planillaPeriodoId)) nom.planillaPeriodoId = lista[0].id;
     const pl = await api(`/nomina/periodos/${nom.planillaPeriodoId}/planilla`);
     html += `<div class="fila-campos"><label class="campo-etiquetado nom-anio"><span>Nómina</span><select id="pla-periodo">${opcionesSelect(lista.map((p) => [p.id, `${nombreMes(p.anio, p.mes)} · ${ESTADOS[p.estado]}`]), nom.planillaPeriodoId)}</select></label>
-      ${boton('Descargar CSV', 'planilla-csv', {}, 'btn-secundario')}</div>`;
+      ${boton('Descargar CSV', 'planilla-csv', {}, 'btn-secundario')}
+      ${boton('CSV de cargue PILA', 'planilla-cargue', {}, 'btn-secundario')}</div>`;
     html += `<p class="nota-aiu">Aportante: <strong>${esc(pl.aportante.razonSocial)}</strong> · NIT ${esc(pl.aportante.nit)} · ARL: ${esc(pl.aportante.arl || '—')} · Caja: ${esc(pl.aportante.ccf || '—')} · ${pl.exoneraArt114 ? 'Con exoneración del art. 114-1 (salud, SENA e ICBF para quien gana menos de 10 SMMLV)' : 'Sin exoneración del art. 114-1'}.</p>`;
     if (pl.avisos.length) html += aviso('confirmar', '<strong>Para completar la planilla:</strong><br>' + pl.avisos.map(esc).join('<br>'));
     html += `<h4>Por entidad</h4><div class="tabla-envoltorio"><table><thead><tr><th>Tipo</th><th>Entidad</th><th>Conceptos</th><th class="num">Empleados</th><th class="num">Liquidado</th><th class="num">Valor PILA</th></tr></thead><tbody>
@@ -726,9 +733,93 @@
       ${pl.filas.map((f) => `<tr><td><strong>${esc(f.nombre)}</strong><br><span class="texto-suave">${esc(f.identificacion)}</span></td><td class="num">${f.diasSalud}</td><td class="num">${dinero(f.ibc)}</td><td>${esc(f.novedades)}</td>
         <td class="num">${dinero(f.salud)}</td><td class="num">${dinero(f.pension)}</td><td class="num">${dinero(f.fsp)}</td><td class="num">${dinero(f.arl)}</td><td class="num">${dinero(f.caja)}</td><td class="num">${dinero(f.sena)}</td><td class="num">${dinero(f.icbf)}</td><td class="num"><strong>${dinero(f.pila)}</strong></td></tr>`).join('')}
       </tbody></table></div>
-      <p class="nota-aiu">Novedades PILA: ING ingreso · RET retiro · VAC vacaciones · IGE incapacidad general · IRL incapacidad laboral · LMA licencia de maternidad o paternidad · SLN suspensión o licencia no remunerada. El archivo plano para el operador de información y el registro contable del pago de la planilla quedan para la siguiente etapa.</p>`;
+      <p class="nota-aiu">Novedades PILA: ING ingreso · RET retiro · VAC vacaciones · IGE incapacidad general · IRL incapacidad laboral · LMA licencia de maternidad o paternidad · SLN suspensión o licencia no remunerada. </p>`;
+    html += bloquePagoPlanilla(pl);
     contenido().innerHTML = html;
     $('pla-periodo').onchange = () => { nom.planillaPeriodoId = v('pla-periodo'); cargarPlanilla().catch((e) => { contenido().innerHTML = aviso('bloqueo', esc(e.message)); }); };
+  }
+
+  // Pago de la planilla al operador de información (asiento + egreso del banco)
+  function bloquePagoPlanilla(pl) {
+    const p = nom.periodos.find((x) => x.id === nom.planillaPeriodoId);
+    const cerrada = p && ['contabilizada', 'pagada'].includes(p.estado);
+    let h = '<h4>Pago de la planilla</h4>';
+    if (pl.pagoVigente) {
+      const g = pl.pagoVigente;
+      h += `<div class="nom-tarjetas">
+        <div class="nom-tarjeta destacada"><span>Planilla pagada el ${esc(formatoFecha(g.fechaPago))}${g.numeroPlanilla ? ' · Nº ' + esc(g.numeroPlanilla) : ''}</span><strong>${dinero(g.total)}</strong></div>
+        <div class="nom-tarjeta"><span>Aportes (valor PILA)</span><strong>${dinero(g.valorPila)}</strong></div>
+        <div class="nom-tarjeta"><span>Intereses de mora</span><strong>${dinero(g.mora)}</strong></div></div>`;
+      if (puedeEditar()) h += `<div class="nom-acciones">${boton('Anular el pago', 'anular-pago-planilla', { id: g.id }, 'btn-secundario')}</div>`;
+    } else if (!cerrada) {
+      h += aviso('info', 'Contabiliza la nómina de este mes para poder registrar el pago de su planilla.');
+    } else if (puedeEditar()) {
+      h += `<p class="nota-aiu">Cuando pagues la planilla en el operador, regístralo aquí: se cancelan los aportes por pagar (salud, pensión, ARL, caja, SENA e ICBF), la aproximación a 100 va a gasto y los intereses de mora, si hubo, a intereses.</p>
+        <div class="nom-acciones">${boton('Registrar pago de la planilla', 'pagar-planilla', {}, 'btn-primario')}</div>`;
+    }
+    const anulados = (pl.pagos || []).filter((x) => x.estado === 'anulada');
+    if (anulados.length) h += `<p class="nota-aiu">Pagos anulados: ${anulados.map((x) => `${esc(formatoFecha(x.fechaPago))} (${dinero(x.total)}${x.motivoAnulacion ? ', ' + esc(x.motivoAnulacion) : ''})`).join('; ')}.</p>`;
+    return h;
+  }
+
+  function dialogoPagoPlanilla() {
+    const p = nom.periodos.find((x) => x.id === nom.planillaPeriodoId);
+    const bancos = nom.opciones.cuentasBancarias;
+    const [a, m] = [p.anio, p.mes];
+    const siguiente = m === 12 ? `${a + 1}-01-` : `${a}-${String(m + 1).padStart(2, '0')}-`;
+    abrirDialogo({
+      titulo: 'Registrar pago de la planilla',
+      cuerpo: `<div class="fila-campos">
+          ${campo('Pagada desde', `<select id="pp-medio">${bancos.map((b) => `<option value="${b.id}">${esc(b.banco)} ${esc(b.tipoCuenta || '')} ****${esc(b.numero)}</option>`).join('')}<option value="caja">Efectivo (caja)</option></select>`)}
+          ${campo('Fecha del pago', `<input type="date" id="pp-fecha" value="${nom.opciones.hoy > p.fechaFin ? nom.opciones.hoy : siguiente + '10'}">`)}</div>
+        <div class="fila-campos">
+          ${campo('Número de la planilla (opcional)', '<input type="text" id="pp-numero" maxlength="30" autocomplete="off">')}
+          ${campo('Intereses de mora (si pagaste tarde)', '<input type="number" id="pp-mora" min="0" step="1" value="0">')}</div>
+        <p class="nota-aiu">El valor de la planilla es el de la tabla “Por entidad”. Queda un egreso en la cuenta bancaria, pendiente de conciliar con el extracto.</p>`,
+      guardar: {
+        texto: 'Registrar pago',
+        fn: async () => {
+          const medio = v('pp-medio');
+          const cuerpo = { fecha: v('pp-fecha'), numeroPlanilla: v('pp-numero'), mora: num('pp-mora') };
+          if (medio === 'caja') cuerpo.medio = 'caja';
+          else cuerpo.cuentaBancariaId = medio;
+          await api(`/nomina/periodos/${nom.planillaPeriodoId}/planilla-pago`, { method: 'POST', body: JSON.stringify(cuerpo) });
+          await cargarPlanilla();
+        },
+      },
+    });
+  }
+
+  function dialogoAnularPagoPlanilla(id) {
+    abrirDialogo({
+      titulo: 'Anular el pago de la planilla',
+      cuerpo: `<p>Se anula el asiento y el egreso del banco, y la planilla queda pendiente de pago.</p>
+        ${campo('Motivo (queda en la auditoría)', '<input type="text" id="ap-motivo" maxlength="250" autocomplete="off">')}`,
+      guardar: {
+        texto: 'Anular pago',
+        fn: async () => {
+          await api(`/nomina/planilla-pagos/${id}/anular`, { method: 'POST', body: JSON.stringify({ motivo: v('ap-motivo') }) });
+          await cargarPlanilla();
+        },
+      },
+    });
+  }
+
+  async function descargarArchivo(ruta, nombre) {
+    try {
+      const res = await fetch(`/api${ruta}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'No se pudo descargar.');
+      const blob = await res.blob();
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = nombre;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    } catch (err) {
+      mostrarError(err);
+    }
   }
 
   async function descargarPlanillaCsv() {
@@ -768,6 +859,7 @@
         <div class="fx-bloque"><h4>Cómo se liquida</h4>
           <label class="check-linea"><input type="checkbox" id="cf-exonera"${c.exoneraArt114 ? ' checked' : ''}${dis}> <span>Aplicar la exoneración del art. 114-1 del Estatuto Tributario (no pagar salud del empleador, SENA ni ICBF por quienes ganan menos de 10 SMMLV). Corresponde a personas jurídicas y a personas naturales con dos o más trabajadores.</span></label>
           ${campo('Área donde va el gasto por defecto', `<select id="cf-area"${dis}>${opcionesSelect(Object.entries(o.areas), c.areaGastoPorDefecto)}</select>`)}
+          ${campo('Semana laboral (para contar los días hábiles de vacaciones)', `<select id="cf-semana"${dis}>${opcionesSelect([[5, '5 días: lunes a viernes'], [6, '6 días: lunes a sábado']], c.semanaLaboral || 5)}</select>`)}
           ${editar ? '<button type="submit" class="btn-primario">Guardar configuración</button>' : ''}
           <p class="fx-error" id="cf-error" hidden></p>
         </div>
@@ -789,6 +881,11 @@
           <li>Provisiones: cesantías 8,33 %, intereses 12 % anual de las cesantías, prima 8,33 % (base: salario devengado + auxilio de transporte) y vacaciones 4,17 % (base: salario sin extras ni auxilio). Salario integral: solo vacaciones.</li>
           <li>Retención en la fuente: procedimiento 1 (art. 383 del E.T.), con renta exenta del 25 % (tope 790 UVT al año), deducciones por dependientes, vivienda y medicina prepagada, aportes voluntarios, y límite del 40 % / 1.340 UVT al año. No se aplica la deducción adicional de 72 UVT por dependiente (el empleado puede tomarla en su declaración). La licencia de maternidad no se incluye en la base. Se aproxima al múltiplo de mil.</li>
           <li>La licencia no remunerada y la suspensión no pagan salud ni pensión a cargo de la empresa (se reportan como SLN). En vacaciones sí se paga ARL.</li>
+          <li>Prima, cesantías e intereses se pagan con 360 días al año, sin contar licencias no remuneradas ni suspensiones. Salario fijo sin cambios recientes: último salario más auxilio de transporte. Con pagos variables o con un cambio de salario en el período (en los últimos 3 meses, para cesantías): promedio del período. Intereses: 12 % anual sobre las cesantías. Salario integral: sin prestaciones.</li>
+          <li>Vacaciones: 15 días hábiles por 360 días de servicio, valorados con el salario ordinario (sin extras ni recargos de festivos ni auxilio de transporte). Los hábiles excluyen domingos, festivos y, si la semana es de 5 días, los sábados. Compensar en dinero requiere acuerdo y normalmente es hasta la mitad; al retiro se paga todo lo pendiente.</li>
+          <li>Retención de la prima, las vacaciones en dinero y la indemnización: se calcula como el aumento de la retención del mes en que se pagan (procedimiento 1). Cesantías e intereses se tratan como exentos; se avisa si el salario supera 350 UVT.</li>
+          <li>Indemnización por despido sin justa causa (art. 64 del CST): indefinido con menos de 10 SMMLV, 30 días el primer año y 20 por cada año siguiente (proporcional); con 10 SMMLV o más, 20 y 15. Término fijo y obra o labor: lo que faltaba del contrato, mínimo 15 días. Se calcula sobre el salario sin auxilio de transporte.</li>
+          <li>El pago de prestaciones se registra contra la provisión del libro de cada empleado: lo que falte va al gasto y, si se liquida todo y sobró, se libera.</li>
           <li>El cambio de salario a mitad de mes no está soportado: aplica a todo el mes. Un empleado con dos contratos en el mismo mes tampoco.</li>
         </ul></details>`;
     const form = $('nom-form-config');
@@ -802,7 +899,7 @@
             method: 'PUT',
             body: JSON.stringify({
               arlNombre: v('cf-arl'), arlCodigo: v('cf-arl-cod'), ccfNombre: v('cf-ccf'), ccfCodigo: v('cf-ccf-cod'),
-              operadorPila: v('cf-operador'), exoneraArt114: $('cf-exonera').checked, areaGastoPorDefecto: v('cf-area'),
+              operadorPila: v('cf-operador'), exoneraArt114: $('cf-exonera').checked, areaGastoPorDefecto: v('cf-area'), semanaLaboral: Number(v('cf-semana')),
             }),
           });
           alert('Configuración guardada.');
@@ -866,8 +963,24 @@
         }
         return;
       case 'planilla-csv': return descargarPlanillaCsv();
+      case 'planilla-cargue': return descargarArchivo(`/nomina/periodos/${nom.planillaPeriodoId}/planilla-cargue.csv`, 'pila-cargue.csv');
+      case 'pagar-planilla': return dialogoPagoPlanilla();
+      case 'anular-pago-planilla': return dialogoAnularPagoPlanilla(id);
     }
   });
+
+  // Ayudas para nominaPrestaciones.js (prestaciones, vacaciones y liquidación final).
+  window.nominaUI = {
+    nom, $, esc, dinero, v, num, campo, opcionesSelect, boton, aviso, mostrarError, puedeEditar, nombreMes, contenido,
+    abrirDialogo, cerrarDialogo, errorDialogo, tablaAsiento, descargarArchivo, MESES,
+    registrarSub(clave, titulo, fn) {
+      subsExternas[clave] = fn;
+      const i = SUBS.findIndex((x) => x[0] === 'planilla');
+      SUBS.splice(i, 0, [clave, titulo]);
+      $('nom-subtabs').innerHTML = SUBS.map(([k, t]) => `<button type="button" data-sub="${k}">${t}</button>`).join('');
+    },
+    mostrarSub,
+  };
 
   // Lo llama app.js cada vez que se abre la pestaña Nómina.
   window.nominaAlMostrar = function () {

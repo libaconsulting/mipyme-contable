@@ -102,3 +102,80 @@ test('El catálogo trae cada subcuenta con su cuenta padre', () => {
   assert.equal(por['2525'].padre, null);
   for (const c of A.CATALOGO) if (c.padre) assert.ok(por[c.padre], `falta el padre ${c.padre}`);
 });
+
+// --- Pago de prestaciones y de la planilla ------------------------------------------
+test('Pago de prima: cancela la provisión y el faltante va a gasto', () => {
+  const r = A.armarAsientoPrestaciones([{
+    terceroId: 'e1', area: 'administracion', retencion: 0, descuentos: [],
+    componentes: [{ concepto: 'prima', valor: 1124548, saldoProvision: 1000000, liquidaTotal: true }],
+  }], '111005');
+  assert.equal(r.cuadra, true);
+  assert.equal(suma(r, '2520', 'debito'), 1124548 - 124548, 'el pasivo queda cancelado por lo que había provisionado');
+  assert.equal(suma(r, '510536', 'debito'), 124548, 'lo que faltó se lleva al gasto de prima');
+  assert.equal(suma(r, '111005', 'credito'), 1124548);
+  assert.equal(r.lineas.find((l) => l.cuentaCodigo === '2520').terceroId, 'e1');
+});
+
+test('Pago de cesantías: si la provisión sobró y se liquida todo, se libera como menor gasto', () => {
+  const r = A.armarAsientoPrestaciones([{
+    terceroId: 'e1', area: 'ventas', retencion: 0, descuentos: [],
+    componentes: [{ concepto: 'cesantias', valor: 2000000, saldoProvision: 2100000, liquidaTotal: true }],
+  }], '111005');
+  assert.equal(r.cuadra, true);
+  assert.equal(suma(r, '2510', 'debito'), 2100000);
+  assert.equal(suma(r, '520530', 'credito'), 100000, 'recuperación en el gasto de ventas');
+  assert.equal(suma(r, '111005', 'credito'), 2000000);
+});
+
+test('Vacaciones parciales: lo que sobra de la provisión no se libera', () => {
+  const r = A.armarAsientoPrestaciones([{
+    terceroId: 'e1', area: 'administracion', retencion: 0, descuentos: [],
+    componentes: [{ concepto: 'vacaciones', valor: 500000, saldoProvision: 1500000, liquidaTotal: false }],
+  }], '111005');
+  assert.equal(r.cuadra, true);
+  assert.equal(suma(r, '2525', 'debito'), 500000);
+  assert.equal(r.lineas.filter((l) => l.cuentaCodigo === '510539').length, 0);
+});
+
+test('Liquidación final: indemnización a gasto, retención y descuentos', () => {
+  const r = A.armarAsientoPrestaciones([{
+    terceroId: 'e1', area: 'administracion', retencion: 250000,
+    descuentos: [{ cuenta: '1365', valor: 150000 }],
+    componentes: [
+      { concepto: 'prima', valor: 600000, saldoProvision: 600000, liquidaTotal: true },
+      { concepto: 'cesantias', valor: 1200000, saldoProvision: 1100000, liquidaTotal: true },
+      { concepto: 'indemnizacion', valor: 3000000, liquidaTotal: false },
+    ],
+  }], '111005');
+  assert.equal(r.cuadra, true);
+  assert.equal(suma(r, '510560', 'debito'), 3000000);
+  assert.equal(suma(r, '236505', 'credito'), 250000);
+  assert.equal(suma(r, '1365', 'credito'), 150000);
+  assert.equal(suma(r, '111005', 'credito'), 600000 + 1200000 + 3000000 - 250000 - 150000);
+  assert.equal(suma(r, '510530', 'debito'), 100000);
+});
+
+test('Pago de prestaciones: el neto negativo se rechaza y un concepto desconocido también', () => {
+  assert.throws(() => A.armarAsientoPrestaciones([{ terceroId: 'e1', area: 'administracion', retencion: 0, descuentos: [{ cuenta: '1365', valor: 900 }], componentes: [{ concepto: 'prima', valor: 500, saldoProvision: 500, liquidaTotal: true }] }], '111005'), /negativo/);
+  assert.throws(() => A.armarAsientoPrestaciones([{ terceroId: 'e1', area: 'administracion', componentes: [{ concepto: 'x', valor: 5 }] }], '111005'), /desconocido/);
+});
+
+test('Pago de la planilla: cancela lo liquidado, aproximación a gasto y mora a intereses', () => {
+  const r = A.armarAsientoPagoPlanilla({
+    liquidado: { salud: 70036, pension: 280145, arl: 9140, parafiscales: 70036 }, valorPila: 429700, mora: 5000, area: 'administracion',
+  }, '111005');
+  assert.equal(r.cuadra, true);
+  assert.equal(suma(r, '237005', 'debito'), 70036);
+  assert.equal(suma(r, '238030', 'debito'), 280145);
+  assert.equal(suma(r, '237006', 'debito'), 9140);
+  assert.equal(suma(r, '237010', 'debito'), 70036);
+  assert.equal(suma(r, '510595', 'debito'), 429700 - 429357);
+  assert.equal(suma(r, '530520', 'debito'), 5000);
+  assert.equal(suma(r, '111005', 'credito'), 434700);
+  assert.throws(() => A.armarAsientoPagoPlanilla({ liquidado: { salud: 1000 }, valorPila: 500 }, '111005'), /menor/);
+});
+
+test('El catálogo trae la indemnización y los intereses', () => {
+  const codigos = A.CATALOGO.map((c) => c.codigo);
+  for (const c of ['510560', '520560', '530520', '5305']) assert.ok(codigos.includes(c), c);
+});

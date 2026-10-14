@@ -47,4 +47,24 @@ router.get('/periodos/:id/planilla.csv', puedeVer, c.planillaCsv);
 // Provisiones acumuladas por empleado
 router.get('/provisiones', puedeVer, c.provisiones);
 
+// Pago de la planilla (PILA) y archivo de cargue
+router.post('/periodos/:id/planilla-pago', puedeModificar, c.pagarPlanilla);
+router.post('/planilla-pagos/:pagoId/anular', puedeModificar, c.anularPagoPlanilla);
+router.get('/periodos/:id/planilla-cargue.csv', puedeVer, c.planillaCargueCsv);
+
+// Vacaciones: saldo por empleado
+router.get('/vacaciones', puedeVer, c.resumenVacaciones);
+
+// Prestaciones sociales (prima, cesantías, intereses), vacaciones en dinero y liquidación final
+router.get('/prestaciones', puedeVer, c.listarPrestaciones);
+router.post('/prestaciones', puedeModificar, c.crearPrestacionLote);
+router.post('/prestaciones/vacaciones', puedeModificar, c.crearVacaciones);
+router.post('/prestaciones/liquidacion', puedeModificar, c.crearLiquidacion);
+router.get('/prestaciones/:id', puedeVer, c.obtenerPrestacion);
+router.get('/prestaciones/:id/empleados/:empleadoId', puedeVer, c.comprobantePrestacion);
+router.post('/prestaciones/:id/recalcular', puedeModificar, c.recalcularPrestacion);
+router.post('/prestaciones/:id/pagar', puedeModificar, c.pagarPrestacion);
+router.post('/prestaciones/:id/anular', puedeModificar, c.anularPrestacion);
+router.delete('/prestaciones/:id', puedeModificar, c.eliminarPrestacion);
+
 module.exports = router;

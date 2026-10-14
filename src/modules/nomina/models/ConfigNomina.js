@@ -16,6 +16,9 @@ const ConfigNomina = sequelize.define('ConfigNomina', {
   ccfNombre: { type: DataTypes.STRING(100) },
   ccfCodigo: { type: DataTypes.STRING(20) },
   operadorPila: { type: DataTypes.STRING(100) },
+  // Días que se trabajan a la semana (5: lunes a viernes, 6: con sábado). Define qué
+  // días son hábiles al descontar vacaciones.
+  semanaLaboral: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 5 },
 }, {
   tableName: 'nomina_config',
   indexes: [{ unique: true, fields: ['empresa_id'] }],

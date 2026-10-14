@@ -19,6 +19,20 @@
 //
 // Asiento de provisiones: Db 5105xx30/33/36/39 · Cr 2510 / 2515 / 2520 / 2525.
 // Asiento de pago:        Db 2505 (por empleado) · Cr banco o caja.
+//
+// Pago de prestaciones y liquidación final (por empleado):
+//   Db  2510 / 2515 / 2520 / 2525  el pasivo que se paga (con el tercero del empleado)
+//   Db  5105xx / 5205xx            si la provisión no alcanzó (o Cr si sobró al liquidar todo)
+//   Db  5105xx 60                  indemnización por despido
+//   Cr  236505                     retención en la fuente
+//   Cr  1365 / 2370xx              descuentos
+//   Cr  banco o caja               neto pagado
+//
+// Pago de la planilla (PILA):
+//   Db  237005 / 238030 / 237006 / 237010   lo liquidado en la nómina
+//   Db  5105xx 95                           diferencia por la aproximación a 100 de la PILA
+//   Db  530520                              intereses de mora, si hubo
+//   Cr  banco o caja                        total pagado al operador
 (function (raiz, fabrica) {
   if (typeof module === 'object' && module.exports) module.exports = fabrica();
   else raiz.asientoNomina = fabrica();
@@ -52,6 +66,7 @@
     '39': 'Vacaciones',
     '45': 'Auxilios',
     '48': 'Bonificaciones',
+    '60': 'Indemnizaciones laborales',
     '68': 'Aportes a ARL',
     '69': 'Aportes a EPS',
     '70': 'Aportes a fondos de pensiones',
@@ -91,6 +106,8 @@
     cu('2520', 'Prima de servicios', 'credito', 'pasivo'),
     cu('2525', 'Vacaciones consolidadas', 'credito', 'pasivo'),
   ];
+  CATALOGO.push(cu('5305', 'Gastos financieros', 'debito', 'gasto'));
+  CATALOGO.push(cu('530520', 'Intereses (incluye intereses de mora en aportes)', 'debito', 'gasto', '5305'));
   for (const [prefijo, area] of Object.entries({ 5105: 'Gastos de personal', 5205: 'Gastos de personal (ventas)' })) {
     CATALOGO.push(cu(prefijo, area, 'debito', 'gasto'));
     for (const [sufijo, nombre] of Object.entries(SUFIJOS_GASTO)) {
@@ -197,5 +214,77 @@
     return a.resultado();
   }
 
-  return { CUENTAS, CATALOGO, SUFIJOS_GASTO, AREAS, PREFIJO_AREA, cuentaGasto, armarAsientoLiquidacion, armarAsientoProvisiones, armarAsientoPago };
+  // Pasivo que se cancela y subcuenta de gasto que se ajusta, por concepto de prestación.
+  const CONCEPTOS_PAGO = {
+    prima: { pasivo: CUENTAS.PRIMA, gasto: '36' },
+    cesantias: { pasivo: CUENTAS.CESANTIAS, gasto: '30' },
+    intereses: { pasivo: CUENTAS.INTERESES_CESANTIAS, gasto: '33' },
+    vacaciones: { pasivo: CUENTAS.VACACIONES, gasto: '39' },
+    indemnizacion: { pasivo: null, gasto: '60' },
+    otro: { pasivo: null, gasto: '95' },
+  };
+
+  // items: [{ terceroId, area, componentes: [{ concepto, valor, saldoProvision, liquidaTotal }],
+  //           retencion, descuentos: [{ cuenta, valor }] }]
+  // saldoProvision: lo que el libro tiene causado (crédito) para ese concepto y empleado.
+  // Si se paga más, la diferencia es gasto; si se liquida todo y sobró, se libera como menor gasto.
+  function armarAsientoPrestaciones(items, cuentaPagoCodigo) {
+    const a = acumulador();
+    for (const it of items || []) {
+      const t = it.terceroId;
+      let bruto = 0;
+      for (const c of it.componentes || []) {
+        const valor = pesos(c.valor);
+        if (!valor) continue;
+        const def = CONCEPTOS_PAGO[c.concepto];
+        if (!def) throw new Error(`Concepto de pago desconocido: "${c.concepto}".`);
+        bruto += valor;
+        if (!def.pasivo) {
+          a.poner(cuentaGasto(it.area, def.gasto), valor, 0);
+          continue;
+        }
+        a.poner(def.pasivo, valor, 0, t);
+        const faltante = valor - pesos(c.saldoProvision);
+        if (faltante > 0) {
+          a.poner(cuentaGasto(it.area, def.gasto), faltante, 0);
+          a.poner(def.pasivo, 0, faltante, t);
+        } else if (faltante < 0 && c.liquidaTotal) {
+          a.poner(def.pasivo, -faltante, 0, t);
+          a.poner(cuentaGasto(it.area, def.gasto), 0, -faltante);
+        }
+      }
+      const retencion = pesos(it.retencion);
+      let descuentos = 0;
+      a.poner(CUENTAS.RETENCION_SALARIOS, 0, retencion, t);
+      for (const d of it.descuentos || []) {
+        const v = pesos(d.valor);
+        descuentos += v;
+        a.poner(d.cuenta, 0, v, t);
+      }
+      const neto = bruto - retencion - descuentos;
+      if (neto < 0) throw new Error('Hay un empleado con neto a pagar negativo; ajusta los descuentos antes de contabilizar.');
+      a.poner(cuentaPagoCodigo, 0, neto);
+    }
+    return a.resultado();
+  }
+
+  // datos: { liquidado: { salud, pension, arl, parafiscales }, valorPila, mora, area }
+  function armarAsientoPagoPlanilla(datos, cuentaPagoCodigo) {
+    const a = acumulador();
+    const L = datos.liquidado || {};
+    const liquidado = pesos(L.salud) + pesos(L.pension) + pesos(L.arl) + pesos(L.parafiscales);
+    const valorPila = pesos(datos.valorPila);
+    const mora = pesos(datos.mora);
+    if (valorPila < liquidado) throw new Error('El valor de la PILA no puede ser menor a lo liquidado en la nómina.');
+    a.poner(CUENTAS.APORTES_EPS, L.salud, 0);
+    a.poner(CUENTAS.APORTES_PENSION, L.pension, 0);
+    a.poner(CUENTAS.APORTES_ARL, L.arl, 0);
+    a.poner(CUENTAS.APORTES_PARAFISCALES, L.parafiscales, 0);
+    a.poner(cuentaGasto(datos.area, '95'), valorPila - liquidado, 0);
+    a.poner('530520', mora, 0);
+    a.poner(cuentaPagoCodigo, 0, valorPila + mora);
+    return a.resultado();
+  }
+
+  return { CUENTAS, CATALOGO, SUFIJOS_GASTO, AREAS, PREFIJO_AREA, cuentaGasto, armarAsientoLiquidacion, armarAsientoProvisiones, armarAsientoPago, armarAsientoPrestaciones, armarAsientoPagoPlanilla };
 });

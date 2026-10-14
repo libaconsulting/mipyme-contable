@@ -1,5 +1,6 @@
 const { mensajeError } = require('../../../core/utils/mensajeError');
 const nominaService = require('../services/nomina.service');
+const prestaciones = require('../services/prestaciones.service');
 
 // Cada acción: llama al servicio con (req.body / params / query, req.usuario) y responde JSON.
 function accion(fn, estado) {
@@ -43,6 +44,34 @@ module.exports = {
   planillaAportes: accion((req) => nominaService.planillaAportes(req.params.id, u(req))),
 
   provisiones: accion((req) => nominaService.provisionesAcumuladas(u(req), req.query)),
+
+  // Prestaciones sociales, vacaciones y liquidación final
+  listarPrestaciones: accion((req) => prestaciones.listarPrestaciones(u(req), req.query)),
+  crearPrestacionLote: accion((req) => prestaciones.crearLote(req.body || {}, u(req)), 201),
+  crearVacaciones: accion((req) => prestaciones.crearVacaciones(req.body || {}, u(req)), 201),
+  crearLiquidacion: accion((req) => prestaciones.crearLiquidacion(req.body || {}, u(req)), 201),
+  obtenerPrestacion: accion((req) => prestaciones.obtener(req.params.id, u(req))),
+  recalcularPrestacion: accion((req) => prestaciones.recalcular(req.params.id, req.body || {}, u(req))),
+  pagarPrestacion: accion((req) => prestaciones.pagar(req.params.id, req.body || {}, u(req))),
+  anularPrestacion: accion((req) => prestaciones.anular(req.params.id, req.body || {}, u(req))),
+  eliminarPrestacion: accion((req) => prestaciones.eliminar(req.params.id, u(req))),
+  comprobantePrestacion: accion((req) => prestaciones.comprobante(req.params.id, req.params.empleadoId, u(req))),
+  resumenVacaciones: accion((req) => prestaciones.resumenVacaciones(u(req), req.query)),
+
+  // Pago de la planilla PILA
+  pagarPlanilla: accion((req) => prestaciones.pagarPlanilla(req.params.id, req.body || {}, u(req))),
+  anularPagoPlanilla: accion((req) => prestaciones.anularPagoPlanilla(req.params.pagoId, req.body || {}, u(req))),
+
+  async planillaCargueCsv(req, res) {
+    try {
+      const { nombre, contenido } = await prestaciones.planillaCargueCsv(req.params.id, u(req));
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+      res.send(contenido);
+    } catch (error) {
+      res.status(400).json({ error: mensajeError(error) });
+    }
+  },
 
   async planillaCsv(req, res) {
     try {

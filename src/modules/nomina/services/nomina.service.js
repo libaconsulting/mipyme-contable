@@ -34,6 +34,8 @@ const { asegurarCuentaContable } = require('../../tesoreria/services/contabilida
 const PL = require('../../../../public/contable/parametrosLaborales');
 const { liquidarEmpleado, resumenPlanilla } = require('../../../../public/contable/liquidacionNomina');
 const AN = require('../../../../public/contable/asientoNomina');
+const PN = require('../../../../public/contable/prestacionesNomina');
+const NominaPlanillaPago = require('../models/NominaPlanillaPago');
 
 const TIPOS_CONTRATO = ['indefinido', 'fijo', 'obra_labor'];
 const TIPOS_SALARIO = ['ordinario', 'integral'];
@@ -117,6 +119,10 @@ async function guardarConfig(datos, usuario) {
   if (datos.ccfNombre !== undefined) cambios.ccfNombre = limpiarTexto(datos.ccfNombre, 100, 'El nombre de la caja de compensación');
   if (datos.ccfCodigo !== undefined) cambios.ccfCodigo = codigoEntidad(datos.ccfCodigo, 'El código de la caja de compensación');
   if (datos.operadorPila !== undefined) cambios.operadorPila = limpiarTexto(datos.operadorPila, 100, 'El operador de PILA');
+  if (datos.semanaLaboral !== undefined) {
+    if (![5, 6].includes(Number(datos.semanaLaboral))) throw new Error('La semana laboral es de 5 días (lunes a viernes) o de 6 (con sábado).');
+    cambios.semanaLaboral = Number(datos.semanaLaboral);
+  }
   await cfg.update(cambios);
   await auditoria.registrar({
     empresaId: usuario.empresaId,
@@ -149,6 +155,7 @@ async function opciones(usuario) {
     devengos: Object.entries(PL.DEVENGOS).map(([codigo, d]) => ({ codigo, nombre: d.nombre, horas: !!d.horas, salarial: d.salarial })),
     descuentos: Object.entries(PL.DESCUENTOS).map(([codigo, d]) => ({ codigo, nombre: d.nombre })),
     clasesRiesgo: PL.CLASES_RIESGO,
+    causasRetiro: Object.entries(PN.CAUSAS_RETIRO).map(([codigo, d]) => ({ codigo, nombre: d.nombre, indemniza: d.indemniza })),
     areas: AN.AREAS,
     hoy,
   };
@@ -159,7 +166,7 @@ function conEmpleado(contrato, empleadosPorId) {
   const p = plano(contrato);
   const e = empleadosPorId[p.empleadoId];
   p.empleado = e ? { id: e.id, nombre: e.nombre, identificacion: e.identificacion } : null;
-  for (const k of ['salarioBase', 'retencionManual', 'interesesVivienda', 'medicinaPrepagada', 'aporteVoluntarioPension', 'aporteAfc']) {
+  for (const k of ['salarioBase', 'retencionManual', 'interesesVivienda', 'medicinaPrepagada', 'aporteVoluntarioPension', 'aporteAfc', 'vacacionesDiasPrevios']) {
     p[k] = Number(p[k]);
   }
   return p;
@@ -239,6 +246,11 @@ function normalizarContrato(d, actual) {
     afpCodigo: codigoEntidad(v('afpCodigo'), 'El código del fondo de pensiones'),
     fondoCesantiasNombre: limpiarTexto(v('fondoCesantiasNombre'), 100, 'El nombre del fondo de cesantías'),
     fondoCesantiasCodigo: codigoEntidad(v('fondoCesantiasCodigo'), 'El código del fondo de cesantías'),
+    vacacionesDiasPrevios: (() => {
+      const d = dinero(v('vacacionesDiasPrevios'), 'Los días de vacaciones ya tomados');
+      if (d > 1000) throw new Error('Los días de vacaciones ya tomados no son un valor válido.');
+      return d;
+    })(),
     observaciones: limpiarTexto(v('observaciones'), 1000, 'Las observaciones'),
   };
 }
@@ -739,6 +751,8 @@ async function asegurarReglasNomina(empresaId, transaction) {
     { evento: 'nomina_liquidacion', debito: '510506', credito: '2505' },
     { evento: 'nomina_provisiones', debito: '510530', credito: '2510' },
     { evento: 'nomina_pago', debito: '2505', credito: '1110' },
+    { evento: 'nomina_prestaciones', debito: '2520', credito: '1110' },
+    { evento: 'nomina_planilla_pago', debito: '237005', credito: '1110' },
   ];
   const cuentas = await cuentasPorCodigo(empresaId, reglas.flatMap((r) => [r.debito, r.credito]), transaction);
   for (const r of reglas) {
@@ -926,7 +940,7 @@ async function provisionesAcumuladas(usuario, filtros) {
     meses: periodos.map((p) => mesTexto(p.anio, p.mes)),
     filas,
     totales: { cesantias: suma('cesantias'), intereses: suma('intereses'), prima: suma('prima'), vacaciones: suma('vacaciones'), vacacionesDisfrutadas: suma('vacacionesDisfrutadas'), vacacionesSaldo: suma('vacacionesSaldo'), total: suma('total') },
-    nota: 'Es lo causado en las nóminas contabilizadas desde que se usa este módulo. Los pagos de prima, cesantías e intereses se registran en la siguiente etapa.',
+    nota: 'Es lo causado en las nóminas contabilizadas desde que se usa este módulo. Los pagos de prima, cesantías, intereses y vacaciones se registran en “Prestaciones”.',
   };
 }
 
@@ -964,7 +978,14 @@ async function planillaAportes(periodoId, usuario) {
   if (!config.ccfNombre) avisos.push('Falta la caja de compensación de la empresa (Nómina > Configuración).');
 
   const resumen = resumenPlanilla(items);
+  const pagos = (await NominaPlanillaPago.findAll({ where: { periodoId: periodo.id, empresaId }, order: [['createdAt', 'DESC']] })).map((p) => {
+    const x = plano(p);
+    for (const k of ['valorLiquidado', 'valorPila', 'mora', 'total']) x[k] = Number(x[k]);
+    return x;
+  });
   return {
+    pagos,
+    pagoVigente: pagos.find((p) => p.estado === 'pagada') || null,
     periodo: { id: periodo.id, anio: periodo.anio, mes: periodo.mes, estado: periodo.estado, fechaInicio: periodo.fechaInicio, fechaFin: periodo.fechaFin },
     // La PILA del mes se paga el mes siguiente.
     aportante: { razonSocial: empresa ? empresa.razonSocial : '', nit: empresa ? empresa.nit : '', arl: config.arlNombre, ccf: config.ccfNombre, operador: config.operadorPila },
@@ -996,4 +1017,9 @@ module.exports = {
   listarPeriodos, crearPeriodo, preliquidar, detallePeriodo, detalleLiquidacion,
   contabilizarPeriodo, reabrirPeriodo, registrarPago,
   provisionesAcumuladas, planillaAportes, planillaCsv,
+  // Ayudas que usa prestaciones.service.js
+  _interno: {
+    armarEntrada, obtenerConfigFila, fechaValida, hoyColombia, limpiarTexto, dinero, entero, mesTexto, plano, empleadosDe,
+    asegurarReglasNomina, enriquecerAsiento, periodoDe, nombresCuentas,
+  },
 };

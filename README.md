@@ -363,7 +363,7 @@ Cuando haya proveedor tecnológico propio, el flujo `POST /api/compras/documento
 ## Nómina (NIIF Grupo 3, Colombia)
 
 Pestaña **Nómina**: contratos, novedades, liquidación mensual, deducciones, provisiones de prestaciones,
-contabilización, pago de salarios y planilla de aportes a seguridad social. La **nómina electrónica la sigue
+contabilización, pago de salarios, planilla de aportes a seguridad social y (fase 2) prestaciones, vacaciones y liquidación final. La **nómina electrónica la sigue
 emitiendo Siigo**; este módulo calcula, contabiliza y organiza lo de seguridad social (por eso se eliminó el
 webhook/adaptador de nómina del proveedor tecnológico).
 
@@ -405,9 +405,50 @@ Se descarga en CSV (`;`, UTF-8 con BOM). **No es el archivo plano** que se carga
 - Fechas y porcentajes de las Leyes 2466 de 2025 y 2101 de 2021 tal como están en `parametrosLaborales.js`; años sin parámetros usan el último con aviso "estimado".
 - Los asientos `anulado` por una reapertura deben excluirse de los reportes que se construyan después.
 
-**Lo que no hace todavía (fase 2):** pagos de prima, cesantías, intereses y vacaciones (cruce contra 2510–2525);
-liquidación final de contrato; archivo plano PILA; pago de la planilla con su ajuste de aproximación; saldos iniciales de
-provisiones para empresas con nómina previa; cambio de salario a mitad de mes; reversión de un pago.
+### Nómina · fase 2: prestaciones, vacaciones, liquidación final y planilla PILA
+
+Dos pestañas nuevas: **Prestaciones y liquidación** y **Vacaciones**; y en **Planilla de aportes** el pago de la planilla.
+
+**Flujo de una prestación:** crear el documento (se calcula en *borrador*, con "Cálculo" que explica base, método, días y
+provisión de cada empleado) → revisar → **Registrar el pago** (se recalcula con la fecha de pago, se contabiliza y queda un egreso
+en Tesorería pendiente de conciliar) → si hay un error, **Anular el pago** (asiento y egreso quedan anulados y el documento se puede crear de nuevo).
+Tipos: **prima** (por semestre), **cesantías** (año), **intereses** (año), **vacaciones en dinero** (un empleado) y **liquidación final** (un contrato).
+Hay un único documento vigente por (tipo, año, semestre). Comprobante imprimible por empleado (`/contable/comprobante-prestaciones.html`).
+
+**Código:** reglas en `public/contable/prestacionesNomina.js` (compartido; pruebas `tests/prestacionesNomina.test.js`), asientos en
+`asientoNomina.js` (`armarAsientoPrestaciones`, `armarAsientoPagoPlanilla`), servicio `src/modules/nomina/services/prestaciones.service.js`,
+pantallas `public/contable/nominaPrestaciones.js`. Tablas nuevas: `nomina_prestaciones`, `nomina_prestacion_lineas`, `nomina_planilla_pagos`;
+columnas nuevas: `contratos_laborales.vacaciones_dias_previos`, `config_nomina.semana_laboral` (las crea `sync({ alter: true })`).
+
+**Reglas aplicadas:**
+- Año de 360 días. **Prima:** 30 días por año (semestres 1-ene a 30-jun y 1-jul a 31-dic). **Cesantías:** un mes por año. **Intereses:** cesantías × días × 12 % ÷ 360.
+- Base: si el salario fijo no cambió, el último salario (+ auxilio de transporte si corresponde; en cesantías se mira la ventana de los últimos 3 meses, en prima todo el semestre); si hubo cambios o conceptos variables, promedio ponderado por días.
+  Licencias no remuneradas y suspensiones descuentan días. El salario integral no genera prestaciones (no entra en los lotes).
+- **Vacaciones:** 15 días hábiles por 360 días de servicio; valor del día = base ÷ 30; la base no incluye horas extras, recargos festivos ni auxilio de transporte.
+  El saldo descuenta lo disfrutado (ausencias), lo pagado en dinero y los *días previos al sistema* del contrato. La semana laboral (5 o 6 días) se define en Configuración.
+- **Indemnización (art. 64 CST)**, solo con causa "despido sin justa causa": indefinido con menos de 10 SMMLV, 30 días el primer año y 20 por cada año adicional (proporcional);
+  10 SMMLV o más, 20 y 15; fijo u obra, lo que faltaba del contrato (mínimo 15 días). Sobre el salario sin auxilio. Los días se pueden fijar a mano.
+- **Retención en la fuente** de prima, vacaciones, indemnización y otros pagos: retención del mes de pago con el pago − retención sin él (procedimiento 1). Cesantías e intereses se tratan como exentos (avisa si el salario supera 350 UVT).
+- **Liquidación final:** liquida prima, cesantías, intereses y vacaciones pendientes + indemnización + otros pagos − descuentos. El sueldo de los días del mes de retiro va en la nómina de ese mes (el sistema avisa si falta o si hay nóminas posteriores al retiro). Al pagar, el contrato queda terminado en la fecha de retiro; al anular, vuelve a su estado anterior.
+
+**Contabilidad del pago** (evento `nomina_prestaciones`): Db pasivo (2520 prima, 2510 cesantías, 2515 intereses, 2525 vacaciones; con el empleado como tercero) por el valor pagado;
+si el valor supera la provisión que hay en el libro, la diferencia va a gasto (5105xx/5205xx con sufijos 36, 30, 33, 39) y si se liquida todo y sobra provisión, se libera contra el gasto;
+indemnización a 510560/520560; otros pagos a 5105xx95; Cr 236505 retención, Cr descuentos (1365, 2370xx), Cr banco o caja. Saldo de provisión = movimientos del empleado en esa cuenta hasta el fin del mes de la fecha de corte.
+
+**Planilla PILA:** en *Planilla de aportes* se registra el **pago de la planilla** (Db 237005/238030/237006/237010 por lo liquidado, Db 5105xx95 por la aproximación a múltiplos de 100, Db 530520 intereses de mora; Cr banco o caja; evento `nomina_planilla_pago`),
+se puede anular, y se descarga el **CSV de cargue** (una fila por empleado con tipo de documento, novedades con fechas, días, IBC, tarifas y cotizaciones por subsistema). 
+**No genera el archivo plano oficial** (.txt de ancho fijo, Anexo Técnico 2 de la Resolución 2388 de 2016 y sus modificaciones) porque falta el diseño de registros del tipo 2; el CSV sirve para digitar o importar en el operador (Aportes en Línea, SOI, Simple, etc.).
+Los nombres se separan con una regla simple (de tres palabras: 1 nombre y 2 apellidos; de cuatro: 2 y 2): revisa los empleados con nombres compuestos antes de cargar. El tipo de cotizante (01) y el tipo de documento (CC) están fijos.
+
+**Supuestos de la fase 2 a validar con el contador:**
+- Prima y cesantías con la base descrita (último salario si no hubo cambios); intereses pagados antes del 31 de enero (después, la ley obliga a pagar el doble: solo hay aviso).
+- Vacaciones: base sin recargos ni auxilio de transporte; compensar en dinero mientras el contrato esté vigente exige acuerdo (CST art. 189), el sistema avisa pero no lo impide más allá del saldo.
+- Retención de pagos adicionales por el procedimiento 1; cesantías e intereses exentos.
+- La indemnización del art. 64 se calcula sobre salario ordinario; con salario variable conviene confirmar la base.
+- Aproximación PILA y mora: se contabilizan como gasto (5105xx95 y 530520).
+
+**Lo que sigue pendiente:** archivo plano PILA oficial; cambio de salario a mitad de mes; dos contratos de un mismo empleado en el mismo mes; saldos iniciales formales de provisiones
+(hoy se resuelven con los días de vacaciones previos del contrato y con los saldos del libro); reversión de un pago de nómina mensual.
 
 ## Inventarios (costo promedio ponderado)
 

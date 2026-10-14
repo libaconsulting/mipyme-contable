@@ -36,6 +36,9 @@ const ContratoLaboral = sequelize.define('ContratoLaboral', {
   afpCodigo: { type: DataTypes.STRING(20) },
   fondoCesantiasNombre: { type: DataTypes.STRING(100) },
   fondoCesantiasCodigo: { type: DataTypes.STRING(20) },
+  // Vacaciones: días HÁBILES ya disfrutados o pagados en dinero antes de usar el sistema
+  // (acumulado desde el ingreso). Con esto el saldo de vacaciones arranca bien.
+  vacacionesDiasPrevios: { type: DataTypes.DECIMAL(6, 2), allowNull: false, defaultValue: 0 },
   observaciones: { type: DataTypes.TEXT },
 }, {
   tableName: 'nomina_contratos',

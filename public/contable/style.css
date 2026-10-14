@@ -868,3 +868,6 @@ td.num, th.num {
 #dialogo-inv .fx-check { display: block; margin: 4px 0 12px; font-size: 13px; }
 #dialogo-inv .inv-barra { margin-bottom: 12px; }
 .inv-linea select { max-width: 100%; }
+
+/* Nómina · prestaciones: un concepto por renglón dentro de la tabla de empleados */
+.nom-comp { white-space: nowrap; padding: 1px 0; }

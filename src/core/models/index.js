@@ -30,6 +30,9 @@ const AusenciaNomina = require('../../modules/nomina/models/AusenciaNomina');
 const ConceptoNomina = require('../../modules/nomina/models/ConceptoNomina');
 const NominaPeriodo = require('../../modules/nomina/models/NominaPeriodo');
 const NominaLiquidacion = require('../../modules/nomina/models/NominaLiquidacion');
+const NominaPrestacion = require('../../modules/nomina/models/NominaPrestacion');
+const NominaPrestacionLinea = require('../../modules/nomina/models/NominaPrestacionLinea');
+const NominaPlanillaPago = require('../../modules/nomina/models/NominaPlanillaPago');
 const Producto = require('../../modules/inventarios/models/Producto');
 const KardexMovimiento = require('../../modules/inventarios/models/KardexMovimiento');
 const ActivoFijo = require('../../modules/activosFijos/models/ActivoFijo');
@@ -61,6 +64,9 @@ module.exports = {
   ConceptoNomina,
   NominaPeriodo,
   NominaLiquidacion,
+  NominaPrestacion,
+  NominaPrestacionLinea,
+  NominaPlanillaPago,
   Producto,
   KardexMovimiento,
   ActivoFijo,
