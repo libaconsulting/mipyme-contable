@@ -35,7 +35,7 @@ src/
 │   ├── ventas/                 Cotización → factura, patrón de referencia
 │   ├── compras/                Factura recibida + documento soporte, orden de compra
 │   ├── nomina/                 Contratos → liquidación mensual → contabilizar → pagar → planilla de aportes
-│   ├── inventarios/            Kardex simplificado: entradas, salidas, ajustes
+│   ├── inventarios/            Productos, kardex a costo promedio, valoración; entradas/salidas desde las facturas
 │   ├── activosFijos/           Registro, depreciación mensual (cron), baja
 │   └── tesoreria/               Cuentas bancarias, movimientos, conciliación
 ├── integrations/             # Capa adaptadora hacia proveedores acreditados
@@ -334,7 +334,7 @@ Facturas de venta → **+ Cargar factura emitida (XML)**: sirve el `.xml` o el `
 - Pruebas: `node --test tests/asientoVenta.test.js`.
 
 Lo que **no** hace todavía: retenciones que practica el cliente (se registrarán al recibir el pago, en
-Tesorería), notas crédito/débito, costo de ventas de bienes (inventarios), impoconsumo en ventas, ni el
+Tesorería), notas crédito/débito, impoconsumo en ventas, ni el
 **documento soporte** (Siigo no entrega XML: se registra a mano, ver la sección siguiente).
 
 ## Documento soporte (compras a no obligados a facturar), expedido en Siigo
@@ -409,6 +409,56 @@ Se descarga en CSV (`;`, UTF-8 con BOM). **No es el archivo plano** que se carga
 liquidación final de contrato; archivo plano PILA; pago de la planilla con su ajuste de aproximación; saldos iniciales de
 provisiones para empresas con nómina previa; cambio de salario a mitad de mes; reversión de un pago.
 
+## Inventarios (costo promedio ponderado)
+
+Pestaña **Inventarios**: catálogo de productos, kardex, movimientos manuales, valoración y conciliación con la contabilidad.
+El inventario se lleva **a costo promedio ponderado, perpetuo**. El saldo de cada producto es (cantidad, valor): el costo
+promedio es valor ÷ cantidad, y al sacar todo lo que hay se lleva el valor completo (no quedan centavos sueltos).
+
+**Cómo se mueve el inventario**
+- **Compra (factura de proveedor cargada desde el XML):** las líneas cuya cuenta destino es 14xx dan **entrada** al kardex por el
+  valor con que quedaron en el asiento (incluye descuentos repartidos e IVA/impoconsumo no descontable). **No crea otro asiento:**
+  la factura ya debitó el inventario. En el diálogo de la factura, cada línea a 14xx muestra «Producto en inventario»:
+  *Automático* (lo reconoce o crea uno), *Crear producto nuevo* o un producto existente.
+- **Venta (factura de venta cargada desde el XML):** las líneas enlazadas a un producto dan **salida al costo promedio** y se
+  contabilizan aparte: `Db 6135 Costo de ventas / Cr 1435 Inventario` (cuentas por producto; centro de costo = el proyecto de la factura).
+  El diálogo preselecciona el producto que reconoce (los servicios quedan en «Sin descargar inventario»).
+- **Manual** (Productos → Movimiento): saldo inicial, compra sin factura, sobrante, devolución de cliente, consumo interno, faltante,
+  baja por deterioro, devolución a proveedor. Con vista previa del valor y del asiento; la contrapartida se propone (5195, 4295, 2335, 2205) y se puede cambiar.
+  El **saldo inicial** puede ir solo al kardex (si la contabilidad ya tiene el saldo de apertura) o con asiento.
+- Todo ocurre **en la misma transacción que la factura**: si algo falla (p. ej. una línea a inventario sin cantidad) no se guarda nada.
+
+**Cómo reconoce el producto de una línea** (`costeoInventario.buscarProducto`): en ventas, por código → alias → nombre; en compras
+(el código es del proveedor) por alias atado al NIT del proveedor → nombre → código. Cuando eliges un producto a mano (o se crea uno
+desde una compra) el producto «recuerda» el código y la descripción como alias: la próxima factura lo enlaza sola.
+
+**Venta sin existencias:** como la factura ya se emitió en Siigo, **se registra igual**: lo que falta sale al último costo de compra,
+el saldo queda en negativo (marcado en rojo y en alertas) y se corrige solo cuando llega la factura de compra (valor y cantidad se suman).
+Si no hay ningún costo conocido, la venta queda con costo cero y avisa.
+
+**Valoración y conciliación:** «Valoración» muestra el inventario a cualquier fecha de corte (CSV incluido) y compara el valor del
+kardex con el saldo contable de las cuentas 14xx. Una diferencia normal es el saldo inicial cargado solo al kardex; cualquier otra
+(compras a 1435 sin producto, asientos manuales a 14xx) se ve ahí.
+
+**Anular:** solo el **último** movimiento **manual** de un producto (motivo ≥ 10 letras): el saldo vuelve al de la fila anterior y su asiento queda `anulado`.
+Un movimiento de factura no se anula aquí (las facturas todavía no se pueden anular): se corrige con un ajuste.
+
+**Permisos:** ver, todos; crear productos y movimientos: dueño, contador y auxiliar; anular y cambiar cuentas contables: dueño y contador (el revisor solo consulta).
+**Tablas:** `productos` (ampliada; los productos viejos toman valor = cantidad × costo promedio) e `inventario_kardex` (nueva). La tabla vieja `movimientos_inventario` queda sin uso.
+**Código:** cálculo en `public/contable/costeoInventario.js` y asientos en `asientoInventario.js` (compartidos navegador/servidor);
+servicio en `src/modules/inventarios/services/inventarios.service.js`; rutas bajo `/api/inventarios`; pantalla en `public/contable/inventarios.js`.
+Pruebas: `node --test tests/costeoInventario.test.js tests/asientoInventario.test.js`.
+
+**Supuestos a validar con el contador:**
+- Costo promedio **por movimiento en orden de registro**, no por fecha del documento: una factura cargada tarde con fecha anterior se valora con el promedio vigente al registrarla (no recalcula las ventas ya hechas).
+- La venta sin existencias se valora al último costo de compra; el costo real se ajusta al entrar la compra, pero **el costo de ventas ya contabilizado no se reajusta** (la diferencia queda en el valor del inventario).
+- Cuentas por defecto: inventario 1435, costo 6135; faltantes/consumos/bajas a 5195 y sobrantes a 4295 (se pueden cambiar en cada movimiento). Cuentas alternativas ofrecidas: 1405, 1410, 1430, 1455, 1460, 1465 y 6120, 6140.
+- Una línea de compra a 14xx debe ir a la misma cuenta (primeros 4 dígitos) que el producto, para que el kardex cuadre con la contabilidad.
+
+**Lo que no hace todavía:** notas crédito/débito de compra y venta (devoluciones por factura), anulación de movimientos de factura, lotes y vencimientos,
+varias bodegas y traslados, costeo PEPS, producción (materias primas → producto terminado), IVA/inventario del documento soporte,
+importación masiva de productos desde Excel y el recálculo del promedio por fecha.
+
 ## Frontend
 
 `public/` es intencionalmente mínimo: sin framework, sin paso de
@@ -426,7 +476,7 @@ transiciones de estado principales de los seis módulos (formularios
 inline + botones de acción por fila según el estado del registro). Dos
 simplificaciones deliberadas por ahora:
 acciones que piden un solo dato adicional puntual (agregar empleado a
-un periodo, entradas/salidas/ajustes de inventario) usan `prompt()` del
+un periodo) usan `prompt()` del
 navegador en vez de un formulario modal propio; y no hay edición ni
 borrado de nada, solo creación y transiciones hacia adelante.
 
@@ -497,7 +547,7 @@ qué contabilizar.
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
 - [ ] Plan de cuentas: no hay pantalla para editar las **reglas de contabilización** (qué cuenta usa cada evento); solo se ven en el bloqueo al desactivar. Tampoco hay importación masiva del plan desde Excel ni cuentas de orden (clases 8 y 9). La cuenta 1355 se usa como "IVA descontable" (en el PUC el IVA descontable es una subcuenta de 2408): validar con el contador si se prefiere la estructura del PUC
-- [ ] Facturas de venta desde XML (Siigo): retenciones practicadas por el cliente al pago, notas crédito/débito, costo de ventas e inventario, impoconsumo, Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
+- [ ] Facturas de venta desde XML (Siigo): retenciones practicadas por el cliente al pago, notas crédito/débito, impoconsumo. Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
 - [ ] Facturas de compra desde XML: notas crédito/débito de proveedores (descuentos y devoluciones posteriores), documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
@@ -510,11 +560,10 @@ qué contabilizar.
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`
 - [ ] `DELETE` de terceros (crear, listar y editar ya existen; falta borrar)
-- [ ] Vincular `MovimientoInventario` con los ítems reales de `FacturaVenta`/`FacturaCompra` — hoy las entradas y salidas se registran manualmente por API, no automático desde una venta
 - [ ] Cuadre global de débitos vs. créditos del periodo como validación bloqueante del cierre (ver TODO en `cierrePeriodo.validarPeriodo`)
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
 - [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
-- [ ] Reemplazar los `prompt()` del navegador (entradas/salidas/ajustes de inventario) por formularios modales propios en el frontend; agregar edición/borrado en general
+- [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, si aún queda alguno) por formularios modales propios en el frontend; agregar edición/borrado en general
 - [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
 - [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma
 - [x] ~~Fase 2, parte 2~~ — Órdenes de Adquisición ya tiene ítems dinámicos, "Ver ítems" y "Editar" (solo en borrador), igual que Cotizaciones

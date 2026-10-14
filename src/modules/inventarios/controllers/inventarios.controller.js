@@ -1,58 +1,41 @@
-const inventariosService = require('../services/inventarios.service');
+const { mensajeError } = require('../../../core/utils/mensajeError');
+const servicio = require('../services/inventarios.service');
 
-async function crearProducto(req, res) {
-  try {
-    res.status(201).json(await inventariosService.crearProducto(req.body, req.usuario));
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+function accion(fn, estado) {
+  return async (req, res) => {
+    try {
+      res.status(estado || 200).json(await fn(req));
+    } catch (error) {
+      res.status(400).json({ error: mensajeError(error) });
+    }
+  };
 }
 
-async function listarProductos(req, res) {
-  try {
-    res.json(await inventariosService.listarProductos(req.usuario));
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
+function csv(fn) {
+  return async (req, res) => {
+    try {
+      const r = await fn(req);
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${r.nombre}"`);
+      res.send(r.contenido);
+    } catch (error) {
+      res.status(400).json({ error: mensajeError(error) });
+    }
+  };
 }
 
-async function listarMovimientos(req, res) {
-  try {
-    res.json(await inventariosService.listarMovimientos(req.usuario));
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-}
-
-async function registrarEntrada(req, res) {
-  try {
-    res.status(201).json(await inventariosService.registrarEntrada(req.body, req.usuario));
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-}
-
-async function registrarSalida(req, res) {
-  try {
-    res.status(201).json(await inventariosService.registrarSalida(req.body, req.usuario));
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-}
-
-async function registrarAjuste(req, res) {
-  try {
-    res.status(201).json(await inventariosService.registrarAjuste(req.body, req.usuario));
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-}
+const u = (req) => req.usuario;
 
 module.exports = {
-  crearProducto,
-  listarProductos,
-  listarMovimientos,
-  registrarEntrada,
-  registrarSalida,
-  registrarAjuste,
+  opciones: accion((req) => servicio.opciones(u(req))),
+  listarProductos: accion((req) => servicio.listarProductos(u(req), req.query)),
+  crearProducto: accion((req) => servicio.crearProducto(req.body || {}, u(req)), 201),
+  actualizarProducto: accion((req) => servicio.actualizarProducto(req.params.id, req.body || {}, u(req))),
+  kardex: accion((req) => servicio.kardexDeProducto(req.params.id, req.query, u(req))),
+  kardexCsv: csv((req) => servicio.kardexCsv(req.params.id, req.query, u(req))),
+  listarMovimientos: accion((req) => servicio.listarMovimientos(u(req), req.query)),
+  crearMovimiento: accion((req) => servicio.crearMovimiento(req.body || {}, u(req)), 201),
+  anularMovimiento: accion((req) => servicio.anularMovimiento(req.params.id, req.body || {}, u(req))),
+  valoracion: accion((req) => servicio.valoracion(u(req), req.query)),
+  valoracionCsv: csv((req) => servicio.valoracionCsv(u(req), req.query)),
 };

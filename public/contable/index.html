@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261013-7">
+<link rel="stylesheet" href="/contable/style.css?v=20261013-8">
 </head>
 <body>
 
@@ -494,21 +494,9 @@
     <section id="panel-inventarios" class="panel" hidden>
       <header class="panel-header">
         <h2>Inventarios</h2>
-        <button class="btn-primario" id="btn-nuevo-producto">+ Nuevo producto</button>
       </header>
-      <form id="form-producto" class="form-inline" hidden>
-        <input type="text" id="producto-nombre" placeholder="Nombre" required>
-        <select id="producto-tipo">
-          <option value="bien">Bien</option>
-          <option value="servicio">Servicio</option>
-        </select>
-        <input type="text" id="producto-unidad" placeholder="Unidad" value="unidad">
-        <button type="submit" class="btn-primario">Guardar</button>
-        <button type="button" class="btn-secundario" id="btn-cancelar-producto">Cancelar</button>
-      </form>
-      <div class="tabla-envoltorio">
-        <table id="tabla-productos"><thead></thead><tbody></tbody></table>
-      </div>
+      <nav id="inv-subtabs" class="subtabs" aria-label="Secciones de inventarios"></nav>
+      <div id="inv-contenido"></div>
     </section>
 
     <section id="panel-activos-fijos" class="panel" hidden>
@@ -1087,17 +1075,35 @@
       <button type="button" class="btn-primario" id="btn-nom-guardar">Guardar</button>
     </div>
   </dialog>
+  <!-- Diálogo genérico de inventarios (productos, movimientos, kardex) -->
+  <dialog id="dialogo-inv" class="dialogo-factura" aria-labelledby="titulo-inv">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-inv">Inventarios</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-inv" aria-label="Cerrar">×</button>
+    </div>
+    <div class="dialogo-cuerpo" id="inv-dialogo-cuerpo"></div>
+    <div class="dialogo-pie">
+      <p class="fx-error" id="inv-dialogo-error" hidden></p>
+      <span class="fx-ayuda" id="inv-dialogo-ayuda"></span>
+      <span id="inv-dialogo-extra"></span>
+      <button type="button" class="btn-secundario" id="btn-inv-cancelar">Cerrar</button>
+      <button type="button" class="btn-primario" id="btn-inv-guardar">Guardar</button>
+    </div>
+  </dialog>
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261013-7"></script>
-<script src="/contable/calculoOrden.js?v=20261013-7"></script>
-<script src="/contable/asientoCompra.js?v=20261013-7"></script>
-<script src="/contable/asientoVenta.js?v=20261013-7"></script>
-<script src="/contable/planCuentas.js?v=20261013-7"></script>
-<script src="/contable/parametrosLaborales.js?v=20261013-7"></script>
-<script src="/contable/liquidacionNomina.js?v=20261013-7"></script>
-<script src="/contable/app.js?v=20261013-7"></script>
-<script src="/contable/nomina.js?v=20261013-7"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261013-8"></script>
+<script src="/contable/calculoOrden.js?v=20261013-8"></script>
+<script src="/contable/asientoCompra.js?v=20261013-8"></script>
+<script src="/contable/asientoVenta.js?v=20261013-8"></script>
+<script src="/contable/planCuentas.js?v=20261013-8"></script>
+<script src="/contable/parametrosLaborales.js?v=20261013-8"></script>
+<script src="/contable/liquidacionNomina.js?v=20261013-8"></script>
+<script src="/contable/costeoInventario.js?v=20261013-8"></script>
+<script src="/contable/asientoInventario.js?v=20261013-8"></script>
+<script src="/contable/app.js?v=20261013-8"></script>
+<script src="/contable/nomina.js?v=20261013-8"></script>
+<script src="/contable/inventarios.js?v=20261013-8"></script>
 </body>
 </html>

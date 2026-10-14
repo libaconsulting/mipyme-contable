@@ -27,6 +27,7 @@ const Cotizacion = require('../models/Cotizacion');
 const FacturaVenta = require('../models/FacturaVenta');
 const { contabilizarAsientoCompuesto } = require('../../../core/services/motorAsientos');
 const { aprovisionarContabilidadBase } = require('../../../core/services/seedService');
+const inventarios = require('../../inventarios/services/inventarios.service');
 const { leerFacturaElectronica } = require('../../../integrations/dian/facturaElectronica');
 const { partesNit, mismoNit, decodificarArchivo } = require('../../../integrations/dian/utilDian');
 const { armarAsientoVenta } = require('../../../../public/contable/asientoVenta');
@@ -218,6 +219,8 @@ async function previsualizarFacturaVentaXml(datos, usuario) {
     contable: valoresContables(factura),
     cuentasIngreso: await cuentasIngresoDe(empresa.id),
     ingresoSugerido: await ingresoSugerido(empresa.id),
+    // Productos del inventario y cuál reconoce el sistema en cada línea (las reconocidas descargan inventario y llevan costo de ventas).
+    inventario: await inventarios.sugerirProductos(empresa.id, factura.lineas, { origen: 'venta' }),
     advertencias,
     verificacionDianUrl: factura.cufe ? `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${factura.cufe}` : null,
   };
@@ -380,7 +383,24 @@ async function registrarFacturaVentaXml(datos, usuario) {
     await creada.update({ asientoId: resultado.asiento ? resultado.asiento.id : null }, { transaction });
     if (cotizacion) await cotizacion.update({ estado: 'facturada' }, { transaction });
 
+    // Las líneas enlazadas a un producto descargan el inventario al costo promedio y llevan el
+    // costo de ventas (Db 6135 / Cr 1435). Si algo falla aquí se deshace toda la factura.
+    const elegidos = datos.productosLineas || {};
+    const inventario = await inventarios.salidasDeVenta({
+      empresaId: empresa.id,
+      usuario,
+      factura: { id: creada.id, numero: factura.numero, fecha: factura.fechaEmision },
+      cliente: { terceroId },
+      lineas: factura.lineas.map((l, i) => ({ i, linea: l, seleccion: elegidos[i] || elegidos[String(i)] || '' })),
+      centroCosto,
+      transaction,
+    });
+    if (inventario.movimientos.length) {
+      await creada.update({ detalle: { ...creada.detalle, inventario: inventario.movimientos } }, { transaction });
+    }
+
     return {
+      inventario,
       factura: sinXml(creada),
       lineasAsiento,
       contabilizada: !!(resultado.asiento && resultado.asiento.estado === 'contabilizado'),

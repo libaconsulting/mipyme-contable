@@ -1,14 +1,11 @@
 # Módulo: inventarios
 
-Pendiente de construir. Sigue exactamente el mismo patrón que `src/modules/ventas`:
+Productos, kardex a costo promedio ponderado, movimientos manuales, valoración y conciliación con la contabilidad.
+La documentación completa (flujo con las facturas, supuestos y pendientes) está en la sección **Inventarios** del `README.md` de la raíz.
 
-- `models/`   → entidades Sequelize del módulo
-- `services/` → lógica de negocio, siempre contabiliza a través de
-                 `src/core/services/motorAsientos.js`, nunca escribiendo
-                 asientos directamente
+- `models/`      → Producto (catálogo + saldo), KardexMovimiento (una fila por movimiento, con el saldo que dejó)
+- `services/`    → `inventarios.service.js`: usa los motores compartidos `public/contable/costeoInventario.js` y `asientoInventario.js`;
+                   contabiliza con `motorAsientos.contabilizarAsientoCompuesto` (nunca escribe asientos directamente).
+                   `entradasDeCompra` y `salidasDeVenta` las llaman las facturas XML dentro de su propia transacción.
 - `controllers/` → capa HTTP
-- `routes/`   → se montan en `src/routes/index.js`
-
-Consulta la tabla de reglas de contabilización de este módulo definida
-en la conversación de diseño para los eventos (`tipoEvento`) y niveles
-de automatización correspondientes.
+- `routes/`      → montadas en `/api/inventarios` (ver: todos; registrar: dueño, contador, auxiliar; anular: dueño y contador)

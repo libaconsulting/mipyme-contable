@@ -382,6 +382,7 @@ function irATab(tab) {
   if (navItem) navItem.classList.add('activo');
   document.getElementById('panel-' + tab).hidden = false;
   if (tab === 'nomina' && window.nominaAlMostrar) window.nominaAlMostrar();
+  if (tab === 'inventarios' && window.inventariosAlMostrar) window.inventariosAlMostrar();
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -411,7 +412,6 @@ document.getElementById('btn-nuevo-tercero').addEventListener('click', () => {
 conectarToggle('btn-nuevo-proyecto', 'form-proyecto', 'btn-cancelar-proyecto');
 conectarToggle('btn-nueva-cotizacion', 'form-cotizacion', 'btn-cancelar-cotizacion');
 conectarToggle('btn-nueva-orden', 'form-orden', 'btn-cancelar-orden');
-conectarToggle('btn-nuevo-producto', 'form-producto', 'btn-cancelar-producto');
 conectarToggle('btn-nuevo-activo', 'form-activo', 'btn-cancelar-activo');
 conectarToggle('btn-nueva-cuenta', 'form-cuenta', 'btn-cancelar-cuenta');
 conectarToggle('btn-nuevo-movimiento', 'form-movimiento', 'btn-cancelar-movimiento');
@@ -433,13 +433,12 @@ async function cargarTodo() {
     renderProyectos(proyectos);
     poblarSelectProyectos(proyectos);
 
-    const [cotizaciones, facturasVenta, ordenes, facturasCompra, documentosSoporte, productos, activos, cuentas, movBancarios] = await Promise.all([
+    const [cotizaciones, facturasVenta, ordenes, facturasCompra, documentosSoporte, activos, cuentas, movBancarios] = await Promise.all([
       api('/ventas/cotizaciones'),
       api('/ventas/facturas'),
       api('/compras/ordenes'),
       api('/compras/facturas'),
       api('/compras/documentos-soporte'),
-      api('/inventarios/productos'),
       api('/activos-fijos'),
       api('/tesoreria/cuentas'),
       api('/tesoreria/movimientos'),
@@ -450,7 +449,6 @@ async function cargarTodo() {
     renderOrdenes(ordenes);
     renderFacturasCompra(facturasCompra);
     renderDocumentosSoporte(documentosSoporte);
-    renderProductos(productos);
     renderActivos(activos);
     renderCuentas(cuentas);
     poblarSelectCuentas(cuentas);
@@ -705,24 +703,6 @@ function renderFacturasCompra(lista) {
           f.emisorNit ? botonAccion('XML', { accion: 'xml-factura-compra', id: f.id }) : ''
         }</td></tr>`
       );
-    })
-    .join('');
-}
-
-// --- RENDER: INVENTARIOS ---
-function renderProductos(lista) {
-  document.querySelector('#tabla-productos thead').innerHTML =
-    '<tr><th>Nombre</th><th>Tipo</th><th class="num">Cantidad</th><th class="num">Costo promedio</th><th>Acciones</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-productos', 5, 'Todavía no hay productos. Crea el primero arriba.');
-  document.querySelector('#tabla-productos tbody').innerHTML = lista
-    .map((p) => {
-      const acciones =
-        botonAccion('Entrada', { accion: 'entrada-inventario', id: p.id }) +
-        botonAccion('Salida', { accion: 'salida-inventario', id: p.id }) +
-        botonAccion('Ajuste', { accion: 'ajuste-inventario', id: p.id }, true);
-      return `<tr><td>${p.nombre}</td><td>${p.tipo}</td><td class="num">${Number(p.cantidadDisponible).toLocaleString(
-        'es-CO'
-      )}</td><td class="num">${formatoDinero(p.costoPromedio)}</td><td class="acciones">${acciones}</td></tr>`;
     })
     .join('');
 }
@@ -1610,17 +1590,6 @@ function resumenTotalesOrdenHtml(orden) {
   return `<p class="nota-aiu">${partes.join(' · ')}</p>`;
 }
 
-conectarFormulario('form-producto', () =>
-  api('/inventarios/productos', {
-    method: 'POST',
-    body: JSON.stringify({
-      nombre: document.getElementById('producto-nombre').value,
-      tipo: document.getElementById('producto-tipo').value,
-      unidadMedida: document.getElementById('producto-unidad').value || 'unidad',
-    }),
-  })
-);
-
 conectarFormulario('form-activo', () =>
   api('/activos-fijos', {
     method: 'POST',
@@ -2228,7 +2197,8 @@ function fxRenderLineas() {
         `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}${l.gratuita ? ' <span class="badge">sin costo</span>' : ''}</td>` +
         `<td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td>` +
         `<td class="num">${escHtml(formatoDineroDec(l.iva))}</td>` +
-        `<td><select class="fx-cuenta-linea" data-linea="${i}"><option value="">Elegir cuenta...</option>${fxOpcionesCuentas(defecto)}</select></td></tr>`
+        `<td><select class="fx-cuenta-linea" data-linea="${i}"><option value="">Elegir cuenta...</option>${fxOpcionesCuentas(defecto)}</select>` +
+        `${window.invFacturas ? window.invFacturas.htmlSelect('compra', i, p.inventario) : ''}</td></tr>`
     )
     .join('');
   document.getElementById('fx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + fxOpcionesCuentas('');
@@ -2341,6 +2311,7 @@ function fxNombreCuenta(codigo) {
 // decide si ya se puede registrar.
 function recalcularFactura() {
   if (!fx.preview) return;
+  if (window.invFacturas) window.invFacturas.alternarCompra();
   const p = fx.preview;
   const c = p.contable;
   const modo = fxModoRetencion();
@@ -2476,6 +2447,7 @@ async function registrarFacturaXml() {
     crearProveedor: !p.proveedor && document.getElementById('fx-crear-proveedor').checked,
     proyectoId: document.getElementById('fx-proyecto').value || undefined,
     cuentasLineas: fxLeerCuentasLineas(),
+    productosLineas: window.invFacturas ? window.invFacturas.leer('fx') : undefined,
     retencionModo: estado.modo,
     retencionMotivo: document.getElementById('fx-retencion-motivo').value,
     retencionDetalle: document.getElementById('fx-retencion-detalle').value,
@@ -2496,6 +2468,7 @@ async function registrarFacturaXml() {
     const avisos = [];
     if (!resultado.contabilizada) avisos.push('La factura quedó registrada, pero SIN asiento: la regla contable de este evento está en nivel manual. Contabilízala desde el módulo contable.');
     if (resultado.periodoAjustado) avisos.push('La fecha de la factura no cae en un periodo contable abierto; el asiento quedó con la fecha de hoy en el periodo vigente.');
+    if (window.invFacturas) avisos.push(...window.invFacturas.avisos('compra', resultado.inventario));
     await abrirDetalleFactura(resultado.factura.id, avisos, 'Factura registrada y contabilizada.');
   } catch (err) {
     fx.enviando = false;
@@ -2888,7 +2861,8 @@ function vxRenderLineas() {
         `<tr><td>${escHtml(l.numero)}</td><td>${escHtml(l.descripcion)}${l.gratuita ? ' <span class="badge">sin costo</span>' : ''}</td>` +
         `<td class="num">${escHtml(l.cantidad)}</td><td class="num">${escHtml(formatoDineroDec(l.valorTotal))}</td>` +
         `<td class="num">${escHtml(formatoDineroDec(l.iva))}</td>` +
-        `<td><select class="vx-cuenta-linea" data-linea="${i}"><option value="">Elegir cuenta...</option>${vxOpcionesCuentas(p.ingresoSugerido)}</select></td></tr>`
+        `<td><select class="vx-cuenta-linea" data-linea="${i}"><option value="">Elegir cuenta...</option>${vxOpcionesCuentas(p.ingresoSugerido)}</select>` +
+        `${window.invFacturas ? window.invFacturas.htmlSelect('venta', i, p.inventario) : ''}</td></tr>`
     )
     .join('');
   document.getElementById('vx-cuenta-todas').innerHTML = '<option value="">Elegir...</option>' + vxOpcionesCuentas('');
@@ -3003,6 +2977,7 @@ async function registrarVentaXml() {
     crearCliente: !p.cliente && document.getElementById('vx-crear-cliente').checked,
     proyectoId: document.getElementById('vx-proyecto').value || undefined,
     cuentasLineas: vxLeerCuentasLineas(),
+    productosLineas: window.invFacturas ? window.invFacturas.leer('vx') : undefined,
     aceptarAdvertencias: document.getElementById('vx-aceptar').checked,
   };
 
@@ -3018,6 +2993,7 @@ async function registrarVentaXml() {
     const avisos = [];
     if (!resultado.contabilizada) avisos.push('La factura quedó registrada, pero SIN asiento: la regla contable de este evento está en nivel manual. Contabilízala desde el módulo contable.');
     if (resultado.periodoAjustado) avisos.push('La fecha de la factura no cae en un periodo contable abierto; el asiento quedó con la fecha de hoy en el periodo vigente.');
+    if (window.invFacturas) avisos.push(...window.invFacturas.avisos('venta', resultado.inventario));
     await abrirDetalleFacturaVenta(resultado.factura.id, avisos, 'Factura registrada y contabilizada.');
   } catch (err) {
     vx.enviando = false;
@@ -3652,13 +3628,6 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
     case 'convertir-orden':
       return accion(`/compras/ordenes/${id}/convertir`, { method: 'POST' });
 
-    case 'entrada-inventario':
-      return movimientoInventario('entradas', id, true);
-    case 'salida-inventario':
-      return movimientoInventario('salidas', id, false);
-    case 'ajuste-inventario':
-      return movimientoInventario('ajustes', id, false, true);
-
     case 'baja-activo':
       if (confirm('¿Dar de baja este activo? Esta acción queda pendiente de revisión del contador.'))
         return accion(`/activos-fijos/${id}/baja`, { method: 'POST' });
@@ -3668,29 +3637,6 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
       return accion(`/tesoreria/movimientos/${id}/conciliar`, { method: 'POST' });
   }
 });
-
-// Prompts sencillos para acciones que necesitan un dato adicional puntual.
-// Es deliberadamente básico — reemplazar por un formulario modal real
-// queda como mejora pendiente, ver README.
-
-async function movimientoInventario(tipo, productoId, pideCosto, pideObservacion) {
-  const cantidad = prompt('Cantidad:');
-  if (!cantidad) return;
-
-  const body = { productoId, cantidad: Number(cantidad) };
-
-  if (pideCosto) {
-    const costo = prompt('Costo unitario ($):');
-    if (!costo) return;
-    body.costoUnitario = Number(costo);
-  }
-
-  if (pideObservacion) {
-    body.observacion = prompt('Motivo del ajuste:') || '';
-  }
-
-  await accion(`/inventarios/${tipo}`, { method: 'POST', body: JSON.stringify(body) });
-}
 
 // --- INICIO ---
 if (token && usuario) {

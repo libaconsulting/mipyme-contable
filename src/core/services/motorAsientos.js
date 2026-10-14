@@ -139,12 +139,14 @@ async function resolverPeriodoParaFecha(empresaId, fecha, transaction) {
 
 // Definición de una cuenta que el sistema sabe crear sola: las del catálogo
 // base (seedService.CUENTAS) y las de nómina (asientoNomina.CATALOGO, que
-// incluye subcuentas de 6 dígitos con su cuenta padre).
+// incluye subcuentas de 6 dígitos con su cuenta padre) y las de inventario (asientoInventario.CATALOGO).
 function definicionCuentaBase(codigo) {
   // require diferido: seedService requiere modelos, no queremos ciclos al cargar.
   const base = require('./seedService').CUENTAS.find((c) => c.codigo === codigo);
   if (base) return { ...base, padre: null };
-  return require('../../../public/contable/asientoNomina').CATALOGO.find((c) => c.codigo === codigo) || null;
+  const nomina = require('../../../public/contable/asientoNomina').CATALOGO.find((c) => c.codigo === codigo);
+  if (nomina) return nomina;
+  return require('../../../public/contable/asientoInventario').CATALOGO.find((c) => c.codigo === codigo) || null;
 }
 
 // Cuentas por código. Si falta una de las cuentas base del sistema

@@ -101,6 +101,9 @@
     const creditos = asiento.reduce((s, l) => s + centavos(l.credito), 0);
     return {
       lineas: asiento,
+      // Lo que cargó cada línea de la factura a su cuenta (con su impuesto no descontable y su parte
+      // de descuentos): es el costo de entrada al kardex cuando la línea va a inventario.
+      valoresLinea: lineas.map((_, i) => pesos(pesosLineas[i] + propios[i] + sobrante[i])),
       totalDebito: pesos(debitos),
       totalCredito: pesos(creditos),
       cuadra: debitos === creditos,

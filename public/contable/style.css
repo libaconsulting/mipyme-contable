@@ -839,3 +839,32 @@ td.num, th.num {
 .check-linea input { margin-top: 3px; }
 #nom-dialogo-extra { display: inline-flex; gap: 8px; }
 .nom-titulo-sep { margin-top: 22px; }
+
+/* --- Inventarios --- */
+.inv-barra { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-bottom: 14px; }
+.inv-barra .nota-panel { flex: 1 1 360px; margin: 0; }
+.inv-barra input, .inv-barra select { font: inherit; padding: 6px 8px; border: 1px solid var(--rule-strong); background: var(--surface); }
+.inv-barra input[type="search"] { min-width: 220px; }
+.inv-tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px; margin: 0 0 16px; }
+.inv-tarjeta { background: var(--surface); border: 1px solid var(--rule); padding: 10px 14px; display: flex; flex-direction: column; gap: 4px; }
+.inv-tarjeta span { font-size: 12px; color: var(--ink-soft); }
+.inv-tarjeta strong { font-family: var(--font-mono); font-size: 16px; font-variant-numeric: tabular-nums; }
+.inv-tarjeta.alerta { border-color: #b4701f; }
+.inv-linea { margin-top: 6px; }
+.inv-linea small { display: block; font-size: 11px; color: var(--ink-soft); margin-bottom: 2px; }
+.inv-linea select { width: 100%; }
+.inv-sec-titulo { font-family: var(--font-serif); font-size: 15px; margin: 14px 0 6px; border-bottom: 1px solid var(--rule); padding-bottom: 3px; }
+.inv-dif-ok { color: var(--accent); font-weight: 600; }
+.inv-dif-mal { color: #a33; font-weight: 600; }
+.inv-anulado td { color: var(--ink-soft); text-decoration: line-through; }
+#inv-dialogo-extra { display: inline-flex; gap: 8px; }
+#dialogo-inv .campo-etiquetado { margin-bottom: 12px; }
+#dialogo-inv .campo-etiquetado input:not([type="checkbox"]), #dialogo-inv .campo-etiquetado select {
+  padding: 8px 10px; border: 1px solid var(--rule-strong); font-family: var(--font-sans); font-size: 14px; background: var(--paper); box-sizing: border-box; width: 100%;
+}
+#dialogo-inv .fila-campos { margin-bottom: 0; }
+#dialogo-inv .fila-campos .campo-etiquetado { flex: 1 1 150px; }
+#dialogo-inv .fila-campos .dc-nombre { flex: 2 1 280px; }
+#dialogo-inv .fx-check { display: block; margin: 4px 0 12px; font-size: 13px; }
+#dialogo-inv .inv-barra { margin-bottom: 12px; }
+.inv-linea select { max-width: 100%; }

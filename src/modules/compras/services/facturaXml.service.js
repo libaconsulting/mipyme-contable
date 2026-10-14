@@ -28,6 +28,7 @@ const OrdenCompra = require('../models/OrdenCompra');
 const FacturaCompra = require('../models/FacturaCompra');
 const { contabilizarAsientoCompuesto } = require('../../../core/services/motorAsientos');
 const { aprovisionarContabilidadBase } = require('../../../core/services/seedService');
+const inventarios = require('../../inventarios/services/inventarios.service');
 const { leerFacturaElectronica } = require('../../../integrations/dian/facturaElectronica');
 const calcularOrden = require('../../../../public/contable/calculoOrden');
 const { armarAsientoCompra, repartir } = require('../../../../public/contable/asientoCompra');
@@ -262,6 +263,8 @@ async function previsualizarFacturaXml(datos, usuario) {
     retencionSugerida: sugerirRetencion(factura.emisor || {}),
     cuentasDestino: await cuentasDestinoDe(empresa.id),
     destinosSugeridos: await destinosSugeridos(empresa.id),
+    // Productos del inventario y cuál reconoce el sistema en cada línea (solo cuentan las líneas que vayan a una cuenta 14xx).
+    inventario: await inventarios.sugerirProductos(empresa.id, factura.lineas, { origen: 'compra', nit: factura.emisor && factura.emisor.nit }),
     advertencias,
     verificacionDianUrl: factura.cufe ? `https://catalogo-vpfe.dian.gov.co/document/searchqr?documentkey=${factura.cufe}` : null,
   };
@@ -461,7 +464,26 @@ async function registrarFacturaXml(datos, usuario) {
     );
     if (orden) await orden.update({ estado: 'facturada' }, { transaction });
 
+    // Las líneas que van a una cuenta de inventario (14xx) dan entrada al kardex, al valor con que
+    // quedaron en el asiento. Si algo falla aquí se deshace toda la factura.
+    const elegidos = datos.productosLineas || {};
+    const lineasInventario = factura.lineas
+      .map((l, i) => ({ i, linea: l, valor: asientoArmado.valoresLinea[i], cuentaCodigo: cuentasLinea[i], seleccion: elegidos[i] || elegidos[String(i)] || '' }))
+      .filter((x) => String(x.cuentaCodigo).startsWith('14'));
+    const inventario = await inventarios.entradasDeCompra({
+      empresaId: empresa.id,
+      usuario,
+      factura: { id: creada.id, numero: factura.numero, fecha: factura.fechaEmision },
+      proveedor: { terceroId, nit: factura.emisor.nit },
+      lineas: lineasInventario,
+      transaction,
+    });
+    if (inventario.movimientos.length) {
+      await creada.update({ detalle: { ...creada.detalle, inventario: inventario.movimientos } }, { transaction });
+    }
+
     return {
+      inventario,
       factura: await sinXml(creada),
       lineasAsiento,
       contabilizada: !!(resultado.asiento && resultado.asiento.estado === 'contabilizado'),

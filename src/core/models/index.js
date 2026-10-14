@@ -31,7 +31,7 @@ const ConceptoNomina = require('../../modules/nomina/models/ConceptoNomina');
 const NominaPeriodo = require('../../modules/nomina/models/NominaPeriodo');
 const NominaLiquidacion = require('../../modules/nomina/models/NominaLiquidacion');
 const Producto = require('../../modules/inventarios/models/Producto');
-const MovimientoInventario = require('../../modules/inventarios/models/MovimientoInventario');
+const KardexMovimiento = require('../../modules/inventarios/models/KardexMovimiento');
 const ActivoFijo = require('../../modules/activosFijos/models/ActivoFijo');
 const CuentaBancaria = require('../../modules/tesoreria/models/CuentaBancaria');
 const MovimientoBancario = require('../../modules/tesoreria/models/MovimientoBancario');
@@ -62,7 +62,7 @@ module.exports = {
   NominaPeriodo,
   NominaLiquidacion,
   Producto,
-  MovimientoInventario,
+  KardexMovimiento,
   ActivoFijo,
   CuentaBancaria,
   MovimientoBancario,
