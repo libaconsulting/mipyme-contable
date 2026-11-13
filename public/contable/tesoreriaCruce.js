@@ -8,13 +8,17 @@
 // documento (completo o por abonos, uno o varios a la vez). Cada pago se contabiliza (Dr 2205/2335 –
 // Cr banco; Dr banco – Cr 1305), crea o enlaza el movimiento bancario y queda cruzado con el documento.
 // También aplica el descuento de aportes de un contratista y deja anular un pago con su motivo.
+// Al cobrar una factura de venta se anotan las retenciones que el cliente practicó (ReteFuente, ReteIVA,
+// ReteICA): el banco recibe el valor menos lo retenido, y la pestaña «Retenciones sufridas» las resume por
+// cliente para las declaraciones.
 (function () {
   if (!document.getElementById('panel-tesoreria')) return;
-  const SUBS = [['pagar', 'Por pagar'], ['cobrar', 'Por cobrar'], ['historial', 'Pagos y recaudos']];
+  const SUBS = [['pagar', 'Por pagar'], ['cobrar', 'Por cobrar'], ['historial', 'Pagos y recaudos'], ['retenciones', 'Retenciones sufridas']];
+  const RETENCIONES = [['retefuente', 'ReteFuente'], ['reteiva', 'ReteIVA'], ['reteica', 'ReteICA']];
   const TIPO_PAGO = { pago: 'Pago', recaudo: 'Recaudo', descuento: 'Descuento' };
   const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
-  const T = { sub: 'pagar', cartera: {}, buscar: '', todos: false, pagos: [], filtro: { tipo: '', estado: '' }, cuentas: null };
+  const T = { sub: 'pagar', cartera: {}, buscar: '', todos: false, pagos: [], filtro: { tipo: '', estado: '' }, cuentas: null, ret: { desde: '', hasta: '', datos: null } };
 
   const $ = (id) => document.getElementById(id);
   const esc = (x) => escHtml(x);
@@ -97,6 +101,7 @@
         T.pagos = await api('/tesoreria/pagos' + (q ? '?' + q : ''));
         return renderHistorial();
       }
+      if (sub === 'retenciones') return await cargarRetenciones();
       await cargarCartera(sub);
       renderCartera(sub);
     } catch (err) {
@@ -158,6 +163,11 @@
   // ===================================================================================
   // HISTORIAL
   // ===================================================================================
+  // " · ReteFuente $70.000 · ReteICA $7.000" de una aplicación (vacío si no hay retenciones).
+  function textoRetenciones(a) {
+    return RETENCIONES.filter(([k]) => a[k] > 0).map(([k, t]) => ` · ${t} ${dinero(a[k])}`).join('');
+  }
+
   function textoMedio(p) {
     if (p.tipo === 'descuento') return 'Sin movimiento de dinero';
     return p.medio === 'caja' ? 'Efectivo (caja)' : esc(p.cuentaTexto || 'Banco');
@@ -173,8 +183,8 @@
     } else {
       html += `<div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Tercero</th><th>Documentos</th><th>Medio</th><th>Referencia</th><th class="num">Valor</th><th>Estado</th><th></th></tr></thead><tbody>
       ${T.pagos.map((p) => `<tr><td>${esc(fecha(p.fecha))}</td><td>${TIPO_PAGO[p.tipo] || esc(p.tipo)}</td><td>${esc(p.terceroNombre)}</td>
-        <td>${p.aplicaciones.map((a) => `${esc(a.numero)} <span class="texto-suave">${dinero(a.valor)}</span>`).join('<br>')}</td>
-        <td>${textoMedio(p)}</td><td>${esc(p.referencia || '—')}</td><td class="num">${dinero(p.valor)}</td>
+        <td>${p.aplicaciones.map((a) => `${esc(a.numero)} <span class="texto-suave">${dinero(a.valor)}${textoRetenciones(a)}</span>`).join('<br>')}</td>
+        <td>${textoMedio(p)}</td><td>${esc(p.referencia || '—')}</td><td class="num">${dinero(p.valor)}${p.retenciones > 0 ? `<br><span class="texto-suave">+ ${dinero(p.retenciones)} retenido</span>` : ''}</td>
         <td>${p.estado === 'anulado' ? `<span class="badge rechazado">anulado</span><br><span class="texto-suave">${esc(p.motivoAnulacion || '')}</span>` : '<span class="badge conciliado">activo</span>'}</td>
         <td class="acciones">${p.estado === 'activo' && puedeAnular() ? boton('Anular', 'anular-pago', { id: p.id }, 'btn-accion destructivo') : ''}</td></tr>`).join('')}
       </tbody></table></div>`;
@@ -224,9 +234,11 @@
       guardar: {
         texto: porPagar ? 'Registrar pago' : 'Registrar recaudo',
         fn: async () => {
-          const aplicaciones = [...document.querySelectorAll('#tp-docs input[data-doc]:checked')].map((chk) => ({
-            docTipo: chk.dataset.tipo, docId: chk.dataset.doc, valor: num(document.querySelector(`#tp-docs input[data-valor="${chk.dataset.doc}"]`).value),
-          }));
+          const aplicaciones = [...document.querySelectorAll('#tp-docs input[data-doc]:checked')].map((chk) => {
+            const ap = { docTipo: chk.dataset.tipo, docId: chk.dataset.doc, valor: num(document.querySelector(`#tp-docs input[data-valor="${chk.dataset.doc}"]`).value) };
+            if (!porPagar) for (const [k] of RETENCIONES) ap[k] = num(retInput(chk.dataset.doc, k).value);
+            return ap;
+          });
           const banco = v('tp-medio') === 'banco';
           await api('/tesoreria/pagos', {
             method: 'POST',
@@ -241,6 +253,7 @@
       },
     });
 
+    const retInput = (docId, k) => document.querySelector(`#tp-docs input[data-ret="${k}"][data-doc-ret="${docId}"]`);
     const movimientoElegido = () => libres.find((m) => m.id === v('tp-movimiento')) || null;
 
     function pintarMovimientos() {
@@ -259,13 +272,14 @@
       const tid = v('tp-tercero');
       const docs = pagables.filter((d) => d.terceroId === tid);
       if (!tid) { $('tp-docs').innerHTML = '<p class="texto-suave">Elige primero el tercero.</p>'; return totalizar(); }
-      $('tp-docs').innerHTML = `<div class="tabla-envoltorio"><table><thead><tr><th></th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th class="num">Valor a aplicar</th></tr></thead><tbody>
+      $('tp-docs').innerHTML = `<div class="tabla-envoltorio"><table><thead><tr><th></th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th class="num">Valor a aplicar</th>${porPagar ? '' : RETENCIONES.map(([, t]) => `<th class="num">${t}</th>`).join('')}</tr></thead><tbody>
         ${docs.map((d) => {
           const marcado = opciones.docId === d.docId;
           return `<tr><td><input type="checkbox" data-doc="${esc(d.docId)}" data-tipo="${esc(d.docTipo)}" data-saldo="${d.saldo}" aria-label="Incluir ${esc(d.numero)}"${marcado ? ' checked' : ''}></td>
           <td>${esc(d.numero)}<br><span class="texto-suave">${esc(d.etiqueta)}</span></td><td>${esc(fecha(d.fechaVencimiento))}${d.vencida ? ` <span class="badge rechazado">${d.diasVencido} d</span>` : ''}</td>
           <td class="num">${dinero(d.saldo)}</td>
-          <td class="num"><input type="number" min="0" step="0.01" data-valor="${esc(d.docId)}" value="${marcado ? d.saldo : ''}" ${marcado ? '' : 'disabled'} aria-label="Valor a aplicar a ${esc(d.numero)}"></td></tr>`;
+          <td class="num"><input type="number" min="0" step="0.01" data-valor="${esc(d.docId)}" value="${marcado ? d.saldo : ''}" ${marcado ? '' : 'disabled'} aria-label="Valor a aplicar a ${esc(d.numero)}"></td>
+          ${porPagar ? '' : RETENCIONES.map(([k, t]) => `<td class="num"><input type="number" class="tp-ret" min="0" step="0.01" data-ret="${k}" data-doc-ret="${esc(d.docId)}" placeholder="0" ${marcado ? '' : 'disabled'} aria-label="${t} de ${esc(d.numero)}"></td>`).join('')}</tr>`;
         }).join('')}
       </tbody></table></div>`;
       // Si viene de un movimiento del banco y un solo documento tiene justo ese saldo, se deja marcado.
@@ -278,25 +292,32 @@
           const inp = document.querySelector(`#tp-docs input[data-valor="${igual[0].docId}"]`);
           inp.disabled = false;
           inp.value = igual[0].saldo;
+          document.querySelectorAll(`#tp-docs input[data-doc-ret="${igual[0].docId}"]`).forEach((r) => { r.disabled = false; });
         }
       }
       totalizar();
     }
 
     function totalizar() {
-      let total = 0;
+      let bruto = 0;
+      let retenido = 0;
       let n = 0;
       document.querySelectorAll('#tp-docs input[data-doc]:checked').forEach((chk) => {
-        total += num(document.querySelector(`#tp-docs input[data-valor="${chk.dataset.doc}"]`).value);
+        bruto += num(document.querySelector(`#tp-docs input[data-valor="${chk.dataset.doc}"]`).value);
+        if (!porPagar) for (const [k] of RETENCIONES) retenido += num(retInput(chk.dataset.doc, k).value);
         n += 1;
       });
-      total = redondear(total);
-      let html = n ? `Total ${porPagar ? 'a pagar' : 'a cobrar'}: <strong>${dinero(total)}</strong> en ${n} documento${n === 1 ? '' : 's'}.` : 'Marca los documentos y el valor de cada uno (puede ser un abono).';
+      bruto = redondear(bruto);
+      retenido = redondear(retenido);
+      const total = redondear(bruto - retenido); // lo que realmente entra o sale del banco o la caja
+      let html = n ? `Total ${porPagar ? 'a pagar' : 'a cobrar'}: <strong>${dinero(bruto)}</strong> en ${n} documento${n === 1 ? '' : 's'}.` : 'Marca los documentos y el valor de cada uno (puede ser un abono).';
+      if (n && retenido > 0) html += ` Retenciones: <strong>${dinero(retenido)}</strong> · Dinero que recibes: <strong>${dinero(total)}</strong>.`;
+      if (n && retenido >= bruto && retenido > 0) html += ' <strong>Las retenciones deben ser menores que el valor cobrado.</strong>';
       const m = v('tp-medio') === 'banco' ? movimientoElegido() : null;
       if (m && n) {
         html += redondear(m.valor) === total
           ? ' <strong>Coincide con el movimiento del banco.</strong>'
-          : ` <strong>El movimiento del banco es de ${dinero(m.valor)}: debe sumar lo mismo.</strong>`;
+          : ` <strong>El movimiento del banco es de ${dinero(m.valor)}: ${retenido > 0 ? 'el dinero que recibes' : 'el total'} debe sumar lo mismo.</strong>`;
       }
       $('tp-total').innerHTML = html;
     }
@@ -319,10 +340,63 @@
         const inp = document.querySelector(`#tp-docs input[data-valor="${e.target.dataset.doc}"]`);
         inp.disabled = !e.target.checked;
         inp.value = e.target.checked ? e.target.dataset.saldo : '';
+        document.querySelectorAll(`#tp-docs input[data-doc-ret="${e.target.dataset.doc}"]`).forEach((r) => { r.disabled = !e.target.checked; r.value = ''; });
         totalizar();
       }
     };
-    cuerpoEl.oninput = (e) => { if (e.target.dataset && e.target.dataset.valor) totalizar(); };
+    cuerpoEl.oninput = (e) => { if (e.target.dataset && (e.target.dataset.valor || e.target.dataset.ret)) totalizar(); };
+  }
+
+  // ===================================================================================
+  // RETENCIONES SUFRIDAS (las que los clientes nos practicaron al pagar)
+  // ===================================================================================
+  async function cargarRetenciones() {
+    const q = ['desde', 'hasta'].filter((k) => T.ret[k]).map((k) => `${k}=${encodeURIComponent(T.ret[k])}`).join('&');
+    T.ret.datos = await api('/tesoreria/retenciones-sufridas' + (q ? '?' + q : ''));
+    renderRetenciones();
+  }
+
+  function renderRetenciones() {
+    const r = T.ret.datos;
+    const t = r.totales;
+    let html = `<div class="inv-barra">
+      ${campo('Desde', `<input type="date" id="tes-r-desde" value="${esc(T.ret.desde)}">`)}
+      ${campo('Hasta', `<input type="date" id="tes-r-hasta" value="${esc(T.ret.hasta)}">`)}
+      ${r.filas.length ? boton('Descargar CSV', 'csv-retenciones', {}, 'btn-primario') : ''}
+    </div>
+    <div class="inv-tarjetas">
+      <div class="inv-tarjeta destacada"><span>Total retenido</span><strong>${dinero(t.total)}</strong></div>
+      <div class="inv-tarjeta"><span>ReteFuente</span><strong>${dinero(t.retefuente)}</strong></div>
+      <div class="inv-tarjeta"><span>ReteIVA</span><strong>${dinero(t.reteiva)}</strong></div>
+      <div class="inv-tarjeta"><span>ReteICA</span><strong>${dinero(t.reteica)}</strong></div></div>
+    <p class="nota-panel">Retenciones que los clientes practicaron al pagar las facturas (cuentas 135515, 135517 y 135518). Son un anticipo: se descuentan en las declaraciones de renta, IVA e ICA. Compáralas con los certificados de retención que te entrega cada cliente. Los recaudos anulados no cuentan.</p>`;
+    if (!r.filas.length) {
+      html += '<p class="vacio">No hay retenciones registradas en este rango. Se anotan al registrar un recaudo en «Por cobrar».</p>';
+    } else {
+      html += `<div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th class="num">Valor cobrado</th><th class="num">ReteFuente</th><th class="num">ReteIVA</th><th class="num">ReteICA</th><th class="num">Total</th></tr></thead><tbody>
+      ${r.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td>
+        <td class="num">${dinero(f.baseCobrada)}</td><td class="num">${dinero(f.retefuente)}</td><td class="num">${dinero(f.reteiva)}</td><td class="num">${dinero(f.reteica)}</td><td class="num"><strong>${dinero(f.total)}</strong></td></tr>`).join('')}
+      </tbody><tfoot><tr><th colspan="4">Totales</th><th class="num">${dinero(t.retefuente)}</th><th class="num">${dinero(t.reteiva)}</th><th class="num">${dinero(t.reteica)}</th><th class="num">${dinero(t.total)}</th></tr></tfoot></table></div>`;
+    }
+    contenido().innerHTML = html;
+  }
+
+  function descargarCsvRetenciones() {
+    const r = T.ret.datos;
+    if (!r || !r.filas.length) return;
+    const celda = (x) => {
+      const t = String(x == null ? '' : x);
+      return /[";\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const filas = [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Valor cobrado', 'ReteFuente', 'ReteIVA', 'ReteICA', 'Total retenido']]
+      .concat(r.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.baseCobrada, f.retefuente, f.reteiva, f.reteica, f.total]));
+    const csv = '\ufeff' + filas.map((f) => f.map(celda).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `retenciones-sufridas${T.ret.desde ? '-desde-' + T.ret.desde : ''}${T.ret.hasta ? '-hasta-' + T.ret.hasta : ''}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
   // ===================================================================================
@@ -372,9 +446,10 @@
     const r = await api(`/tesoreria/documentos/${docTipo}/${docId}/pagos`);
     const filas = r.pagos.map((p) => {
       const aplicado = p.aplicaciones.filter((a) => a.docId === docId && a.estado === 'activa').reduce((s, a) => s + a.valor, 0);
+      const retenido = p.aplicaciones.filter((a) => a.docId === docId).map(textoRetenciones).join('');
       const anulado = p.estado === 'anulado';
       return `<tr><td>${esc(fecha(p.fecha))}</td><td>${TIPO_PAGO[p.tipo] || esc(p.tipo)}</td><td>${textoMedio(p)}</td><td>${esc(p.referencia || '—')}</td>
-        <td class="num">${dinero(anulado ? p.aplicaciones.filter((a) => a.docId === docId).reduce((s, a) => s + a.valor, 0) : aplicado)}</td>
+        <td class="num">${dinero(anulado ? p.aplicaciones.filter((a) => a.docId === docId).reduce((s, a) => s + a.valor, 0) : aplicado)}${retenido ? `<br><span class="texto-suave">${esc(retenido.replace(/^ · /, ''))}</span>` : ''}</td>
         <td>${anulado ? `<span class="badge rechazado">anulado</span>` : '<span class="badge conciliado">activo</span>'}</td>
         <td class="acciones">${!anulado && puedeAnular() ? boton('Anular', 'anular-pago', { id: p.id }, 'btn-accion destructivo') : ''}</td></tr>`;
     }).join('');
@@ -427,6 +502,11 @@
       T.todos = e.target.checked;
       return mostrarSub(T.sub);
     }
+    if (e.target.id === 'tes-r-desde' || e.target.id === 'tes-r-hasta') {
+      T.ret.desde = v('tes-r-desde');
+      T.ret.hasta = v('tes-r-hasta');
+      return mostrarSub('retenciones');
+    }
     if (e.target.id === 'tes-f-tipo' || e.target.id === 'tes-f-estado') {
       T.filtro = { tipo: v('tes-f-tipo'), estado: v('tes-f-estado') };
       return mostrarSub('historial');
@@ -443,6 +523,7 @@
         case 'descuento-doc': return await dialogoDescuento(b.dataset.tipo, b.dataset.id);
         case 'ver-pagos-doc': return await dialogoPagosDoc(b.dataset.tipo, b.dataset.id);
         case 'anular-pago': return dialogoAnular(b.dataset.id);
+        case 'csv-retenciones': return descargarCsvRetenciones();
       }
     } catch (err) {
       mostrarError(err);

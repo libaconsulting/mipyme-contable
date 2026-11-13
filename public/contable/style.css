@@ -899,3 +899,8 @@ td.num, th.num {
 #dialogo-tes td input[type="number"] { width: 130px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
 #dialogo-tes td input[type="number"]:disabled { background: transparent; border-color: transparent; }
 #tes-cruce .inv-tarjetas { margin-top: 8px; }
+/* Tesorería · retenciones que practican los clientes al cobrar */
+#dialogo-tes td input.tp-ret { width: 96px; }
+#tes-contenido tfoot th { border-top: 2px solid var(--rule-strong); text-align: left; }
+#tes-contenido tfoot th.num { text-align: right; }
+#tes-contenido .inv-barra .campo-etiquetado { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }

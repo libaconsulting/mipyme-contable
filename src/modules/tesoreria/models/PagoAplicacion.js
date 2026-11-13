@@ -10,7 +10,12 @@ const PagoAplicacion = sequelize.define('PagoAplicacion', {
   pagoId: { type: DataTypes.UUID, allowNull: false },
   docTipo: { type: DataTypes.STRING(20), allowNull: false }, // factura_compra | documento_soporte | factura_venta
   docId: { type: DataTypes.UUID, allowNull: false },
+  // Lo que baja el saldo del documento (en un recaudo incluye lo que el cliente retuvo).
   valor: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+  // Retenciones que el cliente practicó sobre este cobro (solo recaudos): van a 135515 / 135517 / 135518.
+  retefuente: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  reteiva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  reteica: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   // Solo en descuentos: de dónde sale (ej. fuenteTipo 'aportes_contratistas', fuenteId = id del mes).
   fuenteTipo: { type: DataTypes.STRING(30) },
   fuenteId: { type: DataTypes.UUID },

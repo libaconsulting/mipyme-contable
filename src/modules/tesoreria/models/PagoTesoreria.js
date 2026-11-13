@@ -13,7 +13,9 @@ const PagoTesoreria = sequelize.define('PagoTesoreria', {
   tipo: { type: DataTypes.STRING(10), allowNull: false }, // pago | recaudo | descuento
   fecha: { type: DataTypes.DATEONLY, allowNull: false },
   terceroId: { type: DataTypes.UUID, allowNull: false },
+  // Lo que realmente entró o salió de caja o banco. En un recaudo con retenciones es lo aplicado a las facturas menos lo retenido.
   valor: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+  retenciones: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 }, // total retenido por el cliente (solo recaudos)
   medio: { type: DataTypes.STRING(10) }, // banco | caja (nulo en descuentos)
   cuentaBancariaId: { type: DataTypes.UUID },
   movimientoBancarioId: { type: DataTypes.UUID },

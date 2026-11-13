@@ -197,6 +197,16 @@ venta que cancela. Pestaña **Tesorería › Cruce de pagos** (`public/contable/
   Reglas `tesoreria_pago_proveedor` y `tesoreria_recaudo_cliente` (se crean al primer uso). Por banco crea el
   movimiento bancario (egreso/ingreso) o, si ya lo digitaste, **se enlaza uno existente** de la misma cuenta, tipo y
   valor (queda conciliado y cruzado). Botón «Cruzar con factura» en la tabla de movimientos.
+- **Retenciones que nos practican los clientes:** al registrar un *recaudo* cada factura admite ReteFuente, ReteIVA y
+  ReteICA (se digitan del certificado o del soporte de pago del cliente). El valor aplicado a la factura es el bruto
+  (baja el saldo completo) y el banco o la caja reciben el bruto menos lo retenido. Asiento:
+  `Db banco o caja (lo recibido) / Db 135515 ReteFuente / Db 135517 ReteIVA / Db 135518 ReteICA (con el cliente) / Cr 1305`.
+  Las subcuentas 135515/135517/135518 se crean bajo 1355 la primera vez que se usan. Las retenciones deben ser menores que
+  el valor cobrado; si el recaudo se cruza con un movimiento ya digitado, éste debe ser igual a lo recibido (no al bruto).
+  Los pagos a proveedores no las aceptan (al proveedor se le retiene al causar la factura). Pestaña
+  **Retenciones sufridas**: reporte por rango de fechas con totales y descarga CSV (`GET /api/tesoreria/retenciones-sufridas?desde&hasta`),
+  sin contar recaudos anulados. SQL: `sql-retenciones-sufridas.sql` (columnas `retenciones` en `tesoreria_pagos` y
+  `retefuente`/`reteiva`/`reteica` en `tesoreria_pago_aplicaciones`).
 - **Descuento de aportes de contratistas:** lo que el contratista asume de salud, pensión y ARL ya se causó contra
   2335/2205 al contabilizar el mes (Nómina › Contratistas); «Descuento de aportes» lo aplica al documento del
   contratista sin mover dinero ni crear otro asiento. Un mes con descuento aplicado no se puede reabrir hasta anularlo.
@@ -207,7 +217,7 @@ venta que cancela. Pestaña **Tesorería › Cruce de pagos** (`public/contable/
   `origen_id` (nómina, prestaciones, PILA y planilla Y los llenan; nulo = digitado a mano). SQL: `sql-cruce-pagos-tesoreria.sql`.
 - API (`/api/tesoreria`): `GET cartera?tipo=pagar|cobrar&todos=1`, `GET movimientos-libres`, `GET/POST pagos`,
   `POST pagos/:id/anular`, `GET documentos/:tipo/:id/pagos`, `GET descuentos-aportes?terceroId=`, `POST descuentos`.
-- **Aún no:** retenciones que los clientes nos practican al pagar, anticipos a proveedores y de clientes, notas crédito y
+- **Aún no:** anticipos a proveedores y de clientes, notas crédito y
   débito, pago de nómina/prestaciones desde aquí (siguen en su módulo), diferencias en cambio.
 
 ## Logo de empresa
@@ -677,7 +687,7 @@ qué contabilizar.
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
-- [ ] Tesorería (cruce de pagos): retenciones que nos practican los clientes al pagar, anticipos (de clientes y a proveedores), notas crédito/débito y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
+- [ ] Tesorería (cruce de pagos): anticipos (de clientes y a proveedores), notas crédito/débito y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
 - [ ] Bancos: conciliación por cuenta contra el extracto (importar el extracto y quitar la conciliación de un movimiento); los pagos, recaudos y la nómina ya van al auxiliar de la cuenta; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
 - [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni los activos fijos (la nómina ya usa `contabilizarAsientoCompuesto`)
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado

@@ -21,6 +21,7 @@ router.get('/pagos/:id', c.detallePago);
 router.post('/pagos', puedeRegistrar, c.registrarPago);
 router.post('/pagos/:id/anular', puedeAnular, c.anularPago);
 router.get('/documentos/:docTipo/:docId/pagos', c.pagosDeDocumento);
+router.get('/retenciones-sufridas', c.retencionesSufridas); // ?desde=&hasta=
 router.get('/descuentos-aportes', c.descuentosDisponibles); // ?terceroId=
 router.post('/descuentos', puedeRegistrar, c.aplicarDescuento);
 

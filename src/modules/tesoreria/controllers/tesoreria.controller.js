@@ -60,9 +60,10 @@ const anularPago = manejar((req) => cruces.anularPago(req.params.id, req.body ||
 const pagosDeDocumento = manejar((req) => cruces.pagosDeDocumento(req.params.docTipo, req.params.docId, req.usuario));
 const movimientosLibres = manejar((req) => cruces.movimientosLibres(req.usuario));
 const descuentosDisponibles = manejar((req) => cruces.descuentosDisponibles(req.query.terceroId, req.usuario));
+const retencionesSufridas = manejar((req) => cruces.retencionesSufridas(req.query, req.usuario));
 const aplicarDescuento = manejar((req) => cruces.aplicarDescuento(req.body || {}, req.usuario), 201);
 
 module.exports = {
   crearCuenta, listarCuentas, registrarMovimiento, listarMovimientos, conciliarMovimiento,
-  cartera, listarPagos, detallePago, registrarPago, anularPago, pagosDeDocumento, movimientosLibres, descuentosDisponibles, aplicarDescuento,
+  cartera, listarPagos, detallePago, registrarPago, anularPago, pagosDeDocumento, movimientosLibres, descuentosDisponibles, aplicarDescuento, retencionesSufridas,
 };
