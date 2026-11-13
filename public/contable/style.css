@@ -930,3 +930,4 @@ td.num, th.num {
 .tabla-anticipos td.no-corta { white-space: nowrap; }
 .tabla-anticipos td.acciones { white-space: normal; min-width: 150px; }
 .tabla-anticipos td.acciones .btn-accion { margin: 0 4px 4px 0; }
+.aa-fuera-marca { color: #9A5B13; font-size: 12px; }

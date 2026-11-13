@@ -14,11 +14,15 @@
 // su valor menos los cruces y devoluciones activos; anular un cruce o una devolución le devuelve el saldo. Los cruces
 // usan PagoAplicacion igual que un pago, así el saldo de la factura y su historial de pagos no necesitan cambios.
 //
+// Un anticipo a proveedor puede amarrarse a una orden de adquisición (ordenCompraId): del mismo proveedor, sin pasarse del total de la
+// orden. Al aplicarlo a una factura que no es de esa orden se pide confirmar (aceptarFueraDeOrden).
+//
 // No se calcula IVA ni retención sobre el anticipo: la factura que lo cancela ya trae sus impuestos y retenciones.
 const { v4: uuidv4 } = require('uuid');
 const sequelize = require('../../../config/database');
 const Tercero = require('../../../core/models/Tercero');
 const ReglaContabilizacion = require('../../../core/models/ReglaContabilizacion');
+const OrdenCompra = require('../../compras/models/OrdenCompra');
 const CuentaBancaria = require('../models/CuentaBancaria');
 const MovimientoBancario = require('../models/MovimientoBancario');
 const PagoTesoreria = require('../models/PagoTesoreria');
@@ -96,6 +100,25 @@ async function ligarMovimiento({ empresaId, cuenta, movimiento, fecha, valorCent
   return { movimientoId: id, movimientoCreado: true };
 }
 
+// Orden de adquisición a la que se amarra un anticipo a proveedor: del mismo proveedor, emitida, aprobada o recibida (no borrador,
+// rechazada, anulada ni ya facturada), y lo anticipado (neto de devoluciones) no puede pasar del total de la orden.
+const ESTADOS_ORDEN_ANTICIPO = ['emitida', 'aprobada', 'recibida_parcial', 'recibida_total'];
+async function ordenParaAnticipo(empresaId, sentido, tercero, ordenId, valorCent, transaction) {
+  if (sentido !== 'proveedor') throw new Error('Solo un anticipo a proveedor se amarra a una orden de adquisición.');
+  const orden = await OrdenCompra.findOne({ where: { id: ordenId, empresaId }, transaction });
+  if (!orden) throw new Error('La orden de adquisición elegida no existe.');
+  if (orden.terceroId !== tercero.id) throw new Error(`La orden ${orden.consecutivo || ''} es de otro proveedor.`);
+  if (!ESTADOS_ORDEN_ANTICIPO.includes(orden.estado)) {
+    throw new Error(`La orden ${orden.consecutivo || ''} está en estado "${orden.estado}": un anticipo se concede sobre una orden emitida, aprobada o recibida, que aún no esté facturada.`);
+  }
+  const previos = await saldosAnticipos(empresaId, { ordenCompraId: orden.id }, transaction);
+  const entregado = previos.reduce((s, a) => s + aCentavos(a.pago.valor) - a.devuelto, 0);
+  if (entregado + valorCent > aCentavos(orden.total)) {
+    throw new Error(`La orden ${orden.consecutivo || ''} es por ${orden.total} y ya tiene ${dePesos(entregado)} anticipados: con este anticipo (${dePesos(valorCent)}) pasaría de su total.`);
+  }
+  return orden;
+}
+
 // --- Registrar un anticipo ------------------------------------------------------
 async function registrarAnticipo(datos, usuario) {
   const empresaId = usuario.empresaId;
@@ -118,6 +141,7 @@ async function registrarAnticipo(datos, usuario) {
   await aprovisionarContabilidadBase(empresaId);
   const creado = await sequelize.transaction(async (transaction) => {
     await asegurarReglasAnticipos(empresaId, transaction);
+    const orden = datos.ordenCompraId ? await ordenParaAnticipo(empresaId, sentido, tercero, datos.ordenCompraId, valorCent, transaction) : null;
     const codigoBanco = cuenta ? (await asegurarCuentaContable(cuenta, transaction)).codigo : '1105';
     const terceroBanco = (cuenta && cuenta.terceroId) || tercero.id;
     const v = dePesos(valorCent);
@@ -136,7 +160,7 @@ async function registrarAnticipo(datos, usuario) {
     });
     return PagoTesoreria.create({
       id: pagoId, empresaId, tipo: S.tipo, fecha, terceroId: tercero.id, valor: v, medio,
-      cuentaBancariaId: cuenta ? cuenta.id : null, movimientoBancarioId: movimientoId, movimientoCreado,
+      cuentaBancariaId: cuenta ? cuenta.id : null, movimientoBancarioId: movimientoId, movimientoCreado, ordenCompraId: orden ? orden.id : null,
       asientoId: r.asiento.id, referencia, observaciones, estado: 'activo', usuarioId: usuario.id,
     }, { transaction });
   });
@@ -182,6 +206,7 @@ async function aplicarAnticipo(id, datos, usuario) {
     if (fecha < anticipo.fecha) throw new Error(`La aplicación (${fecha}) no puede ser anterior al anticipo (${anticipo.fecha}).`);
 
     const aplicado = [];
+    const fuera = [];
     let totalCent = 0;
     const porCuenta = {};
     const nombres = [];
@@ -196,9 +221,13 @@ async function aplicarAnticipo(id, datos, usuario) {
       const s = await cruces.saldoDe(empresaId, ap.docTipo, d, transaction);
       if (v > s.saldo) throw new Error(`${numero}: el valor (${dePesos(v)}) supera el saldo pendiente (${dePesos(s.saldo)}).`);
       aplicado.push({ ap, d, v });
+      if (anticipo.ordenCompraId && !(ap.docTipo === 'factura_compra' && d.ordenCompraOrigenId === anticipo.ordenCompraId)) fuera.push(numero);
       totalCent += v;
       porCuenta[DOCS[ap.docTipo].cuenta] = (porCuenta[DOCS[ap.docTipo].cuenta] || 0) + v;
       nombres.push(numero);
+    }
+    if (fuera.length && !(datos.aceptarFueraDeOrden === true || datos.aceptarFueraDeOrden === 'true')) {
+      throw new Error(`Este anticipo se concedió sobre una orden de adquisición y ${fuera.join(', ')} no ${fuera.length > 1 ? 'son facturas' : 'es una factura'} de esa orden. Si de todos modos lo quieres aplicar, confírmalo.`);
     }
     if (totalCent > estado.saldo) throw new Error(`El anticipo solo tiene ${dePesos(estado.saldo)} sin aplicar y se intenta aplicar ${dePesos(totalCent)}.`);
 
@@ -294,7 +323,7 @@ async function devolverAnticipo(id, datos, usuario) {
 }
 
 // --- Consultas ------------------------------------------------------------------
-async function filaAnticipo(estado, terceroPorId, cuentaPorId) {
+async function filaAnticipo(estado, terceroPorId, cuentaPorId, ordenPorId) {
   const p = estado.pago;
   const t = terceroPorId[p.terceroId];
   const c = p.cuentaBancariaId ? cuentaPorId[p.cuentaBancariaId] : null;
@@ -304,6 +333,7 @@ async function filaAnticipo(estado, terceroPorId, cuentaPorId) {
     valor: Number(p.valor), aplicado: dePesos(estado.aplicado), devuelto: dePesos(estado.devuelto), saldo: dePesos(estado.saldo),
     medio: p.medio, cuentaTexto: c ? nombreAuxiliar(c) : (p.medio === 'caja' ? 'Efectivo (caja)' : ''),
     referencia: p.referencia, observaciones: p.observaciones, asientoId: p.asientoId,
+    ordenCompraId: p.ordenCompraId || null, ordenConsecutivo: (ordenPorId[p.ordenCompraId] || {}).consecutivo || null,
   };
 }
 
@@ -313,6 +343,7 @@ async function listarAnticipos(datos, usuario) {
   const filtro = {};
   if (datos && SENTIDOS[datos.sentido]) filtro.tipo = SENTIDOS[datos.sentido].tipo;
   if (datos && datos.terceroId) filtro.terceroId = datos.terceroId;
+  if (datos && datos.ordenCompraId) filtro.ordenCompraId = datos.ordenCompraId;
   const todos = datos && (datos.todos === true || datos.todos === 'true' || datos.todos === '1');
   const estados = (await saldosAnticipos(empresaId, filtro)).filter((e) => todos || e.saldo > 0);
   const terceros = estados.length ? await Tercero.findAll({ where: { id: [...new Set(estados.map((e) => e.pago.terceroId))], empresaId } }) : [];
@@ -320,8 +351,11 @@ async function listarAnticipos(datos, usuario) {
   const cuentaIds = [...new Set(estados.map((e) => e.pago.cuentaBancariaId).filter(Boolean))];
   const cuentas = cuentaIds.length ? await CuentaBancaria.findAll({ where: { id: cuentaIds, empresaId } }) : [];
   const cuentaPorId = Object.fromEntries(cuentas.map((c) => [c.id, c]));
+  const ordenIds = [...new Set(estados.map((e) => e.pago.ordenCompraId).filter(Boolean))];
+  const ordenes = ordenIds.length ? await OrdenCompra.findAll({ where: { id: ordenIds, empresaId } }) : [];
+  const ordenPorId = Object.fromEntries(ordenes.map((o) => [o.id, o]));
   const filas = [];
-  for (const e of estados) filas.push(await filaAnticipo(e, terceroPorId, cuentaPorId));
+  for (const e of estados) filas.push(await filaAnticipo(e, terceroPorId, cuentaPorId, ordenPorId));
   filas.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
   const suma = (s) => filas.filter((f) => f.sentido === s).reduce((t, f) => t + aCentavos(f.saldo), 0);
   return {
@@ -343,6 +377,7 @@ async function detalleAnticipo(id, usuario) {
   const hijos = await PagoTesoreria.findAll({ where: { empresaId, anticipoId: pago.id }, order: [['fecha', 'ASC'], ['createdAt', 'ASC']] });
   const [estado] = pago.estado === 'activo' ? await saldosAnticipos(empresaId, { id: pago.id }) : [null];
   const cuenta = pago.cuentaBancariaId ? await CuentaBancaria.findOne({ where: { id: pago.cuentaBancariaId, empresaId } }) : null;
+  const orden = pago.ordenCompraId ? await OrdenCompra.findOne({ where: { id: pago.ordenCompraId, empresaId } }) : null;
   return {
     ...propio,
     sentido: sentidoDeTipo(pago.tipo),
@@ -350,6 +385,8 @@ async function detalleAnticipo(id, usuario) {
     devuelto: estado ? dePesos(estado.devuelto) : 0,
     saldo: estado ? dePesos(estado.saldo) : 0,
     cuentaTexto: cuenta ? nombreAuxiliar(cuenta) : propio.cuentaTexto,
+    ordenCompraId: pago.ordenCompraId || null,
+    ordenConsecutivo: orden ? orden.consecutivo : null,
     movimientos: await enriquecer(hijos, empresaId),
   };
 }

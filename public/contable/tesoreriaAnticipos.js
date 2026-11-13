@@ -56,7 +56,7 @@
         acc.push(boton('Ver', 'ver', { id: a.id }));
         if (K.puedeAnular()) acc.push(boton('Anular', 'anular', { id: a.id }, 'btn-accion destructivo'));
         return `<tr><td class="no-corta">${esc(fecha(a.fecha))}</td>
-          <td>${esc(a.terceroNombre)}<br><span class="texto-suave">${a.sentido === 'cliente' ? 'Cliente' : 'Proveedor'} · ${esc(a.terceroIdentificacion)}</span></td>
+          <td>${esc(a.terceroNombre)}<br><span class="texto-suave">${a.sentido === 'cliente' ? 'Cliente' : 'Proveedor'} · ${esc(a.terceroIdentificacion)}</span>${a.ordenConsecutivo ? `<br><span class="badge conciliado">Orden ${esc(a.ordenConsecutivo)}</span>` : ''}</td>
           <td>${esc(a.cuentaTexto || 'Banco')}<br><span class="texto-suave">${esc(a.referencia || 'sin referencia')}</span></td>
           <td class="num">${dinero(a.valor)}</td>
           <td class="num">${a.aplicado > 0 ? `aplicado ${dinero(a.aplicado)}` : ''}${a.aplicado > 0 && a.devuelto > 0 ? '<br>' : ''}${a.devuelto > 0 ? `devuelto ${dinero(a.devuelto)}` : ''}${a.aplicado <= 0 && a.devuelto <= 0 ? '—' : ''}</td>
@@ -70,15 +70,26 @@
   // ===================================================================================
   // REGISTRAR UN ANTICIPO
   // ===================================================================================
-  async function dialogoNuevo(sentido) {
+  // ordenId: orden de adquisición con la que se abre el diálogo (desde el botón «Anticipo» de la orden).
+  async function dialogoNuevo(sentido, ordenId) {
     const S = SENTIDO[sentido];
-    const [terceros, libres, cuentas] = await Promise.all([api('/terceros'), api('/tesoreria/movimientos-libres'), api('/tesoreria/cuentas')]);
+    const [terceros, libres, cuentas, ordenes, previos] = await Promise.all([
+      api('/terceros'), api('/tesoreria/movimientos-libres'), api('/tesoreria/cuentas'),
+      sentido === 'proveedor' ? api('/compras/ordenes') : Promise.resolve([]),
+      sentido === 'proveedor' ? api('/tesoreria/anticipos?sentido=proveedor&todos=1') : Promise.resolve({ anticipos: [] }),
+    ]);
+    const ordenInicial = ordenId ? ordenes.find((o) => o.id === ordenId) : null;
+    if (ordenId && !ordenInicial) throw new Error('No se encontró la orden de adquisición.');
+    // Anticipado por orden (menos devoluciones), para mostrar cuánto queda por anticipar.
+    const anticipado = {};
+    for (const a of previos.anticipos) if (a.ordenCompraId) anticipado[a.ordenCompraId] = (anticipado[a.ordenCompraId] || 0) + a.valor - a.devuelto;
     const elegibles = terceros.filter((t) => t.tipo === sentido || t.tipo === 'otro').sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     if (!elegibles.length) throw new Error(`Primero crea el ${S.quien.toLowerCase()} en Terceros.`);
     const cuentaInicial = cuentas[0] ? cuentas[0].id : '';
     const cuerpo = `
       ${K.sinCuentas(cuentas)}
-      ${campo(S.quien, `<select id="an-tercero"><option value="">Elige…</option>${opcionesSelect(elegibles.map((t) => [t.id, `${t.nombre} · ${t.identificacion}`]), '')}</select>`)}
+      ${campo(S.quien, `<select id="an-tercero"><option value="">Elige…</option>${opcionesSelect(elegibles.map((t) => [t.id, `${t.nombre} · ${t.identificacion}`]), ordenInicial ? ordenInicial.terceroId : '')}</select>`)}
+      ${sentido === 'proveedor' ? campo('Orden de adquisición (opcional, recomendada)', '<select id="an-orden"></select>') + '<p class="nota-aiu" id="an-orden-info"></p>' : ''}
       <div class="fila-campos">
         ${campo('Fecha', `<input type="date" id="an-fecha" value="${hoy()}" max="${hoy()}">`)}
         ${campo('Valor', '<input type="number" id="an-valor" min="0" step="0.01" placeholder="0">')}
@@ -102,7 +113,7 @@
           await api('/tesoreria/anticipos', {
             method: 'POST',
             body: JSON.stringify({
-              sentido, terceroId: v('an-tercero'), fecha: v('an-fecha'), valor: num(v('an-valor')), medio: v('an-medio'),
+              sentido, terceroId: v('an-tercero'), ordenCompraId: sentido === 'proveedor' && v('an-orden') ? v('an-orden') : null, fecha: v('an-fecha'), valor: num(v('an-valor')), medio: v('an-medio'),
               cuentaBancariaId: banco ? v('an-cuenta') : null, movimientoBancarioId: banco && v('an-movimiento') ? v('an-movimiento') : null,
               referencia: v('an-referencia'), observaciones: v('an-observaciones'),
             }),
@@ -127,7 +138,25 @@
           : `Asiento: Db 1330 Anticipos y avances ${dinero(val)} / Cr ${v('an-medio') === 'banco' ? 'banco' : 'caja'} ${dinero(val)}.`)
         : '';
     };
+    // Órdenes del proveedor elegido en las que se puede conceder un anticipo (emitida, aprobada o recibida).
+    const ESTADOS_ORDEN = ['emitida', 'aprobada', 'recibida_parcial', 'recibida_total'];
+    const pintarOrdenes = (elegida) => {
+      const sel = $('an-orden');
+      if (!sel) return;
+      const lista = ordenes.filter((o) => o.terceroId === v('an-tercero') && ESTADOS_ORDEN.includes(o.estado));
+      sel.innerHTML = `<option value="">${v('an-tercero') ? (lista.length ? 'Sin orden' : 'Sin orden (este proveedor no tiene órdenes disponibles)') : 'Elige primero el proveedor'}</option>`
+        + lista.map((o) => `<option value="${esc(o.id)}"${o.id === elegida ? ' selected' : ''}>${esc(o.consecutivo || 's/n')} · ${esc(o.tipo)} · ${esc(dinero(o.total))}</option>`).join('');
+      pintarInfoOrden();
+    };
+    const pintarInfoOrden = () => {
+      const o = ordenes.find((x) => x.id === v('an-orden'));
+      $('an-orden-info').textContent = o
+        ? `Orden por ${dinero(o.total)} · ya anticipado ${dinero(anticipado[o.id] || 0)} · se puede anticipar hasta ${dinero(Math.max(0, redondear(Number(o.total) - (anticipado[o.id] || 0))))}.`
+        : '';
+    };
     $('tes-dialogo-cuerpo').onchange = (e) => {
+      if (e.target.id === 'an-tercero') pintarOrdenes('');
+      if (e.target.id === 'an-orden') pintarInfoOrden();
       if (e.target.id === 'an-medio') { pintarBanco(); pintarAsiento(); }
       if (e.target.id === 'an-cuenta') pintarMovimientos();
       if (e.target.id === 'an-movimiento') {
@@ -138,6 +167,7 @@
     $('tes-dialogo-cuerpo').oninput = (e) => { if (e.target.id === 'an-valor') pintarAsiento(); };
     pintarBanco();
     pintarMovimientos();
+    pintarOrdenes(ordenInicial ? ordenInicial.id : '');
   }
 
   // ===================================================================================
@@ -150,6 +180,9 @@
     const terceroId = anticipos[0].terceroId;
     const docs = cartera.documentos.filter((d) => d.terceroId === terceroId && d.pagable);
     if (!docs.length) throw new Error(`${anticipos[0].terceroNombre} no tiene facturas con saldo para aplicar el anticipo.`);
+    // Si la factura elegida es de una orden, el anticipo de esa orden va de primero.
+    const docElegido = docs.find((d) => d.docId === docId);
+    if (docElegido && docElegido.ordenCompraId) anticipos = [...anticipos].sort((x, y) => Number(y.ordenCompraId === docElegido.ordenCompraId) - Number(x.ordenCompraId === docElegido.ordenCompraId));
     const cuerpo = `
       ${anticipos.length > 1
         ? campo('Anticipo', `<select id="aa-anticipo">${opcionesSelect(anticipos.map((a) => [a.id, `${fecha(a.fecha)} · ${a.referencia || 'sin referencia'} · saldo ${dinero(a.saldo)}`]), anticipos[0].id)}</select>`)
@@ -161,10 +194,14 @@
       <h4 class="inv-sec-titulo">Facturas a las que se aplica</h4>
       <div class="tabla-envoltorio"><table><thead><tr><th></th><th>Documento</th><th>Vence</th><th class="num">Saldo</th><th class="num">Valor a aplicar</th></tr></thead><tbody>
         ${docs.map((d) => `<tr><td><input type="checkbox" data-aa-doc="${esc(d.docId)}" data-tipo="${esc(d.docTipo)}" data-saldo="${d.saldo}" aria-label="Incluir ${esc(d.numero)}"></td>
-          <td>${esc(d.numero)}<br><span class="texto-suave">${esc(d.etiqueta)}</span></td><td>${esc(fecha(d.fechaVencimiento))}</td><td class="num">${dinero(d.saldo)}</td>
+          <td>${esc(d.numero)}<br><span class="texto-suave">${esc(d.etiqueta)}</span> <span class="aa-orden" data-orden="${esc(d.ordenCompraId || '')}" data-tipo="${esc(d.docTipo)}"></span></td><td>${esc(fecha(d.fechaVencimiento))}</td><td class="num">${dinero(d.saldo)}</td>
           <td class="num"><input type="number" min="0" step="0.01" data-aa-valor="${esc(d.docId)}" disabled aria-label="Valor a aplicar a ${esc(d.numero)}"></td></tr>`).join('')}
       </tbody></table></div>
-      <p id="aa-total" class="nota-aiu"></p>`;
+      <p id="aa-total" class="nota-aiu"></p>
+      <div id="aa-fuera" hidden>
+        <p class="fx-aviso confirmar" id="aa-fuera-texto"></p>
+        <label class="fx-check"><input type="checkbox" id="aa-fuera-ok"> Aplicar de todos modos</label>
+      </div>`;
     abrirDialogo({
       titulo: 'Aplicar anticipo a facturas', cuerpo, ancho: true,
       guardar: {
@@ -172,7 +209,7 @@
         fn: async () => {
           const aplicaciones = marcadas().map((chk) => ({ docTipo: chk.dataset.tipo, docId: chk.dataset.aaDoc, valor: num(entrada(chk.dataset.aaDoc).value) }));
           await api(`/tesoreria/anticipos/${anticipoActual().id}/aplicar`, {
-            method: 'POST', body: JSON.stringify({ fecha: v('aa-fecha'), observaciones: v('aa-observaciones'), aplicaciones }),
+            method: 'POST', body: JSON.stringify({ fecha: v('aa-fecha'), observaciones: v('aa-observaciones'), aplicaciones, aceptarFueraDeOrden: $('aa-fuera-ok').checked }),
           });
           await refrescarTodo();
         },
@@ -181,7 +218,25 @@
     const anticipoActual = () => anticipos.find((a) => a.id === (anticipos.length > 1 ? v('aa-anticipo') : anticipos[0].id)) || anticipos[0];
     const marcadas = () => [...document.querySelectorAll('#tes-dialogo-cuerpo input[data-aa-doc]:checked')];
     const entrada = (id) => document.querySelector(`#tes-dialogo-cuerpo input[data-aa-valor="${id}"]`);
+    // Si el anticipo es de una orden, marca cada factura (de la orden o no) y pide confirmar las que no son de esa orden.
+    const marcarOrden = () => {
+      const a = anticipoActual();
+      document.querySelectorAll('#tes-dialogo-cuerpo .aa-orden').forEach((m) => {
+        if (!a.ordenCompraId) { m.textContent = ''; return; }
+        const deLaOrden = m.dataset.tipo === 'factura_compra' && m.dataset.orden === a.ordenCompraId;
+        m.textContent = deLaOrden ? `· de la orden ${a.ordenConsecutivo || ''}` : '· no es de la orden';
+        m.className = 'aa-orden ' + (deLaOrden ? 'texto-suave' : 'aa-fuera-marca');
+      });
+      const fuera = marcadas().filter((c) => {
+        const m = c.closest('tr').querySelector('.aa-orden');
+        return a.ordenCompraId && !(m.dataset.tipo === 'factura_compra' && m.dataset.orden === a.ordenCompraId);
+      });
+      $('aa-fuera').hidden = !fuera.length;
+      if (!fuera.length) $('aa-fuera-ok').checked = false;
+      $('aa-fuera-texto').textContent = `Este anticipo se concedió sobre la orden ${a.ordenConsecutivo || ''} y estás aplicándolo a facturas que no son de esa orden. Confirma si es lo que quieres.`;
+    };
     const totalizar = () => {
+      marcarOrden();
       const saldo = anticipoActual().saldo;
       const total = redondear(marcadas().reduce((s, chk) => s + num(entrada(chk.dataset.aaDoc).value), 0));
       const resto = redondear(saldo - total);
@@ -305,7 +360,7 @@
     }).join('');
     abrirDialogo({
       titulo: `${a.sentido === 'cliente' ? 'Anticipo de' : 'Anticipo a'} ${a.terceroNombre}`, ancho: true,
-      cuerpo: `<p class="nota-panel">Entregado el ${esc(fecha(a.fecha))} · valor <strong>${dinero(a.valor)}</strong> · aplicado <strong>${dinero(a.aplicado)}</strong> · devuelto <strong>${dinero(a.devuelto)}</strong> · saldo <strong>${dinero(a.saldo)}</strong>${a.estado === 'anulado' ? ' · <span class="badge rechazado">anulado</span>' : ''}</p>
+      cuerpo: `<p class="nota-panel">${a.ordenConsecutivo ? `Orden de adquisición <strong>${esc(a.ordenConsecutivo)}</strong> · ` : ''}Entregado el ${esc(fecha(a.fecha))} · valor <strong>${dinero(a.valor)}</strong> · aplicado <strong>${dinero(a.aplicado)}</strong> · devuelto <strong>${dinero(a.devuelto)}</strong> · saldo <strong>${dinero(a.saldo)}</strong>${a.estado === 'anulado' ? ' · <span class="badge rechazado">anulado</span>' : ''}</p>
         <div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Qué se hizo</th><th>Detalle</th><th class="num">Valor</th><th>Estado</th><th></th></tr></thead><tbody>${filas || '<tr><td colspan="6" class="vacio">Todavía no se ha aplicado ni devuelto.</td></tr>'}</tbody></table></div>`,
     });
   }
@@ -347,6 +402,12 @@
       mostrarError(err);
     }
   });
+
+  // Desde la orden de adquisición: abre Tesorería › Anticipos con el anticipo a proveedor sobre esa orden.
+  window.tesoreriaAnticiposNuevoParaOrden = async function (ordenId) {
+    await K.mostrarSub('anticipos');
+    await dialogoNuevo('proveedor', ordenId);
+  };
 
   window.tesoreriaAnticiposMostrar = mostrar;
 })();

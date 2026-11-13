@@ -247,18 +247,25 @@ Devolver             (cliente)   Db 2805 / Cr banco o caja    (proveedor)  Db ba
   soporte) con asiento contabilizado y saldo; no puede superar el saldo del anticipo ni el de la factura, ni ser anterior a ninguno de los dos.
   Se puede hacer desde la pestaña Anticipos o desde la cartera (botón «Aplicar anticipo» y la marca «anticipo disponible» en cada
   factura del tercero). Un anticipo se puede aplicar por partes y a varias facturas.
+- **Orden de adquisición (solo anticipos a proveedor, opcional pero recomendada):** el anticipo se puede amarrar a una orden del mismo
+  proveedor que esté emitida, aprobada o recibida (no borrador, rechazada, anulada ni ya facturada). Lo anticipado sobre la orden (menos
+  devoluciones) no puede pasar de su total. Se registra desde Tesorería › Anticipos (selector «Orden de adquisición») o con el botón
+  **Anticipo** de la propia orden, que abre el diálogo ya con la orden elegida. La orden muestra sus anticipos (con lo aplicado, devuelto y sin
+  aplicar) al abrir «Ver ítems»; en Tesorería › Anticipos el anticipo lleva la marca de su orden. Al aplicarlo se marca qué facturas son
+  de esa orden (`factura_compra.orden_compra_origen_id`); aplicarlo a una que no lo es exige marcar «Aplicar de todos modos». Al cargar el XML
+  de una factura de compra con esa orden, la vista previa avisa que la orden tiene anticipos sin aplicar.
 - **Devolver:** total o parcial, por banco o caja (movimiento egreso al cliente / ingreso del proveedor).
 - **Anular** (contador o dueño, desde «Ver» o el botón «Anular»): anular un cruce o una devolución devuelve el saldo al anticipo y a la factura;
   un anticipo con cruces o devoluciones activos no se anula hasta anular primero esos.
 - Modelo: filas de `tesoreria_pagos` con `tipo` = `anticipo_cliente` | `anticipo_proveedor` | `cruce_anticipo` | `devolucion_anticipo`;
-  los cruces y devoluciones apuntan al anticipo con `anticipo_id`, y los cruces usan `tesoreria_pago_aplicaciones` (`fuente_tipo = 'anticipo'`),
+  los cruces y devoluciones apuntan al anticipo con `anticipo_id` (y el anticipo a proveedor a su orden con `orden_compra_id`), y los cruces usan `tesoreria_pago_aplicaciones` (`fuente_tipo = 'anticipo'`),
   de modo que el saldo de la factura y su historial de pagos funcionan igual que con un pago. Saldo del anticipo = valor − cruces − devoluciones activos.
   Las cuentas 1330 y 2805 se agregaron al catálogo base (se crean solas en empresas existentes) y las reglas `tesoreria_anticipo_*`,
-  `tesoreria_cruce_anticipo_*` y `tesoreria_devolucion_anticipo_*` en el primer uso. SQL: `sql-anticipos.sql` (amplía `tipo` a 20 caracteres y agrega `anticipo_id`).
+  `tesoreria_cruce_anticipo_*` y `tesoreria_devolucion_anticipo_*` en el primer uso. SQL: `sql-anticipos.sql` (amplía `tipo` a 20 caracteres y agrega `anticipo_id` y `orden_compra_id`).
 - API (`/api/tesoreria`): `GET anticipos?sentido=cliente|proveedor&terceroId=&todos=1`, `POST anticipos`, `GET anticipos/:id`,
-  `POST anticipos/:id/aplicar`, `POST anticipos/:id/devolver`; anular con `POST pagos/:id/anular`. La cartera trae `anticipoTercero` por fila
+  `POST anticipos/:id/aplicar` (`aceptarFueraDeOrden`), `POST anticipos/:id/devolver`; `GET anticipos?ordenCompraId=`; anular con `POST pagos/:id/anular`. La cartera trae `anticipoTercero` por fila
   y `resumen.anticipos`.
-- **Aún no:** que el sobrante de un recaudo o pago quede como anticipo, anticipos ligados a una orden de compra, cotización o proyecto,
+- **Aún no:** que el sobrante de un recaudo o pago quede como anticipo, anticipos de clientes ligados a una cotización o proyecto, anticipos a documentos soporte sin orden de por medio,
   convertir en anticipo el saldo a favor de una nota crédito, anticipos con IVA o retención, ni anticipos en moneda extranjera.
 
 ## Logo de empresa
@@ -789,7 +796,7 @@ qué contabilizar.
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
-- [ ] Anticipos: sobrante de un recaudo/pago como anticipo, ligados a orden de compra, cotización o proyecto, saldo a favor de una nota crédito, con IVA o retención
+- [ ] Anticipos: sobrante de un recaudo/pago como anticipo, de clientes ligados a cotización o proyecto, saldo a favor de una nota crédito, con IVA o retención
 - [ ] Tesorería (cruce de pagos): cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
 - [ ] Bancos: conciliación por cuenta contra el extracto (importar el extracto y quitar la conciliación de un movimiento); los pagos, recaudos y la nómina ya van al auxiliar de la cuenta; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
 - [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni los activos fijos (la nómina ya usa `contabilizarAsientoCompuesto`)

@@ -629,7 +629,7 @@
   }
 
   // Herramientas que comparte tesoreriaAnticipos.js (se carga después de este archivo).
-  window.tesoreriaKit = { sinCuentas, abrirDialogo, cerrarDialogo, errorDialogo, refrescarTodo, contenido, cargarCartera, T, boton, campo, opcionesSelect, aviso, mostrarError, num, v, fecha, redondear, puedeRegistrar, puedeAnular };
+  window.tesoreriaKit = { mostrarSub, sinCuentas, abrirDialogo, cerrarDialogo, errorDialogo, refrescarTodo, contenido, cargarCartera, T, boton, campo, opcionesSelect, aviso, mostrarError, num, v, fecha, redondear, puedeRegistrar, puedeAnular };
 
   // Lo llama app.js al abrir la pestaña Tesorería.
   window.tesoreriaAlMostrar = function () {

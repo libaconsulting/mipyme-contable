@@ -31,6 +31,8 @@ const PagoTesoreria = sequelize.define('PagoTesoreria', {
   asientoId: { type: DataTypes.UUID },
   // Solo en cruce_anticipo y devolucion_anticipo: el anticipo (otro PagoTesoreria) al que pertenecen.
   anticipoId: { type: DataTypes.UUID },
+  // Solo en anticipo_proveedor: la orden de adquisición (OrdenCompra) con la que se concedió el anticipo; opcional.
+  ordenCompraId: { type: DataTypes.UUID },
   referencia: { type: DataTypes.STRING(60) }, // número de transferencia, cheque, consignación...
   observaciones: { type: DataTypes.STRING(250) },
   estado: { type: DataTypes.STRING(10), allowNull: false, defaultValue: 'activo' }, // activo | anulado
@@ -39,7 +41,7 @@ const PagoTesoreria = sequelize.define('PagoTesoreria', {
   usuarioId: { type: DataTypes.UUID },
 }, {
   tableName: 'tesoreria_pagos',
-  indexes: [{ fields: ['empresa_id', 'tercero_id'] }, { fields: ['empresa_id', 'fecha'] }, { fields: ['anticipo_id'] }],
+  indexes: [{ fields: ['empresa_id', 'tercero_id'] }, { fields: ['empresa_id', 'fecha'] }, { fields: ['anticipo_id'] }, { fields: ['orden_compra_id'] }],
 });
 
 module.exports = PagoTesoreria;

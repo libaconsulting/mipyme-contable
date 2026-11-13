@@ -29,6 +29,7 @@ const FacturaCompra = require('../models/FacturaCompra');
 const { contabilizarAsientoCompuesto } = require('../../../core/services/motorAsientos');
 const { aprovisionarContabilidadBase } = require('../../../core/services/seedService');
 const inventarios = require('../../inventarios/services/inventarios.service');
+const { saldosAnticipos } = require('../../tesoreria/services/cruces.service');
 const { leerFacturaElectronica } = require('../../../integrations/dian/facturaElectronica');
 const calcularOrden = require('../../../../public/contable/calculoOrden');
 const { armarAsientoCompra, repartir } = require('../../../../public/contable/asientoCompra');
@@ -223,6 +224,15 @@ async function analizar(datos, usuario) {
         advertencias.push({
           nivel: 'confirmar',
           texto: `La orden ${orden.consecutivo} es por ${Number(orden.total)} y la factura por ${factura.totales.conImpuestos} (diferencia ${dif}).`,
+        });
+      }
+      // Anticipos entregados sobre la orden: recordar que quedan por aplicar a esta factura en Tesorería.
+      const anticipos = (await saldosAnticipos(empresa.id, { ordenCompraId: orden.id })).filter((x) => x.saldo > 0);
+      if (anticipos.length) {
+        const saldo = anticipos.reduce((t, x) => t + x.saldo, 0) / 100;
+        advertencias.push({
+          nivel: 'info',
+          texto: `La orden ${orden.consecutivo} tiene anticipos sin aplicar por ${saldo}. Después de registrar la factura, aplícalos en Tesorería › Anticipos.`,
         });
       }
     }

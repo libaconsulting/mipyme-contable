@@ -203,6 +203,7 @@ async function saldosAnticipos(empresaId, filtro, transaction) {
   const where = { empresaId, tipo: filtro && filtro.tipo ? filtro.tipo : { [Op.in]: TIPOS_ANTICIPO }, estado: 'activo' };
   if (filtro && filtro.terceroId) where.terceroId = filtro.terceroId;
   if (filtro && filtro.id) where.id = filtro.id;
+  if (filtro && filtro.ordenCompraId) where.ordenCompraId = filtro.ordenCompraId;
   const anticipos = await PagoTesoreria.findAll({ where, order: [['fecha', 'ASC'], ['createdAt', 'ASC']], transaction });
   if (!anticipos.length) return [];
   const hijos = await PagoTesoreria.findAll({ where: { empresaId, anticipoId: anticipos.map((a) => a.id), estado: 'activo' }, transaction });
@@ -296,6 +297,7 @@ async function cartera(datos, usuario) {
         diasVencido,
         vencida: saldo > 0 && diasVencido > 0,
         pagable: !motivoNoPagable && saldo > 0,
+        ordenCompraId: docTipo === 'factura_compra' ? d.ordenCompraOrigenId || null : null,
         motivoNoPagable,
       });
     }
@@ -597,7 +599,7 @@ async function enriquecer(pagos, empresaId) {
       id: p.id, tipo: p.tipo, fecha: p.fecha, valor: Number(p.valor), retenciones: Number(p.retenciones || 0), otrosDescuentos: Number(p.otrosDescuentos || 0), medio: p.medio, estado: p.estado,
       terceroId: p.terceroId, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '',
       cuentaBancariaId: p.cuentaBancariaId, cuentaTexto: c ? nombreAuxiliar(c) : (p.medio === 'caja' ? 'Efectivo (caja)' : ''),
-      movimientoBancarioId: p.movimientoBancarioId, asientoId: p.asientoId, anticipoId: p.anticipoId || null,
+      movimientoBancarioId: p.movimientoBancarioId, asientoId: p.asientoId, anticipoId: p.anticipoId || null, ordenCompraId: p.ordenCompraId || null,
       referencia: p.referencia, observaciones: p.observaciones, motivoAnulacion: p.motivoAnulacion,
       aplicaciones: aps.filter((a) => a.pagoId === p.id).map((a) => {
         const d = docsPorTipo[a.docTipo][a.docId];

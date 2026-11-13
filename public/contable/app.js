@@ -684,6 +684,9 @@ function renderOrdenes(lista) {
       } else if (['aprobada', 'recibida_parcial', 'recibida_total'].includes(o.estado)) {
         acciones += botonAccion('Convertir en factura', { accion: 'convertir-orden', id: o.id });
       }
+      if (['emitida', 'aprobada', 'recibida_parcial', 'recibida_total'].includes(o.estado) && ['contador', 'dueño', 'auxiliar'].includes(usuario.rol)) {
+        acciones += botonAccion('Anticipo', { accion: 'anticipo-orden', id: o.id });
+      }
 
       const proyecto = o.proyectoId ? nombreProyecto(o.proyectoId) : o.proyecto || '—';
 
@@ -1560,6 +1563,22 @@ async function verItemsOrden(id) {
       )
       .join('');
 
+    // Anticipos entregados sobre esta orden (si no se pueden leer, el detalle sale igual).
+    let anticiposHtml = '';
+    try {
+      const ant = await api(`/tesoreria/anticipos?ordenCompraId=${encodeURIComponent(id)}&todos=1`);
+      if (ant.anticipos.length) {
+        const neto = ant.anticipos.reduce((s, a) => s + a.valor - a.devuelto, 0);
+        anticiposHtml = `<h4 class="inv-sec-titulo">Anticipos entregados sobre esta orden</h4>
+          <table class="tabla-items-detalle"><thead><tr><th>Fecha</th><th>Referencia</th><th class="num">Valor</th><th class="num">Aplicado a facturas</th><th class="num">Devuelto</th><th class="num">Sin aplicar</th></tr></thead><tbody>
+          ${ant.anticipos.map((a) => `<tr><td>${formatoFecha(a.fecha)}</td><td>${escHtml(a.referencia || '—')}</td><td class="num">${formatoDineroDec(a.valor)}</td><td class="num">${formatoDineroDec(a.aplicado)}</td><td class="num">${formatoDineroDec(a.devuelto)}</td><td class="num">${formatoDineroDec(a.saldo)}</td></tr>`).join('')}
+          </tbody></table>
+          <p class="nota-panel">Anticipado (menos devoluciones): <strong>${formatoDineroDec(neto)}</strong> de ${formatoDineroDec(orden.total)} de la orden. Se aplican a la factura en Tesorería › Anticipos.</p>`;
+      }
+    } catch (e) {
+      anticiposHtml = '';
+    }
+
     const tr = document.createElement('tr');
     tr.id = 'detalle-orden-' + id;
     tr.innerHTML = `<td colspan="8"><div class="detalle-items">
@@ -1571,6 +1590,7 @@ async function verItemsOrden(id) {
         }</tbody>
       </table>
       ${resumenTotalesOrdenHtml(orden)}
+      ${anticiposHtml}
     </div></td>`;
     filaOriginal.after(tr);
   } catch (err) {
@@ -3754,6 +3774,11 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
       return accion(`/compras/ordenes/${id}/aprobar`, { method: 'PATCH' });
     case 'convertir-orden':
       return accion(`/compras/ordenes/${id}/convertir`, { method: 'POST' });
+    case 'anticipo-orden':
+      // Lleva a Tesorería › Anticipos con el diálogo de anticipo a proveedor abierto sobre esta orden.
+      irATab('tesoreria');
+      if (window.tesoreriaAnticiposNuevoParaOrden) window.tesoreriaAnticiposNuevoParaOrden(id).catch((err) => alert(err.message));
+      return;
 
     case 'baja-activo':
       if (confirm('¿Dar de baja este activo? Esta acción queda pendiente de revisión del contador.'))
