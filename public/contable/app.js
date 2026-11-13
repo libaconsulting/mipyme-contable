@@ -153,7 +153,6 @@ document.getElementById('btn-salir').addEventListener('click', () => cerrarSesio
 // --- ONBOARDING: crear empresa nueva y su primer usuario, sin sesión ---
 const tarjetaLoginPrincipal = document.getElementById('tarjeta-login-principal');
 const tarjetaOnboarding = document.getElementById('tarjeta-onboarding');
-let empresaNuevaId = null;
 
 document.getElementById('btn-mostrar-onboarding').addEventListener('click', () => {
   tarjetaLoginPrincipal.hidden = true;
@@ -168,7 +167,7 @@ function volverALogin() {
   document.getElementById('form-empresa-nueva').reset();
   document.getElementById('form-usuario-nuevo').reset();
   document.getElementById('onboarding-resultado').hidden = true;
-  empresaNuevaId = null;
+  datosEmpresaNueva = null;
 }
 
 document.getElementById('btn-volver-login').addEventListener('click', volverALogin);
@@ -206,38 +205,34 @@ document.getElementById('empresa-logo').addEventListener('change', async (e) => 
   }
 });
 
+// Paso 1: los datos de la empresa se guardan en memoria; la empresa y su primer usuario se crean JUNTOS
+// en el paso 2 (POST /auth/registro-empresa), con el código de registro. Así no queda una empresa sin usuario.
+let datosEmpresaNueva = null;
+
 document.getElementById('form-empresa-nueva').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
     const archivoLogo = document.getElementById('empresa-logo').files[0];
     const logoBase64 = archivoLogo ? await leerArchivoComoBase64(archivoLogo) : undefined;
-
-    const res = await fetch(API + '/empresas', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        razonSocial: document.getElementById('empresa-razon-social').value,
-        nit: document.getElementById('empresa-nit').value,
-        regimenTributario: document.getElementById('empresa-regimen').value,
-        responsableIva: document.getElementById('empresa-responsable-iva').checked,
-        email: document.getElementById('empresa-email').value || undefined,
-        telefono: document.getElementById('empresa-telefono').value || undefined,
-        direccion: document.getElementById('empresa-direccion').value || undefined,
-        departamento: document.getElementById('empresa-departamento').value || undefined,
-        municipio: document.getElementById('empresa-municipio').value || undefined,
-        representanteLegalNombre: document.getElementById('empresa-representante-nombre').value || undefined,
-        representanteLegalDocumento: document.getElementById('empresa-representante-documento').value || undefined,
-        actividadEconomicaCiiu: document.getElementById('empresa-ciiu').value || undefined,
-        matriculaMercantil: document.getElementById('empresa-matricula').value || undefined,
-        logoBase64,
-      }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'No se pudo crear la empresa.');
-
-    empresaNuevaId = data.id;
+    const valor = (id) => document.getElementById(id).value || undefined;
+    datosEmpresaNueva = {
+      razonSocial: document.getElementById('empresa-razon-social').value,
+      nit: document.getElementById('empresa-nit').value,
+      regimenTributario: document.getElementById('empresa-regimen').value,
+      responsableIva: document.getElementById('empresa-responsable-iva').checked,
+      email: valor('empresa-email'),
+      telefono: valor('empresa-telefono'),
+      direccion: valor('empresa-direccion'),
+      departamento: valor('empresa-departamento'),
+      municipio: valor('empresa-municipio'),
+      representanteLegalNombre: valor('empresa-representante-nombre'),
+      representanteLegalDocumento: valor('empresa-representante-documento'),
+      actividadEconomicaCiiu: valor('empresa-ciiu'),
+      matriculaMercantil: valor('empresa-matricula'),
+      logoBase64,
+    };
     document.getElementById('empresa-creada-mensaje').textContent =
-      `Empresa "${data.razonSocial}" creada. Ahora crea su primer usuario:`;
+      `Empresa "${datosEmpresaNueva.razonSocial}". Ahora crea su primer usuario:`;
     document.getElementById('form-empresa-nueva').hidden = true;
     document.getElementById('form-usuario-nuevo').hidden = false;
   } catch (err) {
@@ -245,27 +240,36 @@ document.getElementById('form-empresa-nueva').addEventListener('submit', async (
   }
 });
 
+document.getElementById('btn-onboarding-atras').addEventListener('click', () => {
+  document.getElementById('form-usuario-nuevo').hidden = true;
+  document.getElementById('form-empresa-nueva').hidden = false;
+});
+
 document.getElementById('form-usuario-nuevo').addEventListener('submit', async (e) => {
   e.preventDefault();
   try {
-    const res = await fetch(API + '/auth/registro', {
+    if (!datosEmpresaNueva) throw new Error('Primero escribe los datos de la empresa.');
+    const res = await fetch(API + '/auth/registro-empresa', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        empresaId: empresaNuevaId,
-        nombre: document.getElementById('usuario-nuevo-nombre').value,
-        email: document.getElementById('usuario-nuevo-email').value,
-        password: document.getElementById('usuario-nuevo-password').value,
-        rol: document.getElementById('usuario-nuevo-rol').value,
+        empresa: datosEmpresaNueva,
+        usuario: {
+          nombre: document.getElementById('usuario-nuevo-nombre').value,
+          email: document.getElementById('usuario-nuevo-email').value,
+          password: document.getElementById('usuario-nuevo-password').value,
+          rol: document.getElementById('usuario-nuevo-rol').value,
+        },
+        codigoRegistro: document.getElementById('usuario-nuevo-codigo').value,
       }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'No se pudo crear el usuario.');
+    if (!res.ok) throw new Error(data.error || 'No se pudo crear la empresa.');
 
     volverALogin();
-    document.getElementById('login-email').value = data.email;
+    document.getElementById('login-email').value = data.usuario.email;
     const errorEl = document.getElementById('login-error');
-    errorEl.textContent = `Usuario "${data.email}" creado. Ya puedes iniciar sesión.`;
+    errorEl.textContent = `Empresa "${data.empresa.razonSocial}" creada. Ya puedes iniciar sesión con ${data.usuario.email}.`;
     errorEl.style.color = 'var(--accent)';
     errorEl.hidden = false;
   } catch (err) {
@@ -281,6 +285,7 @@ function mostrarDashboard() {
   document.getElementById('usuario-rol').textContent = usuario.rol;
   document.getElementById('inicio-usuario-nombre').textContent = usuario.nombre;
   if (window.nominaConfigurarAcceso) window.nominaConfigurarAcceso();
+  if (window.usuariosConfigurarAcceso) window.usuariosConfigurarAcceso();
   cargarTodo();
   cargarNombreEmpresa();
 }
@@ -1902,7 +1907,10 @@ document.querySelectorAll('.subtab').forEach((btn) => {
     });
     document.getElementById('mi-empresa-sub-datos').hidden = cual !== 'datos';
     document.getElementById('mi-empresa-sub-plan').hidden = cual !== 'plan';
+    const subUsuarios = document.getElementById('mi-empresa-sub-usuarios');
+    if (subUsuarios) subUsuarios.hidden = cual !== 'usuarios';
     if (cual === 'plan') planCargar();
+    if (cual === 'usuarios' && window.usuariosAlMostrar) window.usuariosAlMostrar();
   });
 });
 

@@ -11,6 +11,9 @@ const webhooksFacturacion = require('./integrations/webhooks/proveedorTecnologic
 
 const app = express();
 
+// Detrás del proxy de Hostinger: así req.ip es la IP real del visitante (la usa el limitador de intentos de login).
+app.set('trust proxy', 1);
+
 app.use(
   helmet({
     contentSecurityPolicy: {
@@ -25,7 +28,10 @@ app.use(
     },
   })
 );
-app.use(cors());
+// La pantalla se sirve desde este mismo servidor, así que no hace falta permitir otros orígenes. Si algún día
+// un sitio distinto debe llamar la API desde el navegador, se listan en CORS_ORIGIN (separados por coma).
+const origenesPermitidos = (process.env.CORS_ORIGIN || '').split(',').map((o) => o.trim()).filter(Boolean);
+app.use(cors({ origin: origenesPermitidos.length ? origenesPermitidos : false }));
 // 5mb, no el default de 100kb: el logo de empresa se manda como base64
 // dentro del JSON (hasta 2MB de archivo original, que en base64 pesa
 // ~33% más), y sin este límite ampliado la petición se rechaza antes
@@ -54,6 +60,13 @@ app.get('/health', (req, res) => res.json({ status: 'ok' }));
 const PORT = process.env.PORT || 3000;
 
 async function iniciar() {
+  if (!process.env.JWT_SECRET) {
+    console.error('Falta JWT_SECRET: configúralo (largo y secreto) antes de iniciar el servidor.');
+    process.exit(1);
+  }
+  if (process.env.JWT_SECRET === 'cambia_este_valor_por_uno_seguro' || process.env.JWT_SECRET.length < 16) {
+    console.warn('AVISO DE SEGURIDAD: JWT_SECRET es corto o es el valor de ejemplo. Cámbialo por uno largo y secreto (mínimo 16 caracteres); al cambiarlo se cierran las sesiones abiertas.');
+  }
   try {
     await sequelize.authenticate();
     console.log('Conexión a la base de datos establecida.');

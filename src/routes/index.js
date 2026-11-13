@@ -4,6 +4,7 @@ const router = express.Router();
 const authRoutes = require('./auth.routes');
 const seedRoutes = require('./seed.routes');
 const empresasRoutes = require('./empresas.routes');
+const usuariosRoutes = require('./usuarios.routes');
 const tercerosRoutes = require('./terceros.routes');
 const proyectosRoutes = require('./proyectos.routes');
 const planCuentasRoutes = require('./planCuentas.routes');
@@ -15,9 +16,10 @@ const activosFijosRoutes = require('../modules/activosFijos/routes/activosFijos.
 const tesoreriaRoutes = require('../modules/tesoreria/routes/tesoreria.routes');
 const { authenticate } = require('../middleware/auth');
 
-router.use('/auth', authRoutes); // público: login y registro
+router.use('/auth', authRoutes); // login y registro-empresa públicos (con código); registro de usuarios exige sesión
 router.use('/seed', seedRoutes); // el propio router exige authenticate + authorize
-router.use('/empresas', empresasRoutes); // público por ahora, ver TODO en el archivo
+router.use('/empresas', authenticate, empresasRoutes); // requiere sesión: cada usuario solo ve y edita su empresa
+router.use('/usuarios', authenticate, usuariosRoutes); // administrar usuarios: dueño o contador
 
 router.use('/terceros', authenticate, tercerosRoutes); // requiere sesión
 router.use('/proyectos', authenticate, proyectosRoutes); // requiere sesión

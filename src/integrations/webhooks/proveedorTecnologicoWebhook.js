@@ -2,6 +2,22 @@ const express = require('express');
 const router = express.Router();
 const ventasService = require('../../modules/ventas/services/ventas.service');
 const comprasService = require('../../modules/compras/services/compras.service');
+const crypto = require('crypto');
+
+// Los webhooks los llama un servidor externo (el proveedor tecnológico), sin sesión de usuario: se autentican
+// con una clave compartida en el encabezado "x-webhook-secret" (variable de entorno WEBHOOK_SECRET). Sin esa
+// variable quedan deshabilitados — así nadie puede marcar facturas como aceptadas por la DIAN ni inyectar
+// facturas de compra escribiendo directamente a la URL.
+function exigirClave(req, res, next) {
+  const esperada = process.env.WEBHOOK_SECRET;
+  if (!esperada) return res.status(503).json({ error: 'Webhooks deshabilitados: falta configurar WEBHOOK_SECRET.' });
+  const hash = (v) => crypto.createHash('sha256').update(String(v || '')).digest();
+  if (!crypto.timingSafeEqual(hash(req.headers['x-webhook-secret']), hash(esperada))) {
+    return res.status(401).json({ error: 'Clave de webhook inválida.' });
+  }
+  next();
+}
+router.use(exigirClave);
 
 // El proveedor tecnológico llama esta URL cuando la DIAN valida (o rechaza)
 // el documento. No requiere procesos en segundo plano: es una petición

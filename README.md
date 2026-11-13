@@ -27,7 +27,7 @@ src/
 │   └── services/
 │       ├── motorAsientos.js    Traduce eventos operativos en partida doble
 │       ├── cierrePeriodo.js    Máquina de estados del cierre mensual
-│       ├── authService.js      Login y registro de usuarios
+│       ├── authService.js      Login, alta de usuarios y registro de empresas
 │       ├── auditoria.js        Registro de acciones sensibles
 │       ├── seedService.js      Datos base: empresa, periodo, cuentas, reglas
 │       └── consecutivos.js     Numeración legible tipo COT-2026-0001 / ODA-2026-0001
@@ -51,15 +51,12 @@ src/
 ## Aprovisionar una empresa nueva
 
 Desde la pantalla de login, "¿Primera vez? Crear empresa y usuario" abre
-un flujo de dos pasos: `POST /api/empresas` crea la empresa (razón
-social, NIT, régimen tributario —ordinario, RST o especial—,
-responsable de IVA, correo, teléfono, dirección, departamento,
-municipio, representante legal y su documento, código CIIU y matrícula
-mercantil), luego `POST /api/auth/registro` crea su primer usuario (rol
-`contador` o `dueño` recomendado). `PATCH /api/empresas/:id` permite
-editar estos datos después. Los tres endpoints quedan abiertos por
-ahora — ver el TODO en `src/routes/empresas.routes.js` antes de tener
-más de un puñado de empresas reales.
+un flujo de dos pasos: primero los datos de la empresa (razón social, NIT, régimen
+tributario —ordinario, RST o especial—, responsable de IVA, correo, teléfono, dirección,
+departamento, municipio, representante legal y su documento, código CIIU, matrícula
+mercantil y logo) y luego su primer usuario (dueño o contador) con el **código de registro**.
+Los dos se crean juntos en `POST /api/auth/registro-empresa`. `PATCH /api/empresas/:id` permite
+editar estos datos después (solo dueño o contador, y solo la empresa propia). Ver «Roles y autenticación».
 
 **Contabilidad base.** Una empresa recién creada no trae plan de cuentas,
 reglas ni periodo contable. La primera vez que se carga una factura de
@@ -634,8 +631,28 @@ Cuatro roles, controlados por `src/middleware/auth.js` (`authenticate` +
 | `auxiliar` | Registrar operaciones del día a día (ventas, compras, nómina) |
 | `revisor` | Solo lectura (pendiente de aplicar en cada ruta) |
 
-`POST /api/auth/login` y `POST /api/auth/registro` son las únicas rutas
-públicas. Todas las demás requieren `Authorization: Bearer <token>`.
+**Rutas públicas** (sin sesión): `POST /api/auth/login` y `POST /api/auth/registro-empresa`. Todo lo demás
+exige `Authorization: Bearer <token>`.
+
+- **Sesión:** el token (8 h) dice quién es; el **rol y si sigue activo se leen de la base en cada petición**, así que
+  desactivar a alguien o cambiarle el rol surte efecto al instante. Cada usuario ve y edita solo su empresa
+  (`GET /api/empresas` devuelve únicamente la propia; `PATCH` solo la propia y solo dueño o contador).
+- **Usuarios** (Mi Empresa › Usuarios, solo dueño y contador): `POST /api/auth/registro` crea un usuario **en la empresa de
+  quien lo crea** (el `empresaId` del cuerpo se ignora); `GET /api/usuarios` y `PATCH /api/usuarios/:id` (rol, activar o
+  desactivar, nueva contraseña). El contador no crea ni modifica dueños; nadie cambia su propio rol ni se desactiva.
+  Contraseña: 8 a 72 caracteres con letras y números. El correo no distingue mayúsculas.
+- **Empresas nuevas:** `POST /api/auth/registro-empresa` exige `CODIGO_REGISTRO` (variable de entorno que Libaniel entrega
+  a quien puede crear empresas). Sin esa variable, el registro de empresas queda **cerrado**. Máximo 10 intentos por hora por IP.
+- **Fuerza bruta:** el login admite 30 intentos por IP cada 15 min y 8 fallos seguidos por correo (luego 429 hasta que pase
+  la ventana). El limitador es en memoria (un solo proceso de Node); `app.set('trust proxy', 1)` para ver la IP real.
+- **Webhooks** (`/webhooks/*`): exigen el encabezado `x-webhook-secret` igual a `WEBHOOK_SECRET`; sin esa variable quedan
+  deshabilitados (503).
+- **CORS:** cerrado a otros sitios; se abre solo con `CORS_ORIGIN` (orígenes separados por coma).
+- **Variables de entorno de seguridad:** `JWT_SECRET` (obligatoria; el servidor avisa si es corta o es el valor de
+  ejemplo — cambiarla cierra las sesiones abiertas), `CODIGO_REGISTRO`, `WEBHOOK_SECRET`, `CORS_ORIGIN`.
+- **RLS en Supabase:** `sql-seguridad-rls.sql` activa Row Level Security en todas las tablas de `public` y le quita
+  permisos a los roles `anon`/`authenticated` de la API pública (la app se conecta como dueña de las tablas y no se afecta).
+  Volver a correrlo después de crear tablas nuevas.
 
 ## Datos base (seed)
 
@@ -659,7 +676,6 @@ qué contabilizar.
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
-- [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
 - [ ] Tesorería (cruce de pagos): retenciones que nos practican los clientes al pagar, anticipos (de clientes y a proveedores), notas crédito/débito y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
 - [ ] Bancos: conciliación por cuenta contra el extracto (importar el extracto y quitar la conciliación de un movimiento); los pagos, recaudos y la nómina ya van al auxiliar de la cuenta; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
@@ -669,7 +685,7 @@ qué contabilizar.
 - [ ] `DELETE` de terceros (crear, listar y editar ya existen; falta borrar)
 - [ ] Cuadre global de débitos vs. créditos del periodo como validación bloqueante del cierre (ver TODO en `cierrePeriodo.validarPeriodo`)
 - [ ] **Centros de costo**: permitir contabilidad segmentada por proyecto para empresas que manejan varios en paralelo. Hoy `Movimiento.centroCosto` es solo un campo de texto libre — falta un catálogo propio (`CentroCosto`: id, empresa_id, nombre, activo) y reportes/filtros por centro de costo en los estados financieros
-- [ ] Activar Row Level Security (RLS) en las tablas de Supabase antes de manejar datos reales
+- [ ] Seguridad: autenticación en dos pasos, recuperar contraseña por correo (hoy la restablece el dueño o el contador), y mover el limitador de intentos a la base si algún día hay varios procesos de Node
 - [ ] Reemplazar los `prompt()` del navegador (agregar empleado a nómina, si aún queda alguno) por formularios modales propios en el frontend; agregar edición/borrado en general
 - [ ] Confirmar que `www.libanielconsulting.com` resuelve al mismo sitio que `libanielconsulting.com` (revisar en hPanel → Dominios, o agregar la redirección si falta)
 - [ ] Definir de verdad los servicios 02 y 03 de la página institucional (`public/index.html`) y reemplazar el `mailto:contacto@libanielconsulting.com` por el correo real de la firma

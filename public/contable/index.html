@@ -30,7 +30,7 @@
 
   <div class="tarjeta-login tarjeta-onboarding" id="tarjeta-onboarding" hidden>
     <h1 class="wordmark">Nueva empresa</h1>
-    <p class="subtitulo">Dos pasos: primero la empresa, luego su primer usuario.</p>
+    <p class="subtitulo">Dos pasos: primero los datos de la empresa, luego su primer usuario con el código de registro que te entregó Libaniel Consulting.</p>
 
     <form id="form-empresa-nueva">
       <label>Razón social
@@ -80,7 +80,7 @@
         <input type="file" id="empresa-logo" accept="image/png, image/jpeg, image/svg+xml">
         <img id="empresa-logo-vista-previa" class="logo-vista-previa" hidden>
       </label>
-      <button type="submit" class="btn-primario">Crear empresa</button>
+      <button type="submit" class="btn-primario">Continuar</button>
     </form>
 
     <form id="form-usuario-nuevo" hidden>
@@ -91,18 +91,20 @@
       <label>Correo
         <input type="email" id="usuario-nuevo-email" required>
       </label>
-      <label>Contraseña
-        <input type="password" id="usuario-nuevo-password" required>
+      <label>Contraseña (mínimo 8 caracteres, con letras y números)
+        <input type="password" id="usuario-nuevo-password" required minlength="8" autocomplete="new-password">
       </label>
       <label>Rol
         <select id="usuario-nuevo-rol">
-          <option value="contador">Contador</option>
           <option value="dueño">Dueño</option>
-          <option value="auxiliar">Auxiliar</option>
-          <option value="revisor">Revisor</option>
+          <option value="contador">Contador</option>
         </select>
       </label>
-      <button type="submit" class="btn-primario">Crear usuario</button>
+      <label>Código de registro
+        <input type="password" id="usuario-nuevo-codigo" required autocomplete="off">
+      </label>
+      <button type="submit" class="btn-primario">Crear empresa y usuario</button>
+      <button type="button" class="btn-secundario" id="btn-onboarding-atras">← Volver a los datos de la empresa</button>
     </form>
 
     <p id="onboarding-resultado" class="mensaje-exito" hidden></p>
@@ -577,6 +579,7 @@
       <div class="subtabs" role="tablist" aria-label="Configuración de la empresa">
         <button type="button" class="subtab activo" role="tab" data-subtab="datos" aria-selected="true">Datos de la empresa</button>
         <button type="button" class="subtab" role="tab" data-subtab="plan" aria-selected="false">Plan de cuentas</button>
+        <button type="button" class="subtab" role="tab" data-subtab="usuarios" aria-selected="false" id="subtab-usuarios" hidden>Usuarios</button>
       </div>
 
       <div id="mi-empresa-sub-datos">
@@ -655,6 +658,17 @@
         </div>
         <p id="miempresa-resultado" class="mensaje-exito" hidden></p>
       </form>
+      </div>
+
+      <div id="mi-empresa-sub-usuarios" hidden>
+        <p class="nota-panel">Las personas que entran a la empresa y lo que pueden hacer. <strong>Dueño</strong> y <strong>contador</strong> administran todo (el contador no modifica al dueño); el <strong>auxiliar</strong> registra operaciones del día a día (no ve la nómina ni anula); el <strong>revisor</strong> solo consulta. Quien deja de trabajar con ustedes se desactiva: no se borra, para conservar el rastro de lo que hizo.</p>
+        <div class="subseccion-header">
+          <h3 class="subseccion">Usuarios</h3>
+          <button type="button" class="btn-primario btn-chico" id="btn-usuario-nuevo">+ Nuevo usuario</button>
+        </div>
+        <div class="tabla-envoltorio">
+          <table id="tabla-usuarios"><thead></thead><tbody></tbody></table>
+        </div>
       </div>
 
       <div id="mi-empresa-sub-plan" hidden>
@@ -1084,6 +1098,21 @@
       <button type="button" class="btn-primario" id="btn-nom-guardar">Guardar</button>
     </div>
   </dialog>
+  <!-- Usuarios de la empresa: crear y restablecer contraseña -->
+  <dialog id="dialogo-usuario" class="dialogo-factura dialogo-chico" aria-labelledby="titulo-usuario">
+    <form id="form-dialogo-usuario" novalidate>
+      <div class="dialogo-cabecera">
+        <h3 id="titulo-usuario">Nuevo usuario</h3>
+        <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-usuario" aria-label="Cerrar">×</button>
+      </div>
+      <div class="dialogo-cuerpo" id="usuario-dialogo-cuerpo"></div>
+      <div class="dialogo-pie">
+        <p class="fx-error" id="usuario-dialogo-error" hidden></p>
+        <button type="button" class="btn-secundario" id="btn-usuario-cancelar">Cancelar</button>
+        <button type="submit" class="btn-primario" id="btn-usuario-guardar">Guardar</button>
+      </div>
+    </form>
+  </dialog>
   <!-- Diálogo del cruce de pagos de Tesorería -->
   <dialog id="dialogo-tes" class="dialogo-factura" aria-labelledby="titulo-tes">
     <div class="dialogo-cabecera">
@@ -1135,5 +1164,6 @@
 <script src="/contable/nominaAsopagos.js?v=20261113-1"></script>
 <script src="/contable/inventarios.js?v=20261113-1"></script>
 <script src="/contable/tesoreriaCruce.js?v=20261113-1"></script>
+<script src="/contable/usuarios.js?v=20261113-1"></script>
 </body>
 </html>
