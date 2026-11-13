@@ -15,6 +15,7 @@ const Asiento = require('../../../core/models/Asiento');
 const PeriodoContable = require('../../../core/models/PeriodoContable');
 const CuentaBancaria = require('../../tesoreria/models/CuentaBancaria');
 const MovimientoBancario = require('../../tesoreria/models/MovimientoBancario');
+const CentroTrabajo = require('../models/CentroTrabajo');
 const ContratoContratista = require('../models/ContratoContratista');
 const AportesContratistas = require('../models/AportesContratistas');
 const { contabilizarAsientoCompuesto } = require('../../../core/services/motorAsientos');
@@ -28,7 +29,7 @@ const nominaService = require('./nomina.service');
 
 const {
   obtenerConfigFila, fechaValida, hoyColombia, limpiarTexto, dinero, entero, mesTexto, plano,
-  asegurarReglasNomina, enriquecerAsiento,
+  asegurarReglasNomina, enriquecerAsiento, validarCentro,
 } = nominaService._interno;
 
 const TIPOS_DOCUMENTO = ['CC', 'CE', 'TI', 'PA', 'CD', 'SC', 'PE', 'RC'];
@@ -85,6 +86,7 @@ function normalizarContrato(d, actual) {
   return {
     descripcion: limpiarTexto(v('descripcion'), 255, 'El objeto del contrato'),
     fechaInicio, fechaFin, valorMensual, claseRiesgo, areaGasto, cuentaPorPagar, tipoDocumento,
+    centroTrabajoId: v('centroTrabajoId') || null,
     epsNombre: limpiarTexto(v('epsNombre'), 100, 'La EPS'), epsCodigo: codigo(v('epsCodigo'), 'El código de la EPS'),
     afpNombre: limpiarTexto(v('afpNombre'), 100, 'El fondo de pensiones'), afpCodigo: codigo(v('afpCodigo'), 'El código del fondo de pensiones'),
     activo: v('activo') === undefined ? true : !!v('activo'),
@@ -100,10 +102,11 @@ function avisosContrato(c) {
 
 async function opciones(usuario) {
   const empresaId = usuario.empresaId;
-  const [terceros, bancos, config] = await Promise.all([
+  const [terceros, bancos, config, centros] = await Promise.all([
     Tercero.findAll({ where: { empresaId, tipo: { [Op.in]: ['proveedor', 'otro'] } }, order: [['nombre', 'ASC']] }),
     CuentaBancaria.findAll({ where: { empresaId } }),
     obtenerConfigFila(empresaId),
+    CentroTrabajo.findAll({ where: { empresaId }, order: [['codigo', 'ASC']] }),
   ]);
   const hoy = hoyColombia();
   const P = PL.parametros(Number(hoy.slice(0, 4)));
@@ -111,6 +114,7 @@ async function opciones(usuario) {
     terceros: terceros.map((t) => ({ id: t.id, nombre: t.nombre, identificacion: t.identificacion, tipoPersona: t.tipoPersona || null })),
     cuentasBancarias: bancos.map((b) => ({ id: b.id, banco: b.banco, numero: String(b.numero).slice(-4), tipoCuenta: b.tipoCuenta })),
     operadorPila: config.operadorPila || '',
+    centrosTrabajo: centros.map(plano),
     clasesRiesgo: PL.CLASES_RIESGO,
     areas: AN.AREAS,
     cuentasPorPagar: AC.CUENTAS_POR_PAGAR,
@@ -127,6 +131,7 @@ async function listarContratos(usuario) {
 async function crearContrato(datos, usuario) {
   const empresaId = usuario.empresaId;
   const contrato = normalizarContrato(datos);
+  await validarCentro(empresaId, contrato.centroTrabajoId);
   let terceroId = datos.terceroId || null;
   let nuevo = null;
   if (terceroId) {
@@ -159,6 +164,7 @@ async function actualizarContrato(id, datos, usuario) {
   const actual = await ContratoContratista.findOne({ where: { id, empresaId } });
   if (!actual) throw new Error('Contrato de contratista no encontrado.');
   const cambios = normalizarContrato(datos, actual);
+  if (cambios.centroTrabajoId !== (actual.centroTrabajoId || null)) await validarCentro(empresaId, cambios.centroTrabajoId);
   await actual.update(cambios);
   await auditoria.registrar({ empresaId, usuarioId: usuario.id, accion: 'nomina_contratista_actualizado', entidad: 'ContratoContratista', entidadId: actual.id, detalle: Object.keys(datos).join(', ').slice(0, 250) });
   const [x] = await conTercero([actual]);

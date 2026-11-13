@@ -24,6 +24,7 @@ const MovimientoBancario = require('../../tesoreria/models/MovimientoBancario');
 const ConfigNomina = require('../models/ConfigNomina');
 const ContratoLaboral = require('../models/ContratoLaboral');
 const CentroTrabajo = require('../models/CentroTrabajo');
+const ContratoContratista = require('../models/ContratoContratista');
 const AusenciaNomina = require('../models/AusenciaNomina');
 const ConceptoNomina = require('../models/ConceptoNomina');
 const NominaPeriodo = require('../models/NominaPeriodo');
@@ -331,7 +332,12 @@ function leerCentro(d, actual) {
     claseRiesgo = Number(v('claseRiesgo'));
     if (!Number.isInteger(claseRiesgo) || claseRiesgo < 1 || claseRiesgo > 5) throw new Error('La clase de riesgo del centro es de 1 a 5.');
   }
-  return { codigo, nombre, claseRiesgo, principal: !!v('principal'), activo: v('activo') === undefined ? true : !!v('activo') };
+  let actividadEconomica = null;
+  if (v('actividadEconomica') !== null && v('actividadEconomica') !== undefined && String(v('actividadEconomica')).trim() !== '') {
+    actividadEconomica = String(v('actividadEconomica')).trim();
+    if (!/^\d{7}$/.test(actividadEconomica)) throw new Error('La actividad económica del centro de trabajo tiene 7 dígitos (Decreto 768 de 2022).');
+  }
+  return { codigo, nombre, claseRiesgo, actividadEconomica, principal: !!v('principal'), activo: v('activo') === undefined ? true : !!v('activo') };
 }
 
 async function crearCentro(datos, usuario) {
@@ -373,7 +379,8 @@ async function eliminarCentro(id, usuario) {
     const otros = await CentroTrabajo.count({ where: { empresaId, id: { [Op.ne]: id } } });
     if (otros) throw new Error('Es el centro principal: marca otro como principal antes de eliminarlo.');
   }
-  const usado = await ContratoLaboral.count({ where: { empresaId, centroTrabajoId: id } });
+  const usadoCtr = await ContratoContratista.count({ where: { empresaId, centroTrabajoId: id } });
+  const usado = (await ContratoLaboral.count({ where: { empresaId, centroTrabajoId: id } })) + usadoCtr;
   if (usado) throw new Error(`Hay ${usado} contrato(s) con este centro de trabajo. Cámbiales el centro o desactívalo en vez de eliminarlo.`);
   await actual.destroy();
   await auditoria.registrar({ empresaId, usuarioId: usuario.id, accion: 'nomina_centro_eliminado', entidad: 'CentroTrabajo', entidadId: id, detalle: `${actual.codigo} ${actual.nombre}`.slice(0, 250) });
@@ -1134,6 +1141,6 @@ module.exports = {
   // Ayudas que usa prestaciones.service.js
   _interno: {
     armarEntrada, obtenerConfigFila, fechaValida, hoyColombia, limpiarTexto, dinero, entero, mesTexto, plano, empleadosDe,
-    asegurarReglasNomina, enriquecerAsiento, periodoDe, nombresCuentas,
+    asegurarReglasNomina, enriquecerAsiento, periodoDe, nombresCuentas, validarCentro,
   },
 };

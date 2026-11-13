@@ -22,6 +22,10 @@ router.patch('/centros-trabajo/:id', puedeModificar, c.actualizarCentro);
 router.delete('/centros-trabajo/:id', puedeModificar, c.eliminarCentro);
 
 // Contratos
+// Cargues masivos para Asopagos (cotizantes y novedades del mes)
+router.get('/asopagos/cotizantes', puedeVer, c.cotizantesAsopagos);
+router.get('/asopagos/novedades', puedeVer, c.novedadesAsopagos);
+
 router.get('/contratos', puedeVer, c.listarContratos);
 router.post('/contratos', puedeModificar, c.crearContrato);
 router.patch('/contratos/:id', puedeModificar, c.actualizarContrato);

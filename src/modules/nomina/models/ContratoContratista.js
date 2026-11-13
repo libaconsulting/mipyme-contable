@@ -15,6 +15,7 @@ const ContratoContratista = sequelize.define('ContratoContratista', {
   claseRiesgo: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 1 },
   areaGasto: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'administracion' }, // administracion | ventas (ARL que asume la empresa)
   cuentaPorPagar: { type: DataTypes.STRING(4), allowNull: false, defaultValue: '2335' }, // 2335 documento soporte | 2205 factura
+  centroTrabajoId: { type: DataTypes.UUID }, // centro de trabajo de la ARL (si no elige, el principal); va en el cargue de Asopagos
   tipoDocumento: { type: DataTypes.STRING(2), allowNull: false, defaultValue: 'CC' },
   epsNombre: { type: DataTypes.STRING(100) },
   epsCodigo: { type: DataTypes.STRING(20) },

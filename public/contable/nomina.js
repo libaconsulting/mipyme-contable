@@ -994,9 +994,10 @@
     if (!lista.length) {
       html += '<p class="vacio">Aún no hay centros de trabajo. Agrega el que te dio la ARL (normalmente el código es 1 o 0).</p>';
     } else {
-      html += `<div class="tabla-envoltorio"><table><thead><tr><th>Código ARL</th><th>Nombre o línea de negocio</th><th>Clase de riesgo</th><th class="num">Contratos</th><th>Estado</th><th></th></tr></thead><tbody>
+      html += `<div class="tabla-envoltorio"><table><thead><tr><th>Código ARL</th><th>Nombre o línea de negocio</th><th>Clase de riesgo</th><th>Actividad económica</th><th class="num">Contratos</th><th>Estado</th><th></th></tr></thead><tbody>
         ${lista.map((x) => `<tr><td>${esc(x.codigo)}</td><td>${esc(x.nombre)}${x.principal ? ' <span class="badge pagada">Principal</span>' : ''}</td>
           <td>${x.claseRiesgo ? esc((nom.opciones.clasesRiesgo || {})[x.claseRiesgo] || x.claseRiesgo) : '<span class="texto-suave">—</span>'}</td>
+          <td>${x.actividadEconomica ? esc(x.actividadEconomica) : '<span class="texto-suave">—</span>'}</td>
           <td class="num">${x.contratos || 0}</td><td>${x.activo ? 'Activo' : '<span class="texto-suave">Inactivo</span>'}</td>
           <td class="acciones">${editar ? boton('Editar', 'editar-centro', { id: x.id }) + ' ' + boton('Eliminar', 'eliminar-centro', { id: x.id }, 'btn-accion destructivo') : ''}</td></tr>`).join('')}
         </tbody></table></div>`;
@@ -1013,15 +1014,16 @@
       ancho: true,
       cuerpo: `<div class="fila-campos">${campo('Código que asignó la ARL', `<input type="number" id="ct-codigo" min="0" max="999999999" step="1" value="${esc(d.codigo)}">`)}
           ${campo('Nombre o línea de negocio', `<input type="text" id="ct-nombre" maxlength="100" value="${esc(d.nombre)}" placeholder="Ej.: Taller, Sede Medellín, Obra norte">`)}</div>
-        <div class="fila-campos">${campo('Clase de riesgo (opcional)', `<select id="ct-riesgo">${opcionesSelect(riesgos, d.claseRiesgo || '')}</select>`)}</div>
+        <div class="fila-campos">${campo('Clase de riesgo (opcional)', `<select id="ct-riesgo">${opcionesSelect(riesgos, d.claseRiesgo || '')}</select>`)}
+          ${campo('Actividad económica (7 dígitos)', `<input type="text" id="ct-actividad" inputmode="numeric" maxlength="7" value="${esc(d.actividadEconomica || '')}" placeholder="Ej.: 6920001">`)}</div>
         <label class="check-linea"><input type="checkbox" id="ct-principal"${d.principal ? ' checked' : ''}${d.principal && !esNuevo ? ' disabled' : ''}> <span>Centro principal (lo usan los contratos que no eligen uno). Solo puede haber uno.</span></label>
         ${esNuevo ? '' : `<label class="check-linea"><input type="checkbox" id="ct-activo"${d.activo ? ' checked' : ''}${d.principal ? ' disabled' : ''}> <span>Activo (si se desactiva, ya no se puede elegir en contratos nuevos)</span></label>`}
-        <p class="nota-aiu">La clase de riesgo solo sirve de sugerencia: al elegir este centro en un contrato se propone esa clase. La tarifa de ARL sale de la clase del contrato.</p>`,
+        <p class="nota-aiu">La clase de riesgo solo sirve de sugerencia: al elegir este centro en un contrato se propone esa clase. La tarifa de ARL sale de la clase del contrato. La actividad económica (código de 7 dígitos que la ARL asignó a este centro, Decreto 768 de 2022) la piden los cargues masivos de Asopagos.</p>`,
       guardar: {
         texto: esNuevo ? 'Crear centro' : 'Guardar cambios',
         fn: async () => {
           const cuerpo = {
-            codigo: v('ct-codigo'), nombre: v('ct-nombre'), claseRiesgo: v('ct-riesgo') || null, principal: $('ct-principal').checked,
+            codigo: v('ct-codigo'), nombre: v('ct-nombre'), claseRiesgo: v('ct-riesgo') || null, actividadEconomica: v('ct-actividad') || null, principal: $('ct-principal').checked,
           };
           if (!esNuevo) cuerpo.activo = $('ct-activo').checked;
           if (esNuevo) await api('/nomina/centros-trabajo', { method: 'POST', body: JSON.stringify(cuerpo) });

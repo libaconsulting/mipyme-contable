@@ -10,6 +10,7 @@ const CentroTrabajo = sequelize.define('CentroTrabajo', {
   codigo: { type: DataTypes.INTEGER, allowNull: false }, // el que asigna la ARL
   nombre: { type: DataTypes.STRING(100), allowNull: false }, // línea de negocio o sede
   claseRiesgo: { type: DataTypes.INTEGER }, // 1 a 5; sirve de sugerencia al elegirlo en un contrato
+  actividadEconomica: { type: DataTypes.STRING(7) }, // código de 7 dígitos (Decreto 768 de 2022) que pide el cargue masivo de Asopagos
   principal: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false }, // el de los contratos que no eligen
   activo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
 }, {

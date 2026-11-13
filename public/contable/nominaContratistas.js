@@ -153,6 +153,7 @@
         <div class="fx-bloque"><h4>Riesgo y contabilidad</h4>
           ${campo('Clase de riesgo (ARL)', `<select id="ct-riesgo">${opcionesSelect(Object.entries(o.clasesRiesgo), c.claseRiesgo)}</select>`)}
           <p class="nota-aiu">Clases I a III: la ARL se descuenta al contratista. Clases IV y V: la asume la empresa.</p>
+          ${campo('Centro de trabajo (ARL)', `<select id="ct-centro">${opcionesCentros(c.centroTrabajoId)}</select>`)}
           ${campo('Área donde va la ARL que asume la empresa', `<select id="ct-area">${opcionesSelect(Object.entries(o.areas), c.areaGasto)}</select>`)}
           ${campo('Cuenta por pagar al contratista', `<select id="ct-cxp">${opcionesSelect(Object.entries(o.cuentasPorPagar), c.cuentaPorPagar)}</select>`)}
           ${esNuevo ? '' : `<label class="check-linea"><input type="checkbox" id="ct-activo"${c.activo ? ' checked' : ''}> <span>Activo (si se desmarca, deja de entrar en los aportes de los meses nuevos)</span></label>`}
@@ -169,10 +170,19 @@
       ${campo('Observaciones (opcional)', `<input type="text" id="ct-obs" maxlength="500" value="${esc(c.observaciones || '')}">`)}`;
   }
 
+  // Centros de trabajo de la ARL: los activos (y el que ya tiene el contrato, aunque se haya desactivado).
+  function opcionesCentros(elegido) {
+    const centros = (ctr.opciones.centrosTrabajo || []).filter((x) => x.activo || x.id === elegido);
+    const etq = (x) => `${x.codigo} · ${x.nombre}`;
+    const principal = centros.find((x) => x.principal);
+    const primera = `<option value=""${elegido ? '' : ' selected'}>${principal ? `Principal por defecto — ${esc(etq(principal))}` : 'Sin centros creados (Configuración)'}</option>`;
+    return primera + centros.map((x) => `<option value="${esc(x.id)}"${x.id === elegido ? ' selected' : ''}>${esc(etq(x))}${x.principal ? ' · principal' : ''}</option>`).join('');
+  }
+
   function leerContrato(esNuevo) {
     const c = {
       descripcion: v('ct-desc'), fechaInicio: v('ct-inicio'), fechaFin: v('ct-fin') || null, valorMensual: num('ct-valor'),
-      claseRiesgo: num('ct-riesgo'), areaGasto: v('ct-area'), cuentaPorPagar: v('ct-cxp'), tipoDocumento: v('ct-tipodoc'),
+      claseRiesgo: num('ct-riesgo'), centroTrabajoId: v('ct-centro') || null, areaGasto: v('ct-area'), cuentaPorPagar: v('ct-cxp'), tipoDocumento: v('ct-tipodoc'),
       epsNombre: v('ct-eps'), epsCodigo: v('ct-eps-cod'), afpNombre: v('ct-afp'), afpCodigo: v('ct-afp-cod'), observaciones: v('ct-obs'),
     };
     if (!esNuevo) c.activo = $('ct-activo').checked;

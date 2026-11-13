@@ -2,6 +2,7 @@ const { mensajeError } = require('../../../core/utils/mensajeError');
 const nominaService = require('../services/nomina.service');
 const prestaciones = require('../services/prestaciones.service');
 const contratistas = require('../services/contratistas.service');
+const asopagos = require('../services/asopagos.service');
 
 // Cada acción: llama al servicio con (req.body / params / query, req.usuario) y responde JSON.
 function accion(fn, estado) {
@@ -53,6 +54,10 @@ module.exports = {
       res.status(400).json({ error: mensajeError(error) });
     }
   },
+
+  // Cargues masivos de Asopagos: devuelven { nombre, contenido, resumen } para mostrar el resumen y descargar.
+  cotizantesAsopagos: accion((req) => asopagos.cotizantes(req.query, u(req))),
+  novedadesAsopagos: accion((req) => asopagos.novedades(req.query, u(req))),
 
   listarContratos: accion((req) => nominaService.listarContratos(u(req))),
   crearContrato: accion((req) => nominaService.crearContrato(req.body, u(req)), 201),
