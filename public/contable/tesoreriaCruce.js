@@ -157,7 +157,7 @@
         if (d.pagado > 0) acc.push(boton('Ver pagos', 'ver-pagos-doc', { tipo: d.docTipo, id: d.docId }));
         return `<tr><td><strong>${esc(d.numero)}</strong><br><span class="texto-suave">${esc(d.etiqueta)}</span></td>
           <td>${esc(d.terceroNombre)}<br><span class="texto-suave">${esc(d.terceroIdentificacion)}</span></td>
-          <td>${esc(fecha(d.fecha))}</td><td>${vence}</td><td class="num">${dinero(d.neto)}</td><td class="num">${dinero(d.pagado)}</td>
+          <td>${esc(fecha(d.fecha))}</td><td>${vence}</td><td class="num">${dinero(d.neto)}${d.retenido > 0 ? `<br><span class="texto-suave">ya descontados ${dinero(d.retenido)} de retenciones</span>` : ''}</td><td class="num">${dinero(d.pagado)}</td>
           <td class="num"><strong>${dinero(d.saldo)}</strong></td><td class="acciones">${acc.join(' ')}</td></tr>`;
       }).join('')}
     </tbody></table></div>`;
@@ -427,18 +427,18 @@
     if (!r.filas.length && !r.otros.filas.length) {
       html += '<p class="vacio">No hay retenciones ni descuentos registrados en este rango. Se anotan al registrar un recaudo en «Por cobrar».</p>';
     } else if (r.filas.length) {
-      html += `<div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th class="num">Valor cobrado</th><th class="num">ReteFuente</th><th class="num">ReteIVA</th><th class="num">ReteICA</th><th class="num">Total</th></tr></thead><tbody>
-      ${r.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td>
+      html += `<div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Registrada</th><th class="num">Valor</th><th class="num">ReteFuente</th><th class="num">ReteIVA</th><th class="num">ReteICA</th><th class="num">Total</th></tr></thead><tbody>
+      ${r.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td><td>${f.origen === 'factura' ? 'En la factura' : 'Al cobrar'}</td>
         <td class="num">${dinero(f.baseCobrada)}</td><td class="num">${dinero(f.retefuente)}</td><td class="num">${dinero(f.reteiva)}</td><td class="num">${dinero(f.reteica)}</td><td class="num"><strong>${dinero(f.total)}</strong></td></tr>`).join('')}
-      </tbody><tfoot><tr><th colspan="4">Totales</th><th class="num">${dinero(t.retefuente)}</th><th class="num">${dinero(t.reteiva)}</th><th class="num">${dinero(t.reteica)}</th><th class="num">${dinero(t.total)}</th></tr></tfoot></table></div>`;
+      </tbody><tfoot><tr><th colspan="5">Totales</th><th class="num">${dinero(t.retefuente)}</th><th class="num">${dinero(t.reteiva)}</th><th class="num">${dinero(t.reteica)}</th><th class="num">${dinero(t.total)}</th></tr></tfoot></table></div>`;
     }
     if (r.otros.filas.length) {
       html += `<h4 class="inv-sec-titulo">Estampillas, tasas y contribuciones descontadas por las entidades</h4>
       <p class="nota-panel">No son anticipo de impuestos: no se descuentan en ninguna declaración. Se registran como gasto o costo en la cuenta elegida al cobrar.</p>
-      <div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Concepto</th><th>Cuenta</th><th class="num">Valor</th></tr></thead><tbody>
-      ${r.otros.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td>
+      <div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Registrado</th><th>Concepto</th><th>Cuenta</th><th class="num">Valor</th></tr></thead><tbody>
+      ${r.otros.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td><td>${f.origen === 'factura' ? 'En la factura' : 'Al cobrar'}</td>
         <td>${esc(f.concepto)}</td><td>${esc(f.cuentaCodigo)} · ${esc(f.cuentaNombre)}</td><td class="num">${dinero(f.valor)}</td></tr>`).join('')}
-      </tbody><tfoot><tr><th colspan="5">Total</th><th class="num">${dinero(r.otros.total)}</th></tr></tfoot></table></div>`;
+      </tbody><tfoot><tr><th colspan="6">Total</th><th class="num">${dinero(r.otros.total)}</th></tr></tfoot></table></div>`;
     }
     contenido().innerHTML = html;
   }
@@ -461,15 +461,15 @@
   function descargarCsvRetenciones() {
     const r = T.ret.datos;
     if (!r || !r.filas.length) return;
-    descargarCsv('retenciones-sufridas', [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Valor cobrado', 'ReteFuente', 'ReteIVA', 'ReteICA', 'Total retenido']]
-      .concat(r.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.baseCobrada, f.retefuente, f.reteiva, f.reteica, f.total])));
+    descargarCsv('retenciones-sufridas', [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Registrada', 'Valor', 'ReteFuente', 'ReteIVA', 'ReteICA', 'Total retenido']]
+      .concat(r.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.origen === 'factura' ? 'En la factura' : 'Al cobrar', f.baseCobrada, f.retefuente, f.reteiva, f.reteica, f.total])));
   }
 
   function descargarCsvOtros() {
     const r = T.ret.datos;
     if (!r || !r.otros.filas.length) return;
-    descargarCsv('estampillas-y-tasas', [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Concepto', 'Cuenta', 'Valor']]
-      .concat(r.otros.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.concepto, `${f.cuentaCodigo} ${f.cuentaNombre}`, f.valor])));
+    descargarCsv('estampillas-y-tasas', [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Registrado', 'Concepto', 'Cuenta', 'Valor']]
+      .concat(r.otros.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.origen === 'factura' ? 'En la factura' : 'Al cobrar', f.concepto, `${f.cuentaCodigo} ${f.cuentaNombre}`, f.valor])));
   }
 
   // ===================================================================================

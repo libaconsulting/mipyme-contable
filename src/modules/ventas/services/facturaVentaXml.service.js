@@ -12,7 +12,11 @@
 //   Db  1305 Clientes                         total
 //   Cr  Ingreso (cuenta elegida por línea)    base
 //   Cr  2408 IVA por pagar                    IVA
-// Las retenciones que practique el cliente se registran al recibir el pago.
+// Retenciones y descuentos que practica el cliente (opcional, se confirman en la vista previa; el XML las trae a veces):
+//   Db  135515 / 135517 / 135518  ReteFuente / ReteIVA / ReteICA
+//   Db  Gasto o costo             estampillas, tasas y contribuciones de la entidad
+//   y el Db 1305 Clientes queda por lo que realmente se cobra (total − retenciones − descuentos).
+// Lo que no se informe aquí se registra al recibir el pago (Tesorería › Por cobrar).
 
 const { Op } = require('sequelize');
 const { v4: uuidv4 } = require('uuid');
@@ -66,6 +70,62 @@ function valoresContables(factura) {
   const total = t.conImpuestos;
   const base = Math.round((total - t.iva - t.impoconsumo) * 100) / 100;
   return { total, iva: t.iva, impoconsumo: t.impoconsumo, base };
+}
+
+// Retenciones que declara el XML (tipos DIAN 05 ReteIVA, 06 ReteRenta, 07 ReteICA). Cualquier otro valor retenido que traiga
+// (por ejemplo estampillas) se sugiere como "otro descuento".
+function retencionesDelXml(factura) {
+  const r = { retefuente: 0, reteiva: 0, reteica: 0, otros: [] };
+  for (const x of factura.retencionesEmisor || []) {
+    const v = Number(x.valor) || 0;
+    if (v <= 0) continue;
+    if (x.codigo === '06') r.retefuente += v;
+    else if (x.codigo === '05') r.reteiva += v;
+    else if (x.codigo === '07') r.reteica += v;
+    else r.otros.push({ concepto: String(x.nombre || x.codigo).slice(0, 120), valor: v });
+  }
+  r.retefuente = Math.round(r.retefuente * 100) / 100;
+  r.reteiva = Math.round(r.reteiva * 100) / 100;
+  r.reteica = Math.round(r.reteica * 100) / 100;
+  return r;
+}
+
+// Cuentas de gasto o costo (de detalle) donde se pueden llevar estampillas, tasas y contribuciones.
+async function cuentasDescuentoDe(empresaId) {
+  const cuentas = await PlanCuentas.findAll({ where: { empresaId, activa: true }, order: [['codigo', 'ASC']] });
+  const padres = new Set(cuentas.map((c) => c.cuentaPadreId).filter(Boolean));
+  return cuentas
+    .filter((c) => c.naturaleza === 'debito' && ['gasto', 'costo'].includes(c.elementoNiif) && !padres.has(c.id))
+    .map((c) => ({ codigo: c.codigo, nombre: c.nombre }));
+}
+
+// Lo que la persona confirmó en pantalla: retenciones (ReteFuente/ReteIVA/ReteICA) y otros descuentos. Se valida aquí, nunca se
+// confía en el navegador. Devuelve los débitos del asiento y lo que se guarda en la factura.
+async function leerRetenciones(datos, empresaId, rotulo, totalFactura, transaction) {
+  const cruces = require('../../tesoreria/services/cruces.service');
+  const ret = datos.retenciones || {};
+  const retenciones = [];
+  const guardado = { retefuente: 0, reteiva: 0, reteica: 0 };
+  let retCent = 0;
+  for (const r of cruces.RETENCIONES) {
+    const cent = cruces.montoOpcional(ret[r.campo], `${r.etiqueta}`);
+    if (!cent) continue;
+    retCent += cent;
+    guardado[r.campo] = cent / 100;
+    retenciones.push({ cuentaCodigo: r.cuenta, valor: cent / 100 });
+  }
+  const otros = await cruces.leerOtrosDescuentos(datos.otros, rotulo, empresaId, transaction);
+  const otrosCent = otros.reduce((t, o) => t + o.centavos, 0);
+  const totalCent = Math.round(totalFactura * 100);
+  if (retCent + otrosCent >= totalCent && retCent + otrosCent > 0) {
+    throw new Error('Las retenciones y descuentos deben ser menores que el total de la factura.');
+  }
+  return {
+    retenciones,
+    descuentos: otros.map((o) => ({ cuentaCodigo: o.cuentaCodigo, valor: o.centavos / 100 })),
+    guardado: { ...guardado, otrosDescuentos: otros.map((o) => ({ concepto: o.concepto, cuentaCodigo: o.cuentaCodigo, cuentaNombre: o.cuentaNombre, valor: o.centavos / 100 })), retencionesTotal: (retCent + otrosCent) / 100 },
+    hayRetenciones: retCent > 0,
+  };
 }
 
 // --- análisis común a vista previa y registro ------------------------
@@ -123,7 +183,7 @@ async function analizar(datos, usuario) {
   if (factura.retencionesEmisor && factura.retencionesEmisor.length) {
     advertencias.push({
       nivel: 'info',
-      texto: 'El XML informa retenciones. No se contabilizan aquí: las retenciones que te practique el cliente se registran al recibir el pago.',
+      texto: 'El XML informa retenciones: quedaron precargadas en «Retenciones y descuentos del cliente». Revísalas; se contabilizan con la factura y la cuenta por cobrar queda por lo que realmente vas a recibir.',
     });
   }
 
@@ -218,6 +278,8 @@ async function previsualizarFacturaVentaXml(datos, usuario) {
     cotizacionSeleccionada: cotizacion ? { id: cotizacion.id, consecutivo: cotizacion.consecutivo } : null,
     contable: valoresContables(factura),
     cuentasIngreso: await cuentasIngresoDe(empresa.id),
+    retencionesXml: retencionesDelXml(factura),
+    cuentasDescuento: await cuentasDescuentoDe(empresa.id),
     ingresoSugerido: await ingresoSugerido(empresa.id),
     // Productos del inventario y cuál reconoce el sistema en cada línea (las reconocidas descargan inventario y llevan costo de ventas).
     inventario: await inventarios.sugerirProductos(empresa.id, factura.lineas, { origen: 'venta' }),
@@ -285,6 +347,10 @@ async function registrarFacturaVentaXml(datos, usuario) {
     centroCosto = String(proyecto.codigo || proyecto.nombre || '').slice(0, 50) || null;
   }
 
+  // --- retenciones y descuentos que confirmó la persona (opcional)
+  const rotuloFactura = `Factura ${factura.numero || ''}`.trim();
+  const retenido = await leerRetenciones(datos, empresa.id, rotuloFactura, contable.total, null);
+
   // --- asiento (mismo módulo que usa la vista previa del navegador)
   const asientoArmado = armarAsientoVenta({
     lineas: factura.lineas,
@@ -292,6 +358,8 @@ async function registrarFacturaVentaXml(datos, usuario) {
     iva: contable.iva,
     total: contable.total,
     cuentasLinea,
+    retenciones: retenido.retenciones,
+    descuentos: retenido.descuentos,
     centroCosto,
   });
   if (!asientoArmado.cuadra) throw new Error('El asiento de la factura no cuadra; revisa los valores del XML.');
@@ -340,6 +408,7 @@ async function registrarFacturaVentaXml(datos, usuario) {
         subtotal: contable.base,
         iva: contable.iva,
         total: contable.total,
+        ...retenido.guardado,
         cufe: factura.cufe,
         estadoSincronizacion: factura.validacionDian && factura.validacionDian.validada ? 'aceptado' : 'enviado',
         receptorNit: factura.receptor.nit,
@@ -366,6 +435,9 @@ async function registrarFacturaVentaXml(datos, usuario) {
       },
       { transaction }
     );
+
+    // Las subcuentas 135515 / 135517 / 135518 se crean bajo 1355 la primera vez que se usan.
+    if (retenido.hayRetenciones) await require('../../tesoreria/services/cruces.service').asegurarCuentasRetencion(empresa.id, transaction);
 
     const resultado = await contabilizarAsientoCompuesto({
       empresaId: empresa.id,

@@ -25,6 +25,13 @@ const FacturaVenta = sequelize.define('FacturaVenta', {
   subtotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
   iva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   total: { type: DataTypes.DECIMAL(15, 2), allowNull: false },
+  // Retenciones que el cliente practica (anticipo de impuestos, 1355) y descuentos de la entidad (estampillas, tasas,
+  // contribuciones: gasto o costo), contabilizados con la factura. Lo que se cobra = total − retencionesTotal.
+  retefuente: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  reteiva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  reteica: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  otrosDescuentos: { type: DataTypes.JSON, allowNull: false, defaultValue: [] }, // [{ concepto, cuentaCodigo, cuentaNombre, valor }]
+  retencionesTotal: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 }, // retenciones + otros descuentos
   // --- Campos de integración con el proveedor tecnológico (capa adaptadora) ---
   proveedorTecnologicoId: { type: DataTypes.UUID },
   idTransaccionExterna: { type: DataTypes.STRING(100) },

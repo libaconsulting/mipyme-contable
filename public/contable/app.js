@@ -2810,11 +2810,53 @@ function vxLeerCuentasLineas() {
 }
 
 function vxNombreCuenta(codigo) {
-  const c = vx.preview.cuentasIngreso.find((x) => x.codigo === codigo);
+  const c = vx.preview.cuentasIngreso.find((x) => x.codigo === codigo) || (vx.preview.cuentasDescuento || []).find((x) => x.codigo === codigo);
   return c ? c.nombre : NOMBRES_CUENTAS_VENTA[codigo] || '';
 }
 
-const NOMBRES_CUENTAS_VENTA = { 1305: 'Clientes', 2408: 'IVA por pagar' };
+const NOMBRES_CUENTAS_VENTA = { 1305: 'Clientes', 2408: 'IVA por pagar', 135515: 'Retención en la fuente', 135517: 'ReteIVA', 135518: 'ReteICA' };
+
+// --- Retenciones y descuentos que practica el cliente (se contabilizan con la factura) ---
+function vxCuentaDescuentoHtml(seleccionada) {
+  const lista = vx.preview.cuentasDescuento || [];
+  const defecto = seleccionada || (lista.some((c) => c.codigo === '5195') ? '5195' : (lista[0] && lista[0].codigo) || '');
+  return lista.map((c) => `<option value="${escHtml(c.codigo)}"${c.codigo === defecto ? ' selected' : ''}>${escHtml(c.codigo)} · ${escHtml(c.nombre)}</option>`).join('');
+}
+
+function vxAgregarOtro(concepto, valor) {
+  const lista = document.getElementById('vx-otros-lista');
+  if (lista.children.length >= 10) return;
+  lista.insertAdjacentHTML('beforeend', `<div class="vx-otro">
+    <input type="text" data-vx-otro="concepto" maxlength="120" placeholder="Concepto (ej. Estampilla pro-cultura 1,5 %)" aria-label="Concepto del descuento" value="${escHtml(concepto || '')}">
+    <select data-vx-otro="cuenta" aria-label="Cuenta de gasto o costo">${vxCuentaDescuentoHtml()}</select>
+    <input type="number" min="0" step="0.01" data-vx-otro="valor" placeholder="Valor" aria-label="Valor del descuento" value="${valor ? escHtml(valor) : ''}">
+    <button type="button" class="btn-accion destructivo" data-vx-otro="quitar">Quitar</button></div>`);
+}
+
+function vxRenderRetenciones() {
+  const x = vx.preview.retencionesXml || { retefuente: 0, reteiva: 0, reteica: 0, otros: [] };
+  document.getElementById('vx-retefuente').value = x.retefuente || '';
+  document.getElementById('vx-reteiva').value = x.reteiva || '';
+  document.getElementById('vx-reteica').value = x.reteica || '';
+  document.getElementById('vx-otros-lista').innerHTML = '';
+  (x.otros || []).forEach((o) => vxAgregarOtro(o.concepto, o.valor));
+  const hayXml = x.retefuente || x.reteiva || x.reteica || (x.otros || []).length;
+  document.getElementById('vx-ret-nota').textContent = hayXml
+    ? 'Precargado con lo que informa el XML. Corrígelo si el cliente practicó otros valores. Con esto la cuenta por cobrar queda por lo que realmente vas a recibir.'
+    : 'El XML no informa retenciones. Si el cliente las practicará (por ejemplo una entidad pública), anótalas aquí y la cuenta por cobrar queda por lo que realmente vas a recibir; si no, déjalo vacío y se registran al recibir el pago.';
+}
+
+function vxLeerRetenciones() {
+  const n = (id) => Number(document.getElementById(id).value || 0);
+  return {
+    retenciones: { retefuente: n('vx-retefuente'), reteiva: n('vx-reteiva'), reteica: n('vx-reteica') },
+    otros: [...document.querySelectorAll('#vx-otros-lista .vx-otro')].map((f) => ({
+      concepto: f.querySelector('[data-vx-otro="concepto"]').value,
+      cuentaCodigo: f.querySelector('[data-vx-otro="cuenta"]').value || null,
+      valor: Number(f.querySelector('[data-vx-otro="valor"]').value || 0),
+    })),
+  };
+}
 
 function vxRenderAdvertencias() {
   const lista = vx.preview.advertencias;
@@ -2921,6 +2963,7 @@ function vxMostrarRevision() {
   vxRenderCotizaciones();
   vxRenderProyectos();
   vxRenderLineas();
+  vxRenderRetenciones();
   recalcularVenta();
 }
 
@@ -2935,8 +2978,18 @@ function recalcularVenta() {
   });
 
   const proyecto = listaProyectos.find((x) => x.id === document.getElementById('vx-proyecto').value);
+  const rd = vxLeerRetenciones();
+  const CF = asientoVenta.CUENTAS_FIJAS;
+  const retencionesAsiento = [
+    { cuentaCodigo: CF.RETEFUENTE, valor: rd.retenciones.retefuente },
+    { cuentaCodigo: CF.RETEIVA, valor: rd.retenciones.reteiva },
+    { cuentaCodigo: CF.RETEICA, valor: rd.retenciones.reteica },
+  ];
+  const descuentosAsiento = rd.otros.map((o) => ({ cuentaCodigo: o.cuentaCodigo || '5195', valor: o.valor }));
+  const totalRetenido = Math.round([...retencionesAsiento, ...descuentosAsiento].reduce((s, x) => s + (Number(x.valor) || 0), 0) * 100) / 100;
+  const retencionExcede = totalRetenido > 0 && totalRetenido >= c.total;
   let asiento = null;
-  if (p.factura.lineas.every((_, i) => cuentasPorLinea[i] && cuentasPorLinea[i] !== FX_OPCION_NUEVA)) {
+  if (!retencionExcede && p.factura.lineas.every((_, i) => cuentasPorLinea[i] && cuentasPorLinea[i] !== FX_OPCION_NUEVA)) {
     try {
       asiento = asientoVenta.armarAsientoVenta({
         lineas: p.factura.lineas,
@@ -2944,6 +2997,8 @@ function recalcularVenta() {
         iva: c.iva,
         total: c.total,
         cuentasLinea: p.factura.lineas.map((_, i) => cuentasPorLinea[i]),
+        retenciones: retencionesAsiento,
+        descuentos: descuentosAsiento,
         centroCosto: proyecto ? proyecto.codigo || proyecto.nombre : null,
       });
     } catch (_) {
@@ -2973,10 +3028,14 @@ function recalcularVenta() {
     `<span>Base: <strong>${escHtml(formatoDineroDec(c.base))}</strong></span>` +
     `<span>IVA: <strong>${escHtml(formatoDineroDec(c.iva))}</strong></span>` +
     (p.factura.aiu && p.factura.aiu.ivaSoloSobreParte ? `<span>IVA sobre: <strong>${escHtml(formatoDineroDec(p.factura.aiu.baseGravableIva))}</strong></span>` : '') +
-    `<span>Total a cobrar: <strong class="neto">${escHtml(formatoDineroDec(c.total))}</strong></span>`;
+    `<span>Total factura: <strong>${escHtml(formatoDineroDec(c.total))}</strong></span>` +
+    (totalRetenido > 0 ? `<span>Retenciones y descuentos: <strong>− ${escHtml(formatoDineroDec(totalRetenido))}</strong></span>` : '') +
+    `<span>A cobrar al cliente: <strong class="neto">${escHtml(formatoDineroDec(retencionExcede ? c.total : c.total - totalRetenido))}</strong></span>`;
 
   const pendientes = [];
   if (p.advertencias.some((a) => a.nivel === 'bloqueo')) pendientes.push('La factura tiene errores que impiden registrarla.');
+  if (retencionExcede) pendientes.push('Las retenciones y descuentos deben ser menores que el total de la factura.');
+  if (rd.otros.some((o) => o.valor > 0 && (o.concepto || '').trim().length < 3)) pendientes.push('Escribe el concepto de cada estampilla, tasa o contribución.');
   if (!p.cuentasIngreso.length) pendientes.push('Tu empresa no tiene cuentas de ingreso. Créalas en el plan de cuentas.');
   else if (p.factura.lineas.some((_, i) => !cuentasPorLinea[i] || cuentasPorLinea[i] === FX_OPCION_NUEVA)) pendientes.push('Elige la cuenta de ingreso de cada línea.');
   if (!p.cliente && !document.getElementById('vx-crear-cliente').checked) pendientes.push('Marca “Crear este cliente” (o créalo antes en Terceros).');
@@ -3018,6 +3077,10 @@ async function registrarVentaXml() {
     crearCliente: !p.cliente && document.getElementById('vx-crear-cliente').checked,
     proyectoId: document.getElementById('vx-proyecto').value || undefined,
     cuentasLineas: vxLeerCuentasLineas(),
+    ...(() => {
+      const rd = vxLeerRetenciones();
+      return { retenciones: rd.retenciones, otros: rd.otros.filter((o) => o.valor > 0) };
+    })(),
     productosLineas: window.invFacturas ? window.invFacturas.leer('vx') : undefined,
     aceptarAdvertencias: document.getElementById('vx-aceptar').checked,
   };
@@ -3077,6 +3140,21 @@ document.getElementById('vx-resumen').addEventListener('click', (e) => {
 });
 document.getElementById('vx-cotizacion').addEventListener('change', vxAlCambiarCotizacion);
 document.getElementById('vx-proyecto').addEventListener('change', recalcularVenta);
+['vx-retefuente', 'vx-reteiva', 'vx-reteica'].forEach((id) => document.getElementById(id).addEventListener('input', recalcularVenta));
+document.getElementById('vx-otro-agregar').addEventListener('click', () => {
+  vxAgregarOtro('', '');
+  const campos = document.querySelectorAll('#vx-otros-lista [data-vx-otro="concepto"]');
+  campos[campos.length - 1].focus();
+  recalcularVenta();
+});
+document.getElementById('vx-otros-lista').addEventListener('input', recalcularVenta);
+document.getElementById('vx-otros-lista').addEventListener('change', recalcularVenta);
+document.getElementById('vx-otros-lista').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-vx-otro="quitar"]');
+  if (!b) return;
+  b.closest('.vx-otro').remove();
+  recalcularVenta();
+});
 document.getElementById('vx-crear-cliente').addEventListener('change', recalcularVenta);
 document.getElementById('vx-aceptar').addEventListener('change', recalcularVenta);
 dialogoVx.addEventListener('focusin', (e) => {
@@ -3122,8 +3200,13 @@ async function abrirDetalleFacturaVenta(id, avisos, mensajeOk) {
         ['Base', escHtml(formatoDineroDec(f.subtotal))],
         ['IVA', escHtml(formatoDineroDec(f.iva))],
         ['Total', `<strong>${escHtml(formatoDineroDec(f.total))}</strong>`],
+        Number(f.retencionesTotal) > 0
+          ? ['Retenciones y descuentos', `− ${escHtml(formatoDineroDec(f.retencionesTotal))}<br><span class="texto-suave">${[['ReteFuente', f.retefuente], ['ReteIVA', f.reteiva], ['ReteICA', f.reteica]].filter(([, v]) => Number(v) > 0).map(([t, v]) => `${t} ${escHtml(formatoDineroDec(v))}`).concat((f.otrosDescuentos || []).map((o) => `${escHtml(o.concepto)} ${escHtml(formatoDineroDec(o.valor))}`)).join(' · ')}</span>`]
+          : null,
+        Number(f.retencionesTotal) > 0 ? ['A cobrar al cliente', `<strong>${escHtml(formatoDineroDec(Number(f.total) - Number(f.retencionesTotal)))}</strong>`] : null,
         ['CUFE', f.cufe ? `<span class="mono" title="${escHtml(f.cufe)}">${escHtml(f.cufe.slice(0, 18))}…${escHtml(f.cufe.slice(-8))}</span>` : '—'],
       ]
+        .filter(Boolean)
         .map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`)
         .join('') +
       `</dl>` +

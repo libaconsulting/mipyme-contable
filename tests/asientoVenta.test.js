@@ -64,3 +64,33 @@ test('Errores: sin líneas o sin cuenta de alguna línea', () => {
   assert.throws(() => armarAsientoVenta({ lineas: [], base: 0, iva: 0, total: 0, cuentasLinea: [] }), /no tiene líneas/);
   assert.throws(() => armarAsientoVenta({ lineas: [{ valorTotal: 1 }], base: 1, iva: 0, total: 1, cuentasLinea: [] }), /Falta la cuenta/);
 });
+
+test('Retenciones y descuentos de la entidad: Db clientes baja a lo que se cobra y el asiento cuadra', () => {
+  const r = armarAsientoVenta({
+    lineas: [{ valorTotal: 1000000 }, { valorTotal: 500000 }],
+    base: 1500000, iva: 285000, total: 1785000,
+    cuentasLinea: ['4135', '4135'],
+    retenciones: [
+      { cuentaCodigo: CUENTAS_FIJAS.RETEFUENTE, valor: 35000 },
+      { cuentaCodigo: CUENTAS_FIJAS.RETEIVA, valor: 0 },
+      { cuentaCodigo: CUENTAS_FIJAS.RETEICA, valor: 5000 },
+    ],
+    descuentos: [{ cuentaCodigo: '5195', valor: 15000 }, { cuentaCodigo: '5195', valor: 5000 }, { cuentaCodigo: '6135', valor: 20000 }],
+  });
+  assert.equal(r.cuadra, true);
+  assert.equal(r.totalDebito, 1785000);
+  assert.equal(cuenta(r, CUENTAS_FIJAS.CLIENTES)[0].debito, 1785000 - 80000);
+  assert.equal(cuenta(r, '135515')[0].debito, 35000);
+  assert.equal(cuenta(r, '135517').length, 0, 'un valor en cero no genera línea');
+  assert.equal(cuenta(r, '135518')[0].debito, 5000);
+  assert.equal(cuenta(r, '5195').length, 1, 'las cuentas iguales se agrupan');
+  assert.equal(cuenta(r, '5195')[0].debito, 20000);
+  assert.equal(cuenta(r, '6135')[0].debito, 20000);
+  assert.equal(cuenta(r, '4135')[0].credito, 1500000);
+});
+
+test('Retenciones y descuentos iguales o mayores al total no se aceptan', () => {
+  const base = { lineas: [{ valorTotal: 100000 }], base: 100000, iva: 0, total: 100000, cuentasLinea: ['4135'] };
+  assert.throws(() => armarAsientoVenta({ ...base, retenciones: [{ cuentaCodigo: '135515', valor: 100000 }] }), /menores que el total/);
+  assert.throws(() => armarAsientoVenta({ ...base, descuentos: [{ cuentaCodigo: '5195', valor: -1 }] }), /negativos/);
+});

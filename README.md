@@ -383,10 +383,17 @@ Facturas de venta → **+ Cargar factura emitida (XML)**: sirve el `.xml` o el `
   ya cargados, notas crédito/débito, e impuesto al consumo/otros impuestos distintos de IVA. Pide confirmar si
   la factura trae IVA y la empresa figura como no responsable de IVA.
 - Empresa nueva sin plan de cuentas: se aprovisiona la contabilidad base igual que en compras.
+- **Retenciones y descuentos del cliente en la propia factura:** bloque «Retenciones y descuentos del cliente (opcional)»
+  en la vista previa: ReteFuente / ReteIVA / ReteICA (se precargan con lo que trae el XML en `WithholdingTaxTotal`: tipos 06, 05 y 07;
+  cualquier otro valor retenido que traiga se sugiere como «otro descuento») y estampillas, tasas y contribuciones de la entidad
+  (concepto libre, valor y cuenta de gasto o costo, por defecto 5195). Asiento:
+  `Db 1305 (total − retenciones − descuentos) / Db 135515 · 135517 · 135518 / Db gasto o costo / Cr ingreso / Cr 2408`.
+  La factura guarda `retefuente`, `reteiva`, `reteica`, `otros_descuentos` y `retenciones_total` (SQL en `sql-retenciones-sufridas.sql`) y la
+  cartera por cobrar queda por `total − retenciones_total`. Lo que se deje vacío se registra al recibir el pago (Tesorería › Por cobrar); no
+  debe anotarse en los dos sitios. El reporte «Retenciones sufridas» muestra de dónde viene cada valor (en la factura / al cobrar).
 - Pruebas: `node --test tests/asientoVenta.test.js`.
 
-Lo que **no** hace todavía: retenciones que practica el cliente (se registrarán al recibir el pago, en
-Tesorería), notas crédito/débito, impoconsumo en ventas, ni el
+Lo que **no** hace todavía: notas crédito/débito, impoconsumo en ventas, ni el
 **documento soporte** (Siigo no entrega XML: se registra a mano, ver la sección siguiente).
 
 ## Documento soporte (compras a no obligados a facturar), expedido en Siigo

@@ -90,8 +90,8 @@ async function leerOtrosDescuentos(lista, rotulo, empresaId, transaction) {
     if (!concepto || concepto.length < 3) throw new Error(`${rotulo}: escribe el concepto de cada descuento (por ejemplo "Estampilla pro-cultura").`);
     const valor = monto(o.valor, `El valor de "${concepto}"`);
     let cuenta;
-    if (o.cuentaId) {
-      cuenta = await PlanCuentas.findOne({ where: { id: o.cuentaId, empresaId }, transaction });
+    if (o.cuentaId || o.cuentaCodigo) {
+      cuenta = await PlanCuentas.findOne({ where: o.cuentaId ? { id: o.cuentaId, empresaId } : { codigo: String(o.cuentaCodigo), empresaId }, transaction });
       if (!cuenta || !cuenta.activa) throw new Error(`${rotulo}: la cuenta elegida para "${concepto}" no existe o está inactiva.`);
       if (!['gasto', 'costo'].includes(cuenta.elementoNiif) || cuenta.naturaleza !== 'debito') {
         throw new Error(`${rotulo}: "${concepto}" se registra en una cuenta de gasto o de costo (${cuenta.codigo} no lo es).`);
@@ -124,7 +124,8 @@ function netoDelDocumento(tipo, d) {
   if (tipo === 'documento_soporte') {
     return d.netoAPagar != null ? aCentavos(d.netoAPagar) : aCentavos(d.valor);
   }
-  return aCentavos(d.total);
+  // Factura de venta: lo que se cobra es el total menos lo que ya se contabilizó como retenido o descontado en la factura.
+  return aCentavos(d.total) - aCentavos(d.retencionesTotal || 0);
 }
 
 function numeroDelDocumento(tipo, d) {
@@ -250,6 +251,7 @@ async function cartera(datos, usuario) {
         fecha: d.fecha,
         fechaVencimiento: vence,
         neto: dePesos(neto),
+        retenido: dePesos(aCentavos(d.retencionesTotal || 0)),
         pagado: dePesos(pagado),
         saldo: dePesos(saldo),
         diasVencido,
@@ -613,6 +615,32 @@ async function retencionesSufridas(datos, usuario) {
   const otros = [];
   const totales = { retefuente: 0, reteiva: 0, reteica: 0, total: 0 };
   let otrosTotal = 0;
+
+  // Retenciones y descuentos contabilizados con la propia factura de venta (al cargar el XML).
+  const dondeFactura = { empresaId, retencionesTotal: { [Op.gt]: 0 }, asientoId: { [Op.ne]: null } };
+  if (desde || hasta) dondeFactura.fecha = Object.assign({}, desde ? { [Op.gte]: desde } : {}, hasta ? { [Op.lte]: hasta } : {});
+  const facturasConRet = await FacturaVenta.findAll({ where: dondeFactura, order: [['fecha', 'ASC']] });
+  if (facturasConRet.length) {
+    const asientosF = await Asiento.findAll({ where: { id: facturasConRet.map((f) => f.asientoId) } });
+    const vigentes = new Set(asientosF.filter((a) => a.estado === 'contabilizado').map((a) => a.id));
+    const tercerosF = await Tercero.findAll({ where: { id: [...new Set(facturasConRet.map((f) => f.terceroId))], empresaId } });
+    const terceroF = Object.fromEntries(tercerosF.map((t) => [t.id, t]));
+    for (const f of facturasConRet) {
+      if (!vigentes.has(f.asientoId)) continue;
+      const t = terceroF[f.terceroId];
+      const base = { fecha: f.fecha, terceroNombre: t ? t.nombre : (f.receptorNombre || ''), terceroIdentificacion: t ? t.identificacion : (f.receptorNit || ''), factura: numeroDelDocumento('factura_venta', f), origen: 'factura' };
+      for (const o of (Array.isArray(f.otrosDescuentos) ? f.otrosDescuentos : [])) {
+        otros.push({ ...base, concepto: o.concepto, cuentaCodigo: o.cuentaCodigo, cuentaNombre: o.cuentaNombre, valor: Number(o.valor) });
+        otrosTotal += aCentavos(o.valor);
+      }
+      const rf = aCentavos(f.retefuente); const ri = aCentavos(f.reteiva); const rc = aCentavos(f.reteica);
+      if (rf || ri || rc) {
+        filas.push({ ...base, referencia: '', baseCobrada: Number(f.total), retefuente: dePesos(rf), reteiva: dePesos(ri), reteica: dePesos(rc), total: dePesos(rf + ri + rc) });
+        totales.retefuente += rf; totales.reteiva += ri; totales.reteica += rc; totales.total += rf + ri + rc;
+      }
+    }
+  }
+
   for (const a of aps) {
     const p = pagoPorId[a.pagoId];
     const t = terceroPorId[p.terceroId];
@@ -620,7 +648,7 @@ async function retencionesSufridas(datos, usuario) {
     for (const o of (Array.isArray(a.otrosDescuentos) ? a.otrosDescuentos : [])) {
       otros.push({
         fecha: p.fecha, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '', factura: numeroFactura,
-        concepto: o.concepto, cuentaCodigo: o.cuentaCodigo, cuentaNombre: o.cuentaNombre, valor: Number(o.valor),
+        concepto: o.concepto, cuentaCodigo: o.cuentaCodigo, cuentaNombre: o.cuentaNombre, valor: Number(o.valor), origen: 'recaudo',
       });
       otrosTotal += aCentavos(o.valor);
     }
@@ -629,7 +657,7 @@ async function retencionesSufridas(datos, usuario) {
     filas.push({
       fecha: p.fecha, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '',
       factura: facturaPorId[a.docId] ? numeroDelDocumento('factura_venta', facturaPorId[a.docId]) : '', referencia: p.referencia || '',
-      baseCobrada: Number(a.valor), retefuente: dePesos(rf), reteiva: dePesos(ri), reteica: dePesos(rc), total: dePesos(rf + ri + rc),
+      baseCobrada: Number(a.valor), retefuente: dePesos(rf), reteiva: dePesos(ri), reteica: dePesos(rc), total: dePesos(rf + ri + rc), origen: 'recaudo',
     });
     totales.retefuente += rf; totales.reteiva += ri; totales.reteica += rc; totales.total += rf + ri + rc;
   }
@@ -680,6 +708,6 @@ async function anularPago(id, datos, usuario) {
 }
 
 module.exports = {
-  cartera, registrarPago, retencionesSufridas, aplicarDescuento, descuentosDisponibles, listarPagos, detallePago, pagosDeDocumento,
+  cartera, registrarPago, retencionesSufridas, RETENCIONES, montoOpcional, leerOtrosDescuentos, asegurarCuentasRetencion, aplicarDescuento, descuentosDisponibles, listarPagos, detallePago, pagosDeDocumento,
   movimientosLibres, anularPago, netoDelDocumento, DOCS,
 };
