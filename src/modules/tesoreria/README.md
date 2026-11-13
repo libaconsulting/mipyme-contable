@@ -1,14 +1,13 @@
 # Módulo: tesoreria
 
-Pendiente de construir. Sigue exactamente el mismo patrón que `src/modules/ventas`:
+Cuentas bancarias (cada una con su auxiliar contable 11100501…), movimientos bancarios, conciliación y
+**cruce de pagos** con facturas de compra, documentos soporte y facturas de venta.
 
-- `models/`   → entidades Sequelize del módulo
-- `services/` → lógica de negocio, siempre contabiliza a través de
-                 `src/core/services/motorAsientos.js`, nunca escribiendo
-                 asientos directamente
-- `controllers/` → capa HTTP
-- `routes/`   → se montan en `src/routes/index.js`
+- `models/`   → `CuentaBancaria`, `MovimientoBancario` (con `origenModulo`/`origenId`), `PagoTesoreria`, `PagoAplicacion`
+- `services/` → `tesoreria.service.js` (cuentas, movimientos, conciliar), `contabilidadBancaria.js` (auxiliares y tercero del
+                 banco), `cruces.service.js` (cartera, pagos/recaudos, descuentos de aportes, anulación). Todo se contabiliza con
+                 `contabilizarAsientoCompuesto` del motor de asientos.
+- `controllers/`, `routes/` → capa HTTP, montada en `/api/tesoreria`
 
-Consulta la tabla de reglas de contabilización de este módulo definida
-en la conversación de diseño para los eventos (`tipoEvento`) y niveles
-de automatización correspondientes.
+Pantalla: `public/contable/tesoreriaCruce.js`. Detalle del flujo, reglas y alcance en el README de la raíz
+(sección «Tesorería: cruce de pagos»). Tablas nuevas en producción: `sql-cruce-pagos-tesoreria.sql`.

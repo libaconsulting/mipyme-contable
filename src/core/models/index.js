@@ -41,6 +41,8 @@ const KardexMovimiento = require('../../modules/inventarios/models/KardexMovimie
 const ActivoFijo = require('../../modules/activosFijos/models/ActivoFijo');
 const CuentaBancaria = require('../../modules/tesoreria/models/CuentaBancaria');
 const MovimientoBancario = require('../../modules/tesoreria/models/MovimientoBancario');
+const PagoTesoreria = require('../../modules/tesoreria/models/PagoTesoreria');
+const PagoAplicacion = require('../../modules/tesoreria/models/PagoAplicacion');
 
 module.exports = {
   Empresa,
@@ -78,4 +80,6 @@ module.exports = {
   ActivoFijo,
   CuentaBancaria,
   MovimientoBancario,
+  PagoTesoreria,
+  PagoAplicacion,
 };

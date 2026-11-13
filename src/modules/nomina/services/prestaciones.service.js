@@ -762,7 +762,7 @@ async function pagar(id, datos, usuario) {
       movimientoId = uuidv4();
       await MovimientoBancario.create({
         id: movimientoId, empresaId, cuentaBancariaId: cuentaBancaria.id, fecha, valor: total, tipo: 'egreso',
-        descripcion: `${NOMBRES_TIPO[doc.tipo]}${doc.tipo === 'prima' ? ` ${doc.anio} S${doc.semestre}` : ` ${doc.anio}`}`, conciliado: false,
+        descripcion: `${NOMBRES_TIPO[doc.tipo]}${doc.tipo === 'prima' ? ` ${doc.anio} S${doc.semestre}` : ` ${doc.anio}`}`, conciliado: false, origenModulo: 'prestaciones', origenId: doc.id,
       }, { transaction });
     }
     if (contratoRetiro) {
@@ -940,7 +940,7 @@ async function pagarPlanilla(periodoId, datos, usuario) {
       movimientoId = uuidv4();
       await MovimientoBancario.create({
         id: movimientoId, empresaId, cuentaBancariaId: cuentaBancaria.id, fecha, valor: total, tipo: 'egreso',
-        descripcion: `Planilla PILA ${mesTexto(periodo.anio, periodo.mes)}${numeroPlanilla ? ` · ${numeroPlanilla}` : ''}`, conciliado: false,
+        descripcion: `Planilla PILA ${mesTexto(periodo.anio, periodo.mes)}${numeroPlanilla ? ` · ${numeroPlanilla}` : ''}`, conciliado: false, origenModulo: 'pila', origenId: periodo.id,
       }, { transaction });
     }
     return NominaPlanillaPago.create({

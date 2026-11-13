@@ -37,7 +37,7 @@ src/
 │   ├── nomina/                 Contratos → liquidación mensual → contabilizar → pagar → planilla de aportes
 │   ├── inventarios/            Productos, kardex a costo promedio, valoración; entradas/salidas desde las facturas
 │   ├── activosFijos/           Registro, depreciación mensual (cron), baja
-│   └── tesoreria/               Cuentas bancarias, movimientos, conciliación
+│   └── tesoreria/               Cuentas bancarias, movimientos, conciliación, cruce de pagos (cartera)
 ├── integrations/             # Capa adaptadora hacia proveedores acreditados
 │   ├── adapters/                Interfaz única por tipo de documento
 │   └── webhooks/                Recepción asíncrona de confirmaciones DIAN
@@ -181,10 +181,37 @@ tiene su propio auxiliar dentro de `1110 Bancos`:
   vez que se listan. Los movimientos antiguos que ya estaban en 1110 no se reclasifican.
 - El auxiliar de una cuenta bancaria no se puede desactivar mientras esa cuenta exista;
   sí se puede renombrar.
-- **Aún no** cruzan contra el banco los demás movimientos (ingresos y egresos solo se marcan
-  conciliados; ventas de contado y pagos siguen contra la regla genérica 1110). Hasta que
-  se cruce el pago con su factura, el auxiliar solo refleja lo que se contabiliza contra él.
+- Los pagos y recaudos que se cruzan con una factura (ver «Tesorería: cruce de pagos») y los pagos de
+  nómina, prestaciones y planillas PILA se contabilizan contra el auxiliar de la cuenta elegida.
+  Los movimientos que se digitan a mano y solo se «conciliar» siguen sin asiento (salvo la comisión);
+  para contabilizarlos se cruzan con la factura que pagan. Ventas de contado siguen contra la regla genérica 1110.
   Código en `src/modules/tesoreria/services/contabilidadBancaria.js`.
+
+### Tesorería: cruce de pagos
+
+Cada pago a un proveedor y cada recaudo de un cliente se aplica a la factura, documento soporte o factura de
+venta que cancela. Pestaña **Tesorería › Cruce de pagos** (`public/contable/tesoreriaCruce.js`).
+
+- **Cartera:** *Por pagar* (facturas de compra, neto de retenciones, y documentos soporte, sobre 2205 / 2335) y
+  *Por cobrar* (facturas de venta, sobre 1305), con valor, pagado, saldo, vencimiento, días vencidos y totales por
+  edad (1–30, 31–60, 61–90, más de 90). Solo se puede pagar un documento con asiento contabilizado.
+- **Pago / recaudo:** uno o varios documentos del mismo tercero a la vez, completo o por abonos. Asiento
+  `Db 2205/2335 (tercero) / Cr banco (auxiliar de la cuenta) o caja 1105`; el recaudo es `Db banco o caja / Cr 1305`.
+  Reglas `tesoreria_pago_proveedor` y `tesoreria_recaudo_cliente` (se crean al primer uso). Por banco crea el
+  movimiento bancario (egreso/ingreso) o, si ya lo digitaste, **se enlaza uno existente** de la misma cuenta, tipo y
+  valor (queda conciliado y cruzado). Botón «Cruzar con factura» en la tabla de movimientos.
+- **Descuento de aportes de contratistas:** lo que el contratista asume de salud, pensión y ARL ya se causó contra
+  2335/2205 al contabilizar el mes (Nómina › Contratistas); «Descuento de aportes» lo aplica al documento del
+  contratista sin mover dinero ni crear otro asiento. Un mes con descuento aplicado no se puede reabrir hasta anularlo.
+- **Anular** (contador o dueño, motivo de 10+ letras): anula el asiento, borra el movimiento que creó el pago (o
+  libera el enlazado) y el documento recupera el saldo. No se anula si el movimiento ya está conciliado con el extracto
+  ni si el período contable está cerrado.
+- Tablas `tesoreria_pagos` y `tesoreria_pago_aplicaciones`; `movimientos_bancarios` gana `origen_modulo` /
+  `origen_id` (nómina, prestaciones, PILA y planilla Y los llenan; nulo = digitado a mano). SQL: `sql-cruce-pagos-tesoreria.sql`.
+- API (`/api/tesoreria`): `GET cartera?tipo=pagar|cobrar&todos=1`, `GET movimientos-libres`, `GET/POST pagos`,
+  `POST pagos/:id/anular`, `GET documentos/:tipo/:id/pagos`, `GET descuentos-aportes?terceroId=`, `POST descuentos`.
+- **Aún no:** retenciones que los clientes nos practican al pagar, anticipos a proveedores y de clientes, notas crédito y
+  débito, pago de nómina/prestaciones desde aquí (siguen en su módulo), diferencias en cambio.
 
 ## Logo de empresa
 
@@ -357,7 +384,7 @@ retención en la fuente) y se adjunta el PDF como soporte (opcional, hasta 3,5 M
 - Pruebas: `node --test tests/asientoCompra.test.js` (caso DS 44 incluido).
 
 Lo que **no** hace todavía: leer el PDF automáticamente (se digita), IVA teórico/mayor valor, notas de ajuste
-al documento soporte, ni pagar el documento (el pago se cruzará contra 2335 cuando exista el cruce en Tesorería).
+al documento soporte, ni retenciones o anticipos. El pago se registra en Tesorería › Cruce de pagos (Db 2335 / Cr banco o caja).
 Cuando haya proveedor tecnológico propio, el flujo `POST /api/compras/documento-soporte` (emisión) sigue disponible.
 
 ## Nómina (NIIF Grupo 3, Colombia)
@@ -634,8 +661,8 @@ qué contabilizar.
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] Restringir `POST /api/auth/registro` a `authenticate + authorize('dueño', 'contador')` una vez exista el primer usuario de cada empresa (ver TODO en `authService.js`)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
-- [ ] Tesorería: cruzar movimientos de tipo ingreso/egreso contra la factura, orden o nómina específica que pagan (hoy solo "comisión" se contabiliza sola al conciliar; el resto solo queda marcado como conciliado, sin generar el asiento de pago)
-- [ ] Bancos: dirigir al auxiliar de cada cuenta bancaria los pagos y recaudos (hoy solo la comisión lo hace), con conciliación por cuenta contra el extracto; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
+- [ ] Tesorería (cruce de pagos): retenciones que nos practican los clientes al pagar, anticipos (de clientes y a proveedores), notas crédito/débito y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
+- [ ] Bancos: conciliación por cuenta contra el extracto (importar el extracto y quitar la conciliación de un movimiento); los pagos, recaudos y la nómina ya van al auxiliar de la cuenta; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
 - [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni los activos fijos (la nómina ya usa `contabilizarAsientoCompuesto`)
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado
 - [ ] Confirmar con el proveedor tecnológico la mecánica exacta para RECIBIR facturas de compra (RADIAN vs. notificación directa) — ver TODO en `compras.service.js`

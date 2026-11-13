@@ -1000,7 +1000,7 @@ async function registrarPago(periodoId, datos, usuario) {
     if (cuentaBancaria) {
       await MovimientoBancario.create({
         id: uuidv4(), empresaId, cuentaBancariaId: cuentaBancaria.id, fecha, valor: total, tipo: 'egreso',
-        descripcion: `Pago de nómina ${mesTexto(periodo.anio, periodo.mes)}`, conciliado: false,
+        descripcion: `Pago de nómina ${mesTexto(periodo.anio, periodo.mes)}`, conciliado: false, origenModulo: 'nomina_pago', origenId: periodo.id,
       }, { transaction });
     }
     await NominaLiquidacion.update({ pagado: true }, { where: { periodoId: periodo.id }, transaction });

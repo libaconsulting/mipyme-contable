@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261112-1">
+<link rel="stylesheet" href="/contable/style.css?v=20261113-1">
 </head>
 <body>
 
@@ -521,6 +521,15 @@
 
     <section id="panel-tesoreria" class="panel" hidden>
       <header class="panel-header"><h2>Tesorería</h2></header>
+
+      <div class="subseccion-header">
+        <h3 class="subseccion">Cruce de pagos</h3>
+      </div>
+      <p class="nota-panel">Cartera por pagar y por cobrar: registra cada pago o recaudo contra la factura, el documento soporte o la factura de venta que cancela (completo o por abonos). Queda contabilizado, con su movimiento bancario, y el saldo de cada documento se actualiza.</p>
+      <div id="tes-cruce">
+        <nav id="tes-subtabs" class="subtabs" aria-label="Secciones del cruce de pagos"></nav>
+        <div id="tes-contenido"></div>
+      </div>
 
       <div class="subseccion-header">
         <h3 class="subseccion">Cuentas bancarias</h3>
@@ -1075,6 +1084,19 @@
       <button type="button" class="btn-primario" id="btn-nom-guardar">Guardar</button>
     </div>
   </dialog>
+  <!-- Diálogo del cruce de pagos de Tesorería -->
+  <dialog id="dialogo-tes" class="dialogo-factura" aria-labelledby="titulo-tes">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-tes">Tesorería</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-tes" aria-label="Cerrar">×</button>
+    </div>
+    <div class="dialogo-cuerpo" id="tes-dialogo-cuerpo"></div>
+    <div class="dialogo-pie">
+      <p class="fx-error" id="tes-dialogo-error" hidden></p>
+      <button type="button" class="btn-secundario" id="btn-tes-cancelar">Cerrar</button>
+      <button type="button" class="btn-primario" id="btn-tes-guardar">Guardar</button>
+    </div>
+  </dialog>
   <!-- Diálogo genérico de inventarios (productos, movimientos, kardex) -->
   <dialog id="dialogo-inv" class="dialogo-factura" aria-labelledby="titulo-inv">
     <div class="dialogo-cabecera">
@@ -1093,24 +1115,25 @@
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261112-1"></script>
-<script src="/contable/calculoOrden.js?v=20261112-1"></script>
-<script src="/contable/asientoCompra.js?v=20261112-1"></script>
-<script src="/contable/asientoVenta.js?v=20261112-1"></script>
-<script src="/contable/planCuentas.js?v=20261112-1"></script>
-<script src="/contable/parametrosLaborales.js?v=20261112-1"></script>
-<script src="/contable/liquidacionNomina.js?v=20261112-1"></script>
-<script src="/contable/costeoInventario.js?v=20261112-1"></script>
-<script src="/contable/asientoInventario.js?v=20261112-1"></script>
-<script src="/contable/app.js?v=20261112-1"></script>
-<script src="/contable/divipola.js?v=20261112-1"></script>
-<script src="/contable/selectorLugar.js?v=20261112-1"></script>
-<script src="/contable/nomina.js?v=20261112-1"></script>
-<script src="/contable/nominaPrestaciones.js?v=20261112-1"></script>
-<script src="/contable/asientoNomina.js?v=20261112-1"></script>
-<script src="/contable/aportesContratistas.js?v=20261112-1"></script>
-<script src="/contable/nominaContratistas.js?v=20261112-1"></script>
-<script src="/contable/nominaAsopagos.js?v=20261112-1"></script>
-<script src="/contable/inventarios.js?v=20261112-1"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261113-1"></script>
+<script src="/contable/calculoOrden.js?v=20261113-1"></script>
+<script src="/contable/asientoCompra.js?v=20261113-1"></script>
+<script src="/contable/asientoVenta.js?v=20261113-1"></script>
+<script src="/contable/planCuentas.js?v=20261113-1"></script>
+<script src="/contable/parametrosLaborales.js?v=20261113-1"></script>
+<script src="/contable/liquidacionNomina.js?v=20261113-1"></script>
+<script src="/contable/costeoInventario.js?v=20261113-1"></script>
+<script src="/contable/asientoInventario.js?v=20261113-1"></script>
+<script src="/contable/app.js?v=20261113-1"></script>
+<script src="/contable/divipola.js?v=20261113-1"></script>
+<script src="/contable/selectorLugar.js?v=20261113-1"></script>
+<script src="/contable/nomina.js?v=20261113-1"></script>
+<script src="/contable/nominaPrestaciones.js?v=20261113-1"></script>
+<script src="/contable/asientoNomina.js?v=20261113-1"></script>
+<script src="/contable/aportesContratistas.js?v=20261113-1"></script>
+<script src="/contable/nominaContratistas.js?v=20261113-1"></script>
+<script src="/contable/nominaAsopagos.js?v=20261113-1"></script>
+<script src="/contable/inventarios.js?v=20261113-1"></script>
+<script src="/contable/tesoreriaCruce.js?v=20261113-1"></script>
 </body>
 </html>

@@ -1,4 +1,5 @@
 const tesoreriaService = require('../services/tesoreria.service');
+const cruces = require('../services/cruces.service');
 
 async function crearCuenta(req, res) {
   try {
@@ -40,4 +41,28 @@ async function conciliarMovimiento(req, res) {
   }
 }
 
-module.exports = { crearCuenta, listarCuentas, registrarMovimiento, listarMovimientos, conciliarMovimiento };
+// Cruce de pagos: cada handler recibe el servicio ya resuelto y responde 400 con el mensaje del error.
+function manejar(fn, estado) {
+  return async (req, res) => {
+    try {
+      res.status(estado || 200).json(await fn(req));
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  };
+}
+
+const cartera = manejar((req) => cruces.cartera(req.query, req.usuario));
+const listarPagos = manejar((req) => cruces.listarPagos(req.query, req.usuario));
+const detallePago = manejar((req) => cruces.detallePago(req.params.id, req.usuario));
+const registrarPago = manejar((req) => cruces.registrarPago(req.body || {}, req.usuario), 201);
+const anularPago = manejar((req) => cruces.anularPago(req.params.id, req.body || {}, req.usuario));
+const pagosDeDocumento = manejar((req) => cruces.pagosDeDocumento(req.params.docTipo, req.params.docId, req.usuario));
+const movimientosLibres = manejar((req) => cruces.movimientosLibres(req.usuario));
+const descuentosDisponibles = manejar((req) => cruces.descuentosDisponibles(req.query.terceroId, req.usuario));
+const aplicarDescuento = manejar((req) => cruces.aplicarDescuento(req.body || {}, req.usuario), 201);
+
+module.exports = {
+  crearCuenta, listarCuentas, registrarMovimiento, listarMovimientos, conciliarMovimiento,
+  cartera, listarPagos, detallePago, registrarPago, anularPago, pagosDeDocumento, movimientosLibres, descuentosDisponibles, aplicarDescuento,
+};

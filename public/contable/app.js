@@ -383,6 +383,7 @@ function irATab(tab) {
   document.getElementById('panel-' + tab).hidden = false;
   if (tab === 'nomina' && window.nominaAlMostrar) window.nominaAlMostrar();
   if (tab === 'inventarios' && window.inventariosAlMostrar) window.inventariosAlMostrar();
+  if (tab === 'tesoreria' && window.tesoreriaAlMostrar) window.tesoreriaAlMostrar();
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -737,14 +738,26 @@ function renderCuentas(lista) {
     .join('');
 }
 
+const ORIGEN_MOVIMIENTO = {
+  nomina_pago: 'Pago de nómina',
+  prestaciones: 'Prestaciones',
+  pila: 'Planilla PILA',
+  pila_contratistas: 'Planilla Y contratistas',
+  tesoreria: 'Cruce de pagos',
+};
+
 function renderMovimientosBancarios(lista) {
   document.querySelector('#tabla-movimientos-bancarios thead').innerHTML =
-    '<tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Conciliado</th><th class="num">Valor</th><th>Acciones</th></tr>';
-  if (lista.length === 0) return tablaVacia('tabla-movimientos-bancarios', 6, 'Todavía no hay movimientos bancarios registrados.');
+    '<tr><th>Fecha</th><th>Tipo</th><th>Descripción</th><th>Origen</th><th>Conciliado</th><th class="num">Valor</th><th>Acciones</th></tr>';
+  if (lista.length === 0) return tablaVacia('tabla-movimientos-bancarios', 7, 'Todavía no hay movimientos bancarios registrados.');
   document.querySelector('#tabla-movimientos-bancarios tbody').innerHTML = lista
     .map((m) => {
-      const acciones = m.conciliado ? '—' : botonAccion('Conciliar', { accion: 'conciliar-movimiento', id: m.id });
-      return `<tr><td>${formatoFecha(m.fecha)}</td><td>${m.tipo}</td><td>${m.descripcion || '—'}</td><td>${
+      const botones = [];
+      if (!m.conciliado) botones.push(botonAccion('Conciliar', { accion: 'conciliar-movimiento', id: m.id }));
+      // Un ingreso o egreso digitado a mano se puede cruzar con la factura que paga.
+      if (!m.origenModulo && (m.tipo === 'ingreso' || m.tipo === 'egreso')) botones.push(botonAccion('Cruzar con factura', { accion: 'cruzar-movimiento', id: m.id }));
+      const acciones = botones.length ? botones.join(' ') : '—';
+      return `<tr><td>${formatoFecha(m.fecha)}</td><td>${m.tipo}</td><td>${escHtml(m.descripcion || '—')}</td><td>${escHtml(ORIGEN_MOVIMIENTO[m.origenModulo] || (m.tipo === 'comision' ? 'Comisión' : 'Manual'))}</td><td>${
         m.conciliado ? badge('conciliado') : badge('pendiente')
       }</td><td class="num">${formatoDinero(m.valor)}</td><td class="acciones">${acciones}</td></tr>`;
     })
@@ -3635,6 +3648,10 @@ document.getElementById('vista-dashboard').addEventListener('click', async (e) =
 
     case 'conciliar-movimiento':
       return accion(`/tesoreria/movimientos/${id}/conciliar`, { method: 'POST' });
+
+    case 'cruzar-movimiento':
+      if (window.tesoreriaCruzarMovimiento) window.tesoreriaCruzarMovimiento(id);
+      return;
   }
 });
 

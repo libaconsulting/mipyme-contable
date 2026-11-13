@@ -18,6 +18,7 @@ const MovimientoBancario = require('../../tesoreria/models/MovimientoBancario');
 const CentroTrabajo = require('../models/CentroTrabajo');
 const ContratoContratista = require('../models/ContratoContratista');
 const AportesContratistas = require('../models/AportesContratistas');
+const PagoAplicacion = require('../../tesoreria/models/PagoAplicacion');
 const { contabilizarAsientoCompuesto } = require('../../../core/services/motorAsientos');
 const { aprovisionarContabilidadBase } = require('../../../core/services/seedService');
 const { asegurarCuentaContable } = require('../../tesoreria/services/contabilidadBancaria');
@@ -328,6 +329,8 @@ async function reabrir(id, datos, usuario) {
   if (p.estado !== 'contabilizada') throw new Error('Solo se reabre una liquidación contabilizada.');
   const motivo = limpiarTexto(datos && datos.motivo, 250, 'El motivo', true);
   if (motivo.length < 10) throw new Error('Escribe el motivo de la reapertura (mínimo 10 letras).');
+  const descontados = await PagoAplicacion.count({ where: { empresaId, fuenteTipo: 'aportes_contratistas', fuenteId: p.id, estado: 'activa' } });
+  if (descontados) throw new Error('El descuento de estos aportes ya se aplicó a una factura o documento soporte en Tesorería; anula primero esa aplicación.');
   await sequelize.transaction(async (transaction) => {
     await anularAsiento(p.asientoId, empresaId, transaction);
     await p.update({ estado: 'borrador', asientoId: null, fechaContabilizacion: null }, { transaction });
@@ -381,7 +384,7 @@ async function pagar(id, datos, usuario) {
       movimientoId = uuidv4();
       await MovimientoBancario.create({
         id: movimientoId, empresaId, cuentaBancariaId: cuentaBancaria.id, fecha, valor: totalPagado, tipo: 'egreso',
-        descripcion: `Planilla Y contratistas ${mesTexto(p.anio, p.mes)}${numeroPlanilla ? ` · ${numeroPlanilla}` : ''}`, conciliado: false,
+        descripcion: `Planilla Y contratistas ${mesTexto(p.anio, p.mes)}${numeroPlanilla ? ` · ${numeroPlanilla}` : ''}`, conciliado: false, origenModulo: 'pila_contratistas', origenId: p.id,
       }, { transaction });
     }
     await p.update({

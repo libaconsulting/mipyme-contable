@@ -887,3 +887,15 @@ td.num, th.num {
 .combo-lista li.activo, .combo-lista li[data-i]:hover { background: var(--accent-soft, #e8efe9); }
 .combo-lista li.combo-mas { cursor: default; color: #6b7280; font-size: 12px; }
 .combo-codigo { min-height: 14px; font-size: 11px; color: #6b7280; }
+
+/* Tesorería · cruce de pagos */
+#dialogo-tes .campo-etiquetado { margin-bottom: 12px; }
+#dialogo-tes .campo-etiquetado input:not([type="checkbox"]), #dialogo-tes .campo-etiquetado select {
+  padding: 8px 10px; border: 1px solid var(--rule-strong); font-family: var(--font-sans); font-size: 14px; background: var(--paper); box-sizing: border-box; width: 100%;
+}
+#dialogo-tes .fila-campos { margin-bottom: 0; }
+#dialogo-tes .fila-campos .campo-etiquetado { flex: 1 1 150px; }
+#dialogo-tes .fila-campos .dc-nombre { flex: 2 1 280px; }
+#dialogo-tes td input[type="number"] { width: 130px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
+#dialogo-tes td input[type="number"]:disabled { background: transparent; border-color: transparent; }
+#tes-cruce .inv-tarjetas { margin-top: 8px; }

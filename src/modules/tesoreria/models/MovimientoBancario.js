@@ -19,6 +19,10 @@ const MovimientoBancario = sequelize.define('MovimientoBancario', {
   },
   descripcion: { type: DataTypes.STRING(255) },
   conciliado: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+  // De qué operación salió el movimiento (nomina_pago, prestaciones, pila, contratistas_pila, tesoreria_pago...).
+  // Nulo = movimiento digitado a mano, que se puede cruzar con una factura desde Tesorería.
+  origenModulo: { type: DataTypes.STRING(30) },
+  origenId: { type: DataTypes.UUID },
 }, {
   tableName: 'movimientos_bancarios',
 });
