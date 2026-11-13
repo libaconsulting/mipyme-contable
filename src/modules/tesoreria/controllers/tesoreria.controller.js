@@ -1,5 +1,6 @@
 const tesoreriaService = require('../services/tesoreria.service');
 const cruces = require('../services/cruces.service');
+const anticipos = require('../services/anticipos.service');
 
 async function crearCuenta(req, res) {
   try {
@@ -63,7 +64,15 @@ const descuentosDisponibles = manejar((req) => cruces.descuentosDisponibles(req.
 const retencionesSufridas = manejar((req) => cruces.retencionesSufridas(req.query, req.usuario));
 const aplicarDescuento = manejar((req) => cruces.aplicarDescuento(req.body || {}, req.usuario), 201);
 
+// Anticipos de clientes y a proveedores
+const listarAnticipos = manejar((req) => anticipos.listarAnticipos(req.query, req.usuario));
+const detalleAnticipo = manejar((req) => anticipos.detalleAnticipo(req.params.id, req.usuario));
+const registrarAnticipo = manejar((req) => anticipos.registrarAnticipo(req.body || {}, req.usuario), 201);
+const aplicarAnticipo = manejar((req) => anticipos.aplicarAnticipo(req.params.id, req.body || {}, req.usuario), 201);
+const devolverAnticipo = manejar((req) => anticipos.devolverAnticipo(req.params.id, req.body || {}, req.usuario), 201);
+
 module.exports = {
   crearCuenta, listarCuentas, registrarMovimiento, listarMovimientos, conciliarMovimiento,
   cartera, listarPagos, detallePago, registrarPago, anularPago, pagosDeDocumento, movimientosLibres, descuentosDisponibles, aplicarDescuento, retencionesSufridas,
+  listarAnticipos, detalleAnticipo, registrarAnticipo, aplicarAnticipo, devolverAnticipo,
 };

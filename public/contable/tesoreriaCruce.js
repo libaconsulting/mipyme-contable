@@ -15,9 +15,12 @@
 // la cuenta que elijas (por defecto 5195).
 (function () {
   if (!document.getElementById('panel-tesoreria')) return;
-  const SUBS = [['pagar', 'Por pagar'], ['cobrar', 'Por cobrar'], ['historial', 'Pagos y recaudos'], ['retenciones', 'Retenciones sufridas']];
+  const SUBS = [['pagar', 'Por pagar'], ['cobrar', 'Por cobrar'], ['anticipos', 'Anticipos'], ['historial', 'Pagos y recaudos'], ['retenciones', 'Retenciones sufridas']];
   const RETENCIONES = [['retefuente', 'ReteFuente'], ['reteiva', 'ReteIVA'], ['reteica', 'ReteICA']];
-  const TIPO_PAGO = { pago: 'Pago', recaudo: 'Recaudo', descuento: 'Descuento' };
+  const TIPO_PAGO = {
+    pago: 'Pago', recaudo: 'Recaudo', descuento: 'Descuento', anticipo_cliente: 'Anticipo de cliente', anticipo_proveedor: 'Anticipo a proveedor',
+    cruce_anticipo: 'Anticipo aplicado', devolucion_anticipo: 'Devolución de anticipo',
+  };
   const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
   const T = { sub: 'pagar', cartera: {}, buscar: '', todos: false, pagos: [], filtro: { tipo: '', estado: '' }, cuentas: null, ret: { desde: '', hasta: '', datos: null } };
@@ -105,6 +108,7 @@
         return renderHistorial();
       }
       if (sub === 'retenciones') return await cargarRetenciones();
+      if (sub === 'anticipos') return await window.tesoreriaAnticiposMostrar();
       await cargarCartera(sub);
       renderCartera(sub);
     } catch (err) {
@@ -123,7 +127,8 @@
       <div class="inv-tarjeta destacada"><span>${porPagar ? 'Total por pagar' : 'Total por cobrar'}</span><strong>${dinero(r.total)}</strong></div>
       <div class="inv-tarjeta${r.vencido ? ' alerta' : ''}"><span>Vencido</span><strong>${dinero(r.vencido)}</strong></div>
       <div class="inv-tarjeta"><span>Al día</span><strong>${dinero(r.porVencer)}</strong></div>
-      <div class="inv-tarjeta"><span>Documentos con saldo</span><strong>${r.documentos}</strong></div></div>`;
+      <div class="inv-tarjeta"><span>Documentos con saldo</span><strong>${r.documentos}</strong></div>
+      ${r.anticipos > 0 ? `<div class="inv-tarjeta"><span>Anticipos sin aplicar</span><strong>${dinero(r.anticipos)}</strong></div>` : ''}</div>`;
     html += `<p class="nota-panel">Vencido por edad: 1–30 días <strong>${dinero(r.edades.de1a30)}</strong> · 31–60 días <strong>${dinero(r.edades.de31a60)}</strong> · 61–90 días <strong>${dinero(r.edades.de61a90)}</strong> · más de 90 días <strong>${dinero(r.edades.masDe90)}</strong>.</p>`;
     html += `<div class="inv-barra">
       <input type="search" id="tes-buscar" placeholder="Buscar por tercero o número" value="${esc(T.buscar)}">
@@ -154,9 +159,10 @@
         } else if (d.saldo > 0 && d.motivoNoPagable) {
           acc.push(`<span class="texto-suave">${esc(d.motivoNoPagable)}</span>`);
         }
+        if (puedeRegistrar() && d.pagable && d.anticipoTercero > 0) acc.push(boton('Aplicar anticipo', 'aplicar-anticipo-doc', { tipo: d.docTipo, id: d.docId, tercero: d.terceroId }));
         if (d.pagado > 0) acc.push(boton('Ver pagos', 'ver-pagos-doc', { tipo: d.docTipo, id: d.docId }));
         return `<tr><td><strong>${esc(d.numero)}</strong><br><span class="texto-suave">${esc(d.etiqueta)}</span></td>
-          <td>${esc(d.terceroNombre)}<br><span class="texto-suave">${esc(d.terceroIdentificacion)}</span></td>
+          <td>${esc(d.terceroNombre)}<br><span class="texto-suave">${esc(d.terceroIdentificacion)}</span>${d.anticipoTercero > 0 && d.saldo > 0 ? `<br><span class="badge conciliado">anticipo disponible ${dinero(d.anticipoTercero)}</span>` : ''}</td>
           <td>${esc(fecha(d.fecha))}</td><td>${vence}</td><td class="num">${dinero(d.neto)}${d.retenido > 0 ? `<br><span class="texto-suave">ya descontados ${dinero(d.retenido)} de retenciones</span>` : ''}${d.notas ? `<br><span class="texto-suave">${d.notas < 0 ? 'notas crédito' : 'notas débito'} ${d.notas < 0 ? '−' : '+'} ${dinero(Math.abs(d.notas))}</span>` : ''}</td><td class="num">${dinero(d.pagado)}</td>
           <td class="num"><strong>${dinero(d.saldo)}</strong></td><td class="acciones">${acc.join(' ')}</td></tr>`;
       }).join('')}
@@ -173,13 +179,13 @@
   }
 
   function textoMedio(p) {
-    if (p.tipo === 'descuento') return 'Sin movimiento de dinero';
+    if (p.tipo === 'descuento' || p.tipo === 'cruce_anticipo') return 'Sin movimiento de dinero';
     return p.medio === 'caja' ? 'Efectivo (caja)' : esc(p.cuentaTexto || 'Banco');
   }
 
   function renderHistorial() {
     let html = `<div class="inv-barra">
-      <select id="tes-f-tipo" aria-label="Tipo">${opcionesSelect([['', 'Todos los tipos'], ['pago', 'Pagos'], ['recaudo', 'Recaudos'], ['descuento', 'Descuentos']], T.filtro.tipo)}</select>
+      <select id="tes-f-tipo" aria-label="Tipo">${opcionesSelect([['', 'Todos los tipos'], ['pago', 'Pagos'], ['recaudo', 'Recaudos'], ['descuento', 'Descuentos'], ['anticipo_cliente', 'Anticipos de clientes'], ['anticipo_proveedor', 'Anticipos a proveedores'], ['cruce_anticipo', 'Anticipos aplicados'], ['devolucion_anticipo', 'Devoluciones de anticipos']], T.filtro.tipo)}</select>
       <select id="tes-f-estado" aria-label="Estado">${opcionesSelect([['', 'Activos y anulados'], ['activo', 'Solo activos'], ['anulado', 'Solo anulados']], T.filtro.estado)}</select>
     </div>`;
     if (!T.pagos.length) {
@@ -596,6 +602,7 @@
         case 'descuento-doc': return await dialogoDescuento(b.dataset.tipo, b.dataset.id);
         case 'ver-pagos-doc': return await dialogoPagosDoc(b.dataset.tipo, b.dataset.id);
         case 'anular-pago': return dialogoAnular(b.dataset.id);
+        case 'aplicar-anticipo-doc': return await window.tesoreriaAnticiposAplicarA(b.dataset.tercero, b.dataset.tipo, b.dataset.id);
         case 'csv-retenciones': return descargarCsvRetenciones();
         case 'csv-otros': return descargarCsvOtros();
       }
@@ -605,6 +612,9 @@
   }
   $('tes-cruce').addEventListener('click', alClic);
   $('tes-dialogo-cuerpo').addEventListener('click', alClic);
+
+  // Herramientas que comparte tesoreriaAnticipos.js (se carga después de este archivo).
+  window.tesoreriaKit = { abrirDialogo, cerrarDialogo, errorDialogo, refrescarTodo, contenido, cargarCartera, T, boton, campo, opcionesSelect, aviso, mostrarError, num, v, fecha, redondear, puedeRegistrar, puedeAnular };
 
   // Lo llama app.js al abrir la pestaña Tesorería.
   window.tesoreriaAlMostrar = function () {

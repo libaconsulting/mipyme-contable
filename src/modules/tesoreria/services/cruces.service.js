@@ -36,6 +36,8 @@ const DOCS = {
   factura_venta: { modelo: FacturaVenta, cuenta: '1305', sentido: 'cobrar', etiqueta: 'Factura de venta' },
 };
 const TIPOS_PAGO = ['pago', 'recaudo'];
+const TIPOS_ANTICIPO = ['anticipo_cliente', 'anticipo_proveedor'];
+const TIPOS_FILTRO = TIPOS_PAGO.concat('descuento', TIPOS_ANTICIPO, 'cruce_anticipo', 'devolucion_anticipo');
 const MAX_VALOR = 100000000000;
 
 // Retenciones que un cliente nos practica al pagar una factura de venta. Se llevan como activo
@@ -195,6 +197,24 @@ async function notasPorDocumento(empresaId, docTipo, transaction) {
   return mapa;
 }
 
+// Anticipos activos (de clientes o a proveedores) con lo aplicado a facturas, lo devuelto y lo que les queda, en centavos.
+// filtro: { tipo, terceroId, id }. Un cruce o una devolución anulados no cuentan.
+async function saldosAnticipos(empresaId, filtro, transaction) {
+  const where = { empresaId, tipo: filtro && filtro.tipo ? filtro.tipo : { [Op.in]: TIPOS_ANTICIPO }, estado: 'activo' };
+  if (filtro && filtro.terceroId) where.terceroId = filtro.terceroId;
+  if (filtro && filtro.id) where.id = filtro.id;
+  const anticipos = await PagoTesoreria.findAll({ where, order: [['fecha', 'ASC'], ['createdAt', 'ASC']], transaction });
+  if (!anticipos.length) return [];
+  const hijos = await PagoTesoreria.findAll({ where: { empresaId, anticipoId: anticipos.map((a) => a.id), estado: 'activo' }, transaction });
+  return anticipos.map((a) => {
+    const propios = hijos.filter((h) => h.anticipoId === a.id);
+    const suma = (tipo) => propios.filter((h) => h.tipo === tipo).reduce((s, h) => s + aCentavos(h.valor), 0);
+    const aplicado = suma('cruce_anticipo');
+    const devuelto = suma('devolucion_anticipo');
+    return { pago: a, aplicado, devuelto, saldo: aCentavos(a.valor) - aplicado - devuelto };
+  });
+}
+
 async function documentoDe(empresaId, docTipo, docId, transaction) {
   const def = DOCS[docTipo];
   if (!def) throw new Error('Tipo de documento no válido (factura_compra, documento_soporte o factura_venta).');
@@ -230,6 +250,10 @@ async function cartera(datos, usuario) {
   const hoy = hoyColombia();
   const tipos = Object.keys(DOCS).filter((t) => DOCS[t].sentido === sentido);
   const filas = [];
+  // Anticipos sin aplicar de cada tercero (clientes en «por cobrar», proveedores en «por pagar»).
+  const anticipos = await saldosAnticipos(empresaId, { tipo: sentido === 'cobrar' ? 'anticipo_cliente' : 'anticipo_proveedor' });
+  const anticipoPorTercero = {};
+  for (const a of anticipos) if (a.saldo > 0) anticipoPorTercero[a.pago.terceroId] = (anticipoPorTercero[a.pago.terceroId] || 0) + a.saldo;
   for (const docTipo of tipos) {
     const docs = await DOCS[docTipo].modelo.findAll({ where: { empresaId }, order: [['fecha', 'ASC']] });
     if (!docs.length) continue;
@@ -268,6 +292,7 @@ async function cartera(datos, usuario) {
         retenido: dePesos(aCentavos(d.retencionesTotal || 0)),
         pagado: dePesos(pagado),
         saldo: dePesos(saldo),
+        anticipoTercero: dePesos(anticipoPorTercero[d.terceroId] || 0),
         diasVencido,
         vencida: saldo > 0 && diasVencido > 0,
         pagable: !motivoNoPagable && saldo > 0,
@@ -283,6 +308,7 @@ async function cartera(datos, usuario) {
     vencido: suma(pend.filter((f) => f.vencida)),
     porVencer: suma(pend.filter((f) => !f.vencida)),
     documentos: pend.length,
+    anticipos: dePesos(Object.values(anticipoPorTercero).reduce((s, c) => s + c, 0)),
     edades: {
       alDia: suma(pend.filter((f) => !f.vencida)),
       de1a30: suma(pend.filter((f) => f.diasVencido >= 1 && f.diasVencido <= 30)),
@@ -571,7 +597,7 @@ async function enriquecer(pagos, empresaId) {
       id: p.id, tipo: p.tipo, fecha: p.fecha, valor: Number(p.valor), retenciones: Number(p.retenciones || 0), otrosDescuentos: Number(p.otrosDescuentos || 0), medio: p.medio, estado: p.estado,
       terceroId: p.terceroId, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '',
       cuentaBancariaId: p.cuentaBancariaId, cuentaTexto: c ? nombreAuxiliar(c) : (p.medio === 'caja' ? 'Efectivo (caja)' : ''),
-      movimientoBancarioId: p.movimientoBancarioId, asientoId: p.asientoId,
+      movimientoBancarioId: p.movimientoBancarioId, asientoId: p.asientoId, anticipoId: p.anticipoId || null,
       referencia: p.referencia, observaciones: p.observaciones, motivoAnulacion: p.motivoAnulacion,
       aplicaciones: aps.filter((a) => a.pagoId === p.id).map((a) => {
         const d = docsPorTipo[a.docTipo][a.docId];
@@ -590,7 +616,7 @@ async function enriquecer(pagos, empresaId) {
 async function listarPagos(datos, usuario) {
   const empresaId = usuario.empresaId;
   const where = { empresaId };
-  if (datos && TIPOS_PAGO.concat('descuento').includes(datos.tipo)) where.tipo = datos.tipo;
+  if (datos && TIPOS_FILTRO.includes(datos.tipo)) where.tipo = datos.tipo;
   if (datos && datos.terceroId) where.terceroId = datos.terceroId;
   if (datos && datos.estado && ['activo', 'anulado'].includes(datos.estado)) where.estado = datos.estado;
   const pagos = await PagoTesoreria.findAll({ where, order: [['fecha', 'DESC'], ['createdAt', 'DESC']], limit: 300 });
@@ -701,6 +727,10 @@ async function anularPago(id, datos, usuario) {
   if (pago.estado === 'anulado') throw new Error('Este pago ya está anulado.');
   const motivo = texto(datos && datos.motivo, 250, 'El motivo');
   if (!motivo || motivo.length < 10) throw new Error('Escribe el motivo de la anulación (mínimo 10 letras).');
+  if (TIPOS_ANTICIPO.includes(pago.tipo)) {
+    const usos = await PagoTesoreria.count({ where: { empresaId, anticipoId: pago.id, estado: 'activo' } });
+    if (usos) throw new Error('Este anticipo ya tiene aplicaciones a facturas o devoluciones; anúlalas primero para poder anular el anticipo.');
+  }
   const mov = pago.movimientoBancarioId ? await MovimientoBancario.findOne({ where: { id: pago.movimientoBancarioId, empresaId } }) : null;
   if (mov && pago.movimientoCreado && mov.conciliado) {
     throw new Error('El movimiento de este pago ya está conciliado con el extracto; quita la conciliación antes de anular.');
@@ -724,4 +754,6 @@ async function anularPago(id, datos, usuario) {
 module.exports = {
   cartera, registrarPago, retencionesSufridas, RETENCIONES, montoOpcional, leerOtrosDescuentos, asegurarCuentasRetencion, aplicarDescuento, descuentosDisponibles, listarPagos, detallePago, pagosDeDocumento,
   movimientosLibres, anularPago, netoDelDocumento, saldoDe, aplicadoPorDocumento, notasPorDocumento, asegurarReglasCruce, DOCS,
+  // Para anticipos.service.js
+  saldosAnticipos, documentoDe, estadoContable, numeroDelDocumento, enriquecer, hoyColombia, fechaValida, texto, monto, aCentavos, dePesos, TIPOS_ANTICIPO,
 };

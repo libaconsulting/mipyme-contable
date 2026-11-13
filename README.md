@@ -227,7 +227,39 @@ venta que cancela. Pestaña **Tesorería › Cruce de pagos** (`public/contable/
 - API (`/api/tesoreria`): `GET cartera?tipo=pagar|cobrar&todos=1`, `GET movimientos-libres`, `GET/POST pagos`,
   `POST pagos/:id/anular`, `GET documentos/:tipo/:id/pagos`, `GET descuentos-aportes?terceroId=`, `POST descuentos`.
 - **Notas crédito/débito:** el saldo de cada factura ya las incluye (`saldo = neto + notas − aplicado`); ver «Notas crédito y débito desde el XML».
-- **Aún no:** anticipos a proveedores y de clientes, pago de nómina/prestaciones desde aquí (siguen en su módulo), diferencias en cambio.
+- **Anticipos:** ver «Tesorería: anticipos de clientes y a proveedores» (pestaña propia).
+- **Aún no:** pago de nómina/prestaciones desde aquí (siguen en su módulo), diferencias en cambio.
+
+### Tesorería: anticipos de clientes y a proveedores
+
+Pestaña **Tesorería › Anticipos** (`public/contable/tesoreriaAnticipos.js`, servicio `anticipos.service.js`). Un anticipo es plata
+que se mueve **antes** de la factura; cuando llega la factura se aplica sin mover plata y su saldo baja.
+
+```
+Anticipo de cliente (nos pagan antes de facturar)    Db banco o caja / Cr 2805 Anticipos y avances recibidos   (pasivo)
+Anticipo a proveedor (pagamos antes de su factura)   Db 1330 Anticipos y avances / Cr banco o caja             (activo)
+Aplicar a facturas   (cliente)   Db 2805 / Cr 1305            (proveedor)  Db 2205 o 2335 / Cr 1330     — sin movimiento de banco
+Devolver             (cliente)   Db 2805 / Cr banco o caja    (proveedor)  Db banco o caja / Cr 1330
+```
+- **Registrar:** cliente o proveedor, fecha (no futura), valor, banco o caja (crea el movimiento bancario o enlaza uno ya digitado de
+  la misma cuenta, tipo y valor), referencia y observaciones. No lleva IVA ni retención: esos van en la factura que lo cancela.
+- **Aplicar:** a una o varias facturas del **mismo tercero** (cliente → facturas de venta; proveedor → facturas de compra y documentos
+  soporte) con asiento contabilizado y saldo; no puede superar el saldo del anticipo ni el de la factura, ni ser anterior a ninguno de los dos.
+  Se puede hacer desde la pestaña Anticipos o desde la cartera (botón «Aplicar anticipo» y la marca «anticipo disponible» en cada
+  factura del tercero). Un anticipo se puede aplicar por partes y a varias facturas.
+- **Devolver:** total o parcial, por banco o caja (movimiento egreso al cliente / ingreso del proveedor).
+- **Anular** (contador o dueño, desde «Ver» o el botón «Anular»): anular un cruce o una devolución devuelve el saldo al anticipo y a la factura;
+  un anticipo con cruces o devoluciones activos no se anula hasta anular primero esos.
+- Modelo: filas de `tesoreria_pagos` con `tipo` = `anticipo_cliente` | `anticipo_proveedor` | `cruce_anticipo` | `devolucion_anticipo`;
+  los cruces y devoluciones apuntan al anticipo con `anticipo_id`, y los cruces usan `tesoreria_pago_aplicaciones` (`fuente_tipo = 'anticipo'`),
+  de modo que el saldo de la factura y su historial de pagos funcionan igual que con un pago. Saldo del anticipo = valor − cruces − devoluciones activos.
+  Las cuentas 1330 y 2805 se agregaron al catálogo base (se crean solas en empresas existentes) y las reglas `tesoreria_anticipo_*`,
+  `tesoreria_cruce_anticipo_*` y `tesoreria_devolucion_anticipo_*` en el primer uso. SQL: `sql-anticipos.sql` (amplía `tipo` a 20 caracteres y agrega `anticipo_id`).
+- API (`/api/tesoreria`): `GET anticipos?sentido=cliente|proveedor&terceroId=&todos=1`, `POST anticipos`, `GET anticipos/:id`,
+  `POST anticipos/:id/aplicar`, `POST anticipos/:id/devolver`; anular con `POST pagos/:id/anular`. La cartera trae `anticipoTercero` por fila
+  y `resumen.anticipos`.
+- **Aún no:** que el sobrante de un recaudo o pago quede como anticipo, anticipos ligados a una orden de compra, cotización o proyecto,
+  convertir en anticipo el saldo a favor de una nota crédito, anticipos con IVA o retención, ni anticipos en moneda extranjera.
 
 ## Logo de empresa
 
@@ -348,7 +380,8 @@ mostrarlo. Pruebas: `node --test tests/facturaElectronica.test.js` (lector y dat
 (asiento). Los archivos de ejemplo se generan con `tests/helpers/facturaDian.js` (datos ficticios).
 
 Las notas crédito y débito del proveedor se cargan en su propia pestaña (ver «Notas crédito y débito desde el XML»).
-Lo que **no** hace todavía: facturas en moneda extranjera, cruce de anticipos, ni los
+Los anticipos entregados al proveedor se aplican desde Tesorería › Anticipos.
+Lo que **no** hace todavía: facturas en moneda extranjera, ni los
 eventos RADIAN (acuse de recibo, recibo del bien, aceptación expresa) — ver pendientes.
 
 ### Facturas con AIU (Administración, Imprevistos, Utilidad)
@@ -751,12 +784,13 @@ qué contabilizar.
 - [ ] Plan de cuentas: no hay pantalla para editar las **reglas de contabilización** (qué cuenta usa cada evento); solo se ven en el bloqueo al desactivar. Tampoco hay importación masiva del plan desde Excel ni cuentas de orden (clases 8 y 9). La cuenta 1355 se usa como "IVA descontable" (en el PUC el IVA descontable es una subcuenta de 2408): validar con el contador si se prefiere la estructura del PUC
 - [ ] Facturas de venta desde XML (Siigo): impoconsumo. Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
 - [ ] Notas crédito/débito: movimiento de inventario (devoluciones en compras y ventas), retención en notas débito, saldo a favor (nota mayor que el saldo: hoy solo advierte y no se ve en la cartera), notas de ajuste del documento soporte, impoconsumo en notas de venta, una nota que modifica varias facturas (se carga una por factura) y, cuando haya proveedor tecnológico, emitirlas desde la aplicación
-- [ ] Facturas de compra desde XML: documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
+- [ ] Facturas de compra desde XML: documento soporte recibido y facturas en moneda extranjera
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
-- [ ] Tesorería (cruce de pagos): anticipos (de clientes y a proveedores) y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
+- [ ] Anticipos: sobrante de un recaudo/pago como anticipo, ligados a orden de compra, cotización o proyecto, saldo a favor de una nota crédito, con IVA o retención
+- [ ] Tesorería (cruce de pagos): cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
 - [ ] Bancos: conciliación por cuenta contra el extracto (importar el extracto y quitar la conciliación de un movimiento); los pagos, recaudos y la nómina ya van al auxiliar de la cuenta; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
 - [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni los activos fijos (la nómina ya usa `contabilizarAsientoCompuesto`)
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado

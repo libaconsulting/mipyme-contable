@@ -925,3 +925,8 @@ td.num, th.num {
 #dialogo-nota-xml .nx-otro input[type="number"] { flex: 0 0 130px; width: 130px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
 #nd-cuerpo .nx-anular { flex: 1 1 320px; }
 #nd-cuerpo .nx-anular input { padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); width: 100%; box-sizing: border-box; }
+
+/* Tesorería · anticipos */
+.tabla-anticipos td.no-corta { white-space: nowrap; }
+.tabla-anticipos td.acciones { white-space: normal; min-width: 150px; }
+.tabla-anticipos td.acciones .btn-accion { margin: 0 4px 4px 0; }

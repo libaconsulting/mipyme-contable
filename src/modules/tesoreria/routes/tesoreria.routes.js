@@ -25,4 +25,11 @@ router.get('/retenciones-sufridas', c.retencionesSufridas); // ?desde=&hasta=
 router.get('/descuentos-aportes', c.descuentosDisponibles); // ?terceroId=
 router.post('/descuentos', puedeRegistrar, c.aplicarDescuento);
 
+// Anticipos de clientes y a proveedores (se anulan con POST /pagos/:id/anular)
+router.get('/anticipos', c.listarAnticipos); // ?sentido=cliente|proveedor&terceroId=&todos=1
+router.post('/anticipos', puedeRegistrar, c.registrarAnticipo);
+router.get('/anticipos/:id', c.detalleAnticipo);
+router.post('/anticipos/:id/aplicar', puedeRegistrar, c.aplicarAnticipo);
+router.post('/anticipos/:id/devolver', puedeRegistrar, c.devolverAnticipo);
+
 module.exports = router;
