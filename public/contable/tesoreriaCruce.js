@@ -232,6 +232,7 @@
     const medioInicial = mov || cuentas.length ? 'banco' : 'caja';
 
     const cuerpo = `
+      ${sinCuentas(cuentas)}
       ${campo(porPagar ? 'Proveedor' : 'Cliente', `<select id="tp-tercero"><option value="">Elige…</option>${opcionesSelect(terceros, terceroId)}</select>`)}
       <div class="fila-campos">
         ${campo('Fecha', `<input type="date" id="tp-fecha" value="${esc(mov ? mov.fecha : cartera.hoy)}" max="2099-12-31">`)}
@@ -602,6 +603,7 @@
         case 'descuento-doc': return await dialogoDescuento(b.dataset.tipo, b.dataset.id);
         case 'ver-pagos-doc': return await dialogoPagosDoc(b.dataset.tipo, b.dataset.id);
         case 'anular-pago': return dialogoAnular(b.dataset.id);
+        case 'crear-cuenta': return crearCuenta();
         case 'aplicar-anticipo-doc': return await window.tesoreriaAnticiposAplicarA(b.dataset.tercero, b.dataset.tipo, b.dataset.id);
         case 'csv-retenciones': return descargarCsvRetenciones();
         case 'csv-otros': return descargarCsvOtros();
@@ -613,8 +615,21 @@
   $('tes-cruce').addEventListener('click', alClic);
   $('tes-dialogo-cuerpo').addEventListener('click', alClic);
 
+  // Aviso (con botón) para quien aún no ha creado ninguna cuenta bancaria; se usa en los diálogos de pago y de anticipos.
+  function sinCuentas(cuentas) {
+    if (cuentas.length) return '';
+    return aviso('info', `Todavía no tienes cuentas bancarias, por eso solo puedes usar efectivo (caja). Las cuentas se crean en Tesorería › Cuentas bancarias. ${boton('Crear cuenta bancaria', 'crear-cuenta', {}, 'btn-accion')}`);
+  }
+
+  // Cierra el diálogo y abre el de «Nueva cuenta» (la lista de cuentas está más abajo en esta misma pantalla).
+  function crearCuenta() {
+    cerrarDialogo();
+    const b = document.getElementById('btn-nueva-cuenta');
+    if (b) b.click();
+  }
+
   // Herramientas que comparte tesoreriaAnticipos.js (se carga después de este archivo).
-  window.tesoreriaKit = { abrirDialogo, cerrarDialogo, errorDialogo, refrescarTodo, contenido, cargarCartera, T, boton, campo, opcionesSelect, aviso, mostrarError, num, v, fecha, redondear, puedeRegistrar, puedeAnular };
+  window.tesoreriaKit = { sinCuentas, abrirDialogo, cerrarDialogo, errorDialogo, refrescarTodo, contenido, cargarCartera, T, boton, campo, opcionesSelect, aviso, mostrarError, num, v, fecha, redondear, puedeRegistrar, puedeAnular };
 
   // Lo llama app.js al abrir la pestaña Tesorería.
   window.tesoreriaAlMostrar = function () {

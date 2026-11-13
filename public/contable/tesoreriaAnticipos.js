@@ -77,6 +77,7 @@
     if (!elegibles.length) throw new Error(`Primero crea el ${S.quien.toLowerCase()} en Terceros.`);
     const cuentaInicial = cuentas[0] ? cuentas[0].id : '';
     const cuerpo = `
+      ${K.sinCuentas(cuentas)}
       ${campo(S.quien, `<select id="an-tercero"><option value="">Elige…</option>${opcionesSelect(elegibles.map((t) => [t.id, `${t.nombre} · ${t.identificacion}`]), '')}</select>`)}
       <div class="fila-campos">
         ${campo('Fecha', `<input type="date" id="an-fecha" value="${hoy()}" max="${hoy()}">`)}
@@ -234,6 +235,7 @@
     const S = SENTIDO[a.sentido];
     const [libres, cuentas] = await Promise.all([api('/tesoreria/movimientos-libres'), api('/tesoreria/cuentas')]);
     const cuerpo = `
+      ${K.sinCuentas(cuentas)}
       ${aviso('info', a.sentido === 'cliente'
         ? `Le devuelves a <strong>${esc(a.terceroNombre)}</strong> plata de su anticipo: Db 2805 / Cr ${'banco o caja'}.`
         : `<strong>${esc(a.terceroNombre)}</strong> te devuelve plata del anticipo: Db banco o caja / Cr 1330.`)}
