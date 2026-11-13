@@ -171,3 +171,49 @@ test('Lector XML: entidades, CDATA y espacios de nombres', () => {
   assert.equal(xmlMini.atributo(r, 'B', 'x'), '1&2');
   assert.equal(xmlMini.texto(r, 'C'), '<z/>');
 });
+
+test('Factura de AIU: el IVA es solo sobre la Utilidad y no se avisa un descuadre falso', () => {
+  const { xml, total } = construirFactura({
+    lineas: [
+      { descripcion: 'Servicio de obra civil', cantidad: 1, valorUnitario: 1000000, ivaPct: 0 },
+      { descripcion: 'Administración (10 %)', cantidad: 1, valorUnitario: 100000, ivaPct: 0 },
+      { descripcion: 'Imprevistos (5 %)', cantidad: 1, valorUnitario: 50000, ivaPct: 0 },
+      { descripcion: 'Utilidad (5 %)', cantidad: 1, valorUnitario: 50000, ivaPct: 19 },
+    ],
+  });
+  assert.equal(total, 1209500);
+  // Como lo reporta un contrato AIU: tipo de operación 09 y base (TaxExclusiveAmount) = base gravable del IVA.
+  const aiuXml = xml
+    .replace('<cbc:CustomizationID>10</cbc:CustomizationID>', '<cbc:CustomizationID>09</cbc:CustomizationID>')
+    .replace(/<cbc:TaxExclusiveAmount currencyID="COP">[\d.]+/, '<cbc:TaxExclusiveAmount currencyID="COP">50000.00');
+  const d = leerFacturaElectronica(buf(aiuXml));
+  assert.equal(d.totales.base, 50000);
+  assert.equal(d.totales.iva, 9500);
+  assert.equal(d.totales.conImpuestos, 1209500);
+  assert.equal(d.aiu.detectado, true);
+  assert.equal(d.aiu.baseBruta, 1200000);
+  assert.equal(d.aiu.baseGravableIva, 50000);
+  assert.equal(d.aiu.ivaSoloSobreParte, true);
+  assert.equal(d.aiu.aiuTotal, 200000);
+  assert.equal(d.aiu.administracion, 100000);
+  assert.equal(d.aiu.utilidad, 50000);
+  assert.ok(!d.advertencias.some((a) => /Base \+ impuestos/.test(a.texto)), 'no debe avisar descuadre');
+  const info = d.advertencias.find((a) => a.nivel === 'info' && /AIU/.test(a.texto));
+  assert.ok(info && /solo sobre \$50\.000/.test(info.texto));
+});
+
+test('Una factura normal no se marca como AIU', () => {
+  const d = leerFacturaElectronica(buf(construirFactura().xml));
+  assert.equal(d.aiu.detectado, false);
+  assert.ok(!d.advertencias.some((a) => /AIU/.test(a.texto)));
+});
+
+test('Factura con líneas excluidas de IVA (base gravable menor) tampoco avisa descuadre', () => {
+  const { xml } = construirFactura({ lineas: [
+    { descripcion: 'Libro', cantidad: 1, valorUnitario: 100000, ivaPct: 0 },
+    { descripcion: 'Servicio', cantidad: 1, valorUnitario: 100000 },
+  ] });
+  const d = leerFacturaElectronica(buf(xml.replace(/<cbc:TaxExclusiveAmount currencyID="COP">[\d.]+/, '<cbc:TaxExclusiveAmount currencyID="COP">100000.00')));
+  assert.ok(!d.advertencias.some((a) => /Base \+ impuestos/.test(a.texto)));
+  assert.equal(d.aiu.detectado, false);
+});

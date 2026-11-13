@@ -350,6 +350,15 @@ mostrarlo. Pruebas: `node --test tests/facturaElectronica.test.js` (lector y dat
 Lo que **no** hace todavía: notas crédito/débito, facturas en moneda extranjera, cruce de anticipos, ni los
 eventos RADIAN (acuse de recibo, recibo del bien, aceptación expresa) — ver pendientes.
 
+### Facturas con AIU (Administración, Imprevistos, Utilidad)
+
+En un contrato AIU el IVA se liquida solo sobre la Utilidad, así que la base gravable del XML es menor que el valor de las
+líneas y «base + IVA» ya no da el total: el total es valor de las líneas + IVA. El lector
+(`src/integrations/dian/facturaElectronica.js`) acepta los dos cuadres (ya no avisa un descuadre falso), detecta el AIU por el
+tipo de operación 09 o por líneas llamadas Administración / Imprevistos / Utilidad, y lo explica con un aviso informativo y en
+el resumen (contrato AIU, base gravable del IVA). El valor contable no cambia (base = total − IVA). Si el XML trae líneas A/I/U,
+la suma de A+I+U precarga el campo «AIU» de la retención. Vale para la carga de facturas de compra y de venta.
+
 ## Factura de venta desde el XML de Siigo
 
 Mientras no tengamos integración directa ni proveedor tecnológico propio, las facturas de venta se expiden

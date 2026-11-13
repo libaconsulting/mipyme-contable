@@ -224,6 +224,43 @@ function agruparPorCodigo(subtotales) {
 
 // --- Documento --------------------------------------------------------
 
+// Contratos de AIU (Administración, Imprevistos y Utilidad): el IVA se liquida solo sobre la Utilidad, así que la
+// "base gravable" del IVA (TaxableAmount, y en muchos XML también TaxExclusiveAmount) es MENOR que el valor de las
+// líneas. Base + IVA ya no da el total: el total es el valor de las líneas + IVA. Se detecta por el tipo de operación
+// del XML (CustomizationID 09) o por las líneas (Administración / Imprevistos / Utilidad / AIU).
+// 1209500 -> "1.209.500" (para los avisos que ve la persona).
+function pesos(n) {
+  const [ent, dec] = Number(n).toFixed(2).split('.');
+  return ent.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + (dec === '00' ? '' : ',' + dec);
+}
+
+function leerAiu(raiz, lineas, impuestos, totales) {
+  const tipoOperacion = xml.texto(raiz, 'CustomizationID');
+  const suma = (re) => dinero(lineas.filter((l) => re.test(l.descripcion)).reduce((s, l) => s + l.valorTotal, 0));
+  const administracion = suma(/^\s*administraci[oó]n\b/i);
+  const imprevistos = suma(/^\s*imprevistos?\b/i);
+  const utilidad = suma(/^\s*utilidad\b/i);
+  const lineasAiu = lineas.some((l) => /^\s*(administraci[oó]n|imprevistos?|utilidad)\b/i.test(l.descripcion) || /^\s*a\.?i\.?u\.?\b/i.test(l.descripcion));
+  const detectado = tipoOperacion === '09' || lineasAiu;
+  const ivas = impuestos.filter((s) => s.codigo === '01');
+  const baseGravable = dinero(ivas.reduce((s, x) => s + x.base, 0));
+  const porcentaje = ivas.length && ivas[0].porcentaje ? ivas[0].porcentaje : 0;
+  // Valor de las líneas antes de impuestos (lo que realmente se factura sin IVA).
+  const baseBruta = dinero((totales.lineas || 0) - (totales.descuentos || 0) + (totales.cargos || 0));
+  return {
+    detectado,
+    tipoOperacion,
+    baseBruta,
+    baseGravableIva: baseGravable,
+    ivaPorcentaje: porcentaje,
+    ivaSoloSobreParte: detectado && baseGravable > 0 && baseGravable < baseBruta - 1,
+    administracion,
+    imprevistos,
+    utilidad,
+    aiuTotal: dinero(administracion + imprevistos + utilidad),
+  };
+}
+
 function leerFacturaElectronica(buffer) {
   const { raiz, adjunto, textoXml } = nodoDesdeBuffer(buffer);
   const advertencias = [];
@@ -306,6 +343,8 @@ function leerFacturaElectronica(buffer) {
     impoconsumo,
   };
 
+  const aiu = leerAiu(raiz, lineas, impuestos, totales);
+
   // --- Pago
   const medio = xml.hijo(raiz, 'PaymentMeans');
   const idPago = xml.texto(medio, 'ID'); // 1 = contado, 2 = crédito
@@ -333,6 +372,7 @@ function leerFacturaElectronica(buffer) {
     impuestos,
     retencionesEmisor,
     totales,
+    aiu,
     validacionDian: leerValidacionDian(adjunto),
     vieneEnAdjunto: !!adjunto,
     advertencias,
@@ -367,11 +407,29 @@ function validarCoherencia(d) {
   if (t.lineas && Math.abs(sumaLineas - t.lineas) > 1) {
     av.push({ nivel: 'confirmar', texto: `La suma de las líneas (${sumaLineas}) no coincide con el total de líneas del XML (${t.lineas}).` });
   }
+  // El total debe ser "base + impuestos". En contratos AIU (y en facturas con líneas excluidas o exentas) la base gravable
+  // es menor que el valor de las líneas, y el total es entonces "valor de las líneas + impuestos".
   const esperado = Math.round((t.base + t.iva + t.impoconsumo) * 100) / 100;
-  if (t.base && Math.abs(esperado - t.conImpuestos) > 1) {
+  const esperadoLineas = Math.round(((t.lineas || 0) - (t.descuentos || 0) + (t.cargos || 0) + t.iva + t.impoconsumo) * 100) / 100;
+  const cuadraBase = Math.abs(esperado - t.conImpuestos) <= 1;
+  const cuadraLineas = !!t.lineas && Math.abs(esperadoLineas - t.conImpuestos) <= 1;
+  if (t.base && !cuadraBase && !cuadraLineas) {
     av.push({
       nivel: 'confirmar',
       texto: `Base + impuestos (${esperado}) no coincide con el total con impuestos del XML (${t.conImpuestos}).`,
+    });
+  }
+  if (d.aiu && d.aiu.detectado) {
+    const a = d.aiu;
+    const partes = [];
+    if (a.administracion) partes.push(`Administración ${pesos(a.administracion)}`);
+    if (a.imprevistos) partes.push(`Imprevistos ${pesos(a.imprevistos)}`);
+    if (a.utilidad) partes.push(`Utilidad ${pesos(a.utilidad)}`);
+    av.push({
+      nivel: 'info',
+      texto: `Factura con AIU${partes.length ? ' (' + partes.join(' · ') + ')' : ''}. ` + (a.ivaSoloSobreParte
+        ? `El IVA${a.ivaPorcentaje ? ' del ' + a.ivaPorcentaje + ' %' : ''} ($${pesos(t.iva)}) se liquida solo sobre $${pesos(a.baseGravableIva)} (normalmente la Utilidad), no sobre el valor total antes de impuestos ($${pesos(a.baseBruta)}).`
+        : `El IVA se liquida sobre $${pesos(a.baseGravableIva)} y el valor antes de impuestos es $${pesos(a.baseBruta)}.`),
     });
   }
   if (t.anticipos > 0) {

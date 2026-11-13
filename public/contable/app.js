@@ -2132,6 +2132,21 @@ function fxCrearCuentaDesde(sel) {
   });
 }
 
+// Factura con AIU: el IVA se liquida solo sobre la Utilidad, no sobre todo el valor. Se muestra para que "base" e IVA
+// no parezcan descuadrados (el valor antes de impuestos sí incluye A, I y U).
+function filaAiuXml(f) {
+  const a = f.aiu;
+  if (!a || !a.detectado) return null;
+  const partes = [];
+  if (a.administracion) partes.push(`Administración ${formatoDineroDec(a.administracion)}`);
+  if (a.imprevistos) partes.push(`Imprevistos ${formatoDineroDec(a.imprevistos)}`);
+  if (a.utilidad) partes.push(`Utilidad ${formatoDineroDec(a.utilidad)}`);
+  return ['Contrato AIU',
+    `${partes.length ? escHtml(partes.join(' · ')) + '<br>' : ''}` +
+    `IVA${a.ivaPorcentaje ? ' ' + escHtml(a.ivaPorcentaje) + ' %' : ''} sobre <strong>${escHtml(formatoDineroDec(a.baseGravableIva))}</strong>` +
+    (a.ivaSoloSobreParte ? ` de ${escHtml(formatoDineroDec(a.baseBruta))} antes de impuestos` : '')];
+}
+
 function fxRenderAdvertencias() {
   const lista = fx.preview.advertencias;
   const etiqueta = { bloqueo: 'No se puede registrar', confirmar: 'Revisa', info: 'Aviso' };
@@ -2157,6 +2172,7 @@ function fxRenderResumen() {
     ['Forma de pago', f.formaPago === 'credito' ? `Crédito${f.fechaVencimiento ? ' · vence ' + escHtml(formatoFecha(f.fechaVencimiento)) : ''}` : f.formaPago === 'contado' ? 'Contado' : '—'],
     ['Emisor', `${escHtml(f.emisor.nombre)}<br>NIT ${escHtml(f.emisor.nit)}${f.emisor.dv ? '-' + escHtml(f.emisor.dv) : ''}`],
     ['Total factura', `<strong>${escHtml(formatoDineroDec(f.totales.conImpuestos))}</strong>`],
+    filaAiuXml(f),
     ['Validación', dian],
     [
       'CUFE',
@@ -2165,7 +2181,7 @@ function fxRenderResumen() {
     ],
     ['Archivo', `${escHtml(fx.nombre)}<br><a href="#" id="fx-otro-archivo">Cargar otro archivo</a>`],
   ];
-  document.getElementById('fx-resumen').innerHTML = filas.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  document.getElementById('fx-resumen').innerHTML = filas.filter(Boolean).map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 }
 
 function fxRenderProveedor() {
@@ -2250,6 +2266,7 @@ function fxPrecargarRetencion() {
     carga.conceptos.forEach((c) => tbody.appendChild(crearFilaRetencion(c, fxAlCambiarRetencion)));
   }
   if (orden && orden.aiuTotal > 0) document.getElementById('fx-aiu').value = orden.aiuTotal;
+  else if (p.factura.aiu && p.factura.aiu.aiuTotal > 0) document.getElementById('fx-aiu').value = p.factura.aiu.aiuTotal; // A+I+U que trae el XML
 
   sugerenciaEl.textContent = texto;
   sugerenciaEl.hidden = !texto;
@@ -2430,6 +2447,7 @@ function recalcularFactura() {
   document.getElementById('fx-totales').innerHTML =
     `<span>Base: <strong>${escHtml(formatoDineroDec(c.base))}</strong></span>` +
     `<span>IVA${c.ivaDescontable ? '' : ' (al gasto)'}: <strong>${escHtml(formatoDineroDec(c.iva))}</strong></span>` +
+    (p.factura.aiu && p.factura.aiu.ivaSoloSobreParte ? `<span>IVA sobre: <strong>${escHtml(formatoDineroDec(p.factura.aiu.baseGravableIva))}</strong></span>` : '') +
     (c.impoconsumo ? `<span>Impoconsumo: <strong>${escHtml(formatoDineroDec(c.impoconsumo))}</strong></span>` : '') +
     `<span>Total: <strong>${escHtml(formatoDineroDec(c.total))}</strong></span>` +
     `<span>Retención: <strong>− ${escHtml(formatoDineroDec(ret.retencionValor))}</strong></span>` +
@@ -2823,6 +2841,7 @@ function vxRenderResumen() {
     ['Forma de pago', f.formaPago === 'credito' ? `Crédito${f.fechaVencimiento ? ' · vence ' + escHtml(formatoFecha(f.fechaVencimiento)) : ''}` : f.formaPago === 'contado' ? 'Contado' : '—'],
     ['Cliente', `${escHtml(f.receptor.nombre)}<br>NIT ${escHtml(f.receptor.nit)}${f.receptor.dv ? '-' + escHtml(f.receptor.dv) : ''}`],
     ['Total factura', `<strong>${escHtml(formatoDineroDec(f.totales.conImpuestos))}</strong>`],
+    filaAiuXml(f),
     ['Validación', dian],
     [
       'CUFE',
@@ -2831,7 +2850,7 @@ function vxRenderResumen() {
     ],
     ['Archivo', `${escHtml(vx.nombre)}<br><a href="#" id="vx-otro-archivo">Cargar otro archivo</a>`],
   ];
-  document.getElementById('vx-resumen').innerHTML = filas.map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
+  document.getElementById('vx-resumen').innerHTML = filas.filter(Boolean).map(([k, v]) => `<div><dt>${k}</dt><dd>${v}</dd></div>`).join('');
 }
 
 function vxRenderCliente() {
@@ -2953,6 +2972,7 @@ function recalcularVenta() {
   document.getElementById('vx-totales').innerHTML =
     `<span>Base: <strong>${escHtml(formatoDineroDec(c.base))}</strong></span>` +
     `<span>IVA: <strong>${escHtml(formatoDineroDec(c.iva))}</strong></span>` +
+    (p.factura.aiu && p.factura.aiu.ivaSoloSobreParte ? `<span>IVA sobre: <strong>${escHtml(formatoDineroDec(p.factura.aiu.baseGravableIva))}</strong></span>` : '') +
     `<span>Total a cobrar: <strong class="neto">${escHtml(formatoDineroDec(c.total))}</strong></span>`;
 
   const pendientes = [];
