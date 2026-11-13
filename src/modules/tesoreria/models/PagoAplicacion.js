@@ -16,6 +16,8 @@ const PagoAplicacion = sequelize.define('PagoAplicacion', {
   retefuente: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   reteiva: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
   reteica: { type: DataTypes.DECIMAL(15, 2), allowNull: false, defaultValue: 0 },
+  // Estampillas, tasas y contribuciones que la entidad descontó: [{ concepto, cuentaId, cuentaCodigo, cuentaNombre, valor }]. Son gasto o costo.
+  otrosDescuentos: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
   // Solo en descuentos: de dónde sale (ej. fuenteTipo 'aportes_contratistas', fuenteId = id del mes).
   fuenteTipo: { type: DataTypes.STRING(30) },
   fuenteId: { type: DataTypes.UUID },

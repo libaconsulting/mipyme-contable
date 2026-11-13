@@ -904,3 +904,8 @@ td.num, th.num {
 #tes-contenido tfoot th { border-top: 2px solid var(--rule-strong); text-align: left; }
 #tes-contenido tfoot th.num { text-align: right; }
 #tes-contenido .inv-barra .campo-etiquetado { display: flex; flex-direction: column; gap: 2px; font-size: 12px; }
+#dialogo-tes .tp-otros-fila td { border-top: none; padding-top: 0; }
+#dialogo-tes .tp-otro { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; margin-bottom: 6px; }
+#dialogo-tes .tp-otro input[type="text"] { flex: 2 1 220px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); }
+#dialogo-tes .tp-otro select { flex: 2 1 200px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); }
+#dialogo-tes .tp-otro input[type="number"] { flex: 0 0 120px; width: 120px; }

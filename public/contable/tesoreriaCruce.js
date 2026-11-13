@@ -10,7 +10,9 @@
 // También aplica el descuento de aportes de un contratista y deja anular un pago con su motivo.
 // Al cobrar una factura de venta se anotan las retenciones que el cliente practicó (ReteFuente, ReteIVA,
 // ReteICA): el banco recibe el valor menos lo retenido, y la pestaña «Retenciones sufridas» las resume por
-// cliente para las declaraciones.
+// cliente para las declaraciones. Las estampillas, tasas y contribuciones que descuenta una entidad pública (según el
+// estatuto de rentas local) se anotan aparte en cada factura: no son anticipo de impuestos sino gasto o costo, y van a
+// la cuenta que elijas (por defecto 5195).
 (function () {
   if (!document.getElementById('panel-tesoreria')) return;
   const SUBS = [['pagar', 'Por pagar'], ['cobrar', 'Por cobrar'], ['historial', 'Pagos y recaudos'], ['retenciones', 'Retenciones sufridas']];
@@ -51,6 +53,7 @@
     $('tes-dialogo-error').hidden = true;
     $('tes-dialogo-cuerpo').onchange = null;
     $('tes-dialogo-cuerpo').oninput = null;
+    $('tes-dialogo-cuerpo').onclick = null;
     dlg.classList.toggle('dialogo-chico', !ancho);
     const btn = $('btn-tes-guardar');
     btn.hidden = !guardar;
@@ -165,7 +168,8 @@
   // ===================================================================================
   // " · ReteFuente $70.000 · ReteICA $7.000" de una aplicación (vacío si no hay retenciones).
   function textoRetenciones(a) {
-    return RETENCIONES.filter(([k]) => a[k] > 0).map(([k, t]) => ` · ${t} ${dinero(a[k])}`).join('');
+    const otros = (a.otrosDescuentos || []).map((o) => ` · ${o.concepto} ${dinero(o.valor)}`).join('');
+    return RETENCIONES.filter(([k]) => a[k] > 0).map(([k, t]) => ` · ${t} ${dinero(a[k])}`).join('') + otros;
   }
 
   function textoMedio(p) {
@@ -184,7 +188,7 @@
       html += `<div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Tipo</th><th>Tercero</th><th>Documentos</th><th>Medio</th><th>Referencia</th><th class="num">Valor</th><th>Estado</th><th></th></tr></thead><tbody>
       ${T.pagos.map((p) => `<tr><td>${esc(fecha(p.fecha))}</td><td>${TIPO_PAGO[p.tipo] || esc(p.tipo)}</td><td>${esc(p.terceroNombre)}</td>
         <td>${p.aplicaciones.map((a) => `${esc(a.numero)} <span class="texto-suave">${dinero(a.valor)}${textoRetenciones(a)}</span>`).join('<br>')}</td>
-        <td>${textoMedio(p)}</td><td>${esc(p.referencia || '—')}</td><td class="num">${dinero(p.valor)}${p.retenciones > 0 ? `<br><span class="texto-suave">+ ${dinero(p.retenciones)} retenido</span>` : ''}</td>
+        <td>${textoMedio(p)}</td><td>${esc(p.referencia || '—')}</td><td class="num">${dinero(p.valor)}${p.retenciones > 0 ? `<br><span class="texto-suave">+ ${dinero(p.retenciones)} retenido</span>` : ''}${p.otrosDescuentos > 0 ? `<br><span class="texto-suave">+ ${dinero(p.otrosDescuentos)} en estampillas y tasas</span>` : ''}</td>
         <td>${p.estado === 'anulado' ? `<span class="badge rechazado">anulado</span><br><span class="texto-suave">${esc(p.motivoAnulacion || '')}</span>` : '<span class="badge conciliado">activo</span>'}</td>
         <td class="acciones">${p.estado === 'activo' && puedeAnular() ? boton('Anular', 'anular-pago', { id: p.id }, 'btn-accion destructivo') : ''}</td></tr>`).join('')}
       </tbody></table></div>`;
@@ -200,8 +204,16 @@
     const sub = opciones.sub;
     const porPagar = sub === 'pagar';
     const tipoMov = porPagar ? 'egreso' : 'ingreso';
-    const [cartera, libres, cuentas] = await Promise.all([cargarCartera(sub), api('/tesoreria/movimientos-libres'), api('/tesoreria/cuentas')]);
+    const [cartera, libres, cuentas, plan] = await Promise.all([
+      cargarCartera(sub), api('/tesoreria/movimientos-libres'), api('/tesoreria/cuentas'), porPagar ? Promise.resolve([]) : api('/plan-cuentas'),
+    ]);
     T.cuentas = cuentas;
+    // Cuentas donde pueden registrarse estampillas, tasas y contribuciones: gasto o costo, activas y que no sean "padre" de otras.
+    const padres = new Set(plan.map((c) => c.cuentaPadreId).filter(Boolean));
+    const cuentasOtros = plan.filter((c) => c.activa && c.naturaleza === 'debito' && ['gasto', 'costo'].includes(c.elementoNiif) && !padres.has(c.id));
+    const cuenta5195 = plan.find((c) => c.codigo === '5195');
+    const opcionesOtros = `<option value="">${cuenta5195 ? esc(`${cuenta5195.codigo} · ${cuenta5195.nombre}`) : '5195 · Diversos (administración)'}</option>`
+      + cuentasOtros.filter((c) => c.codigo !== '5195').map((c) => `<option value="${esc(c.id)}">${esc(c.codigo)} · ${esc(c.nombre)}</option>`).join('');
     const pagables = cartera.documentos.filter((d) => d.pagable);
     const mov = opciones.movimiento ? libres.find((m) => m.id === opciones.movimiento) : null;
     if (opciones.movimiento && !mov) throw new Error('Ese movimiento ya no está disponible para cruzar.');
@@ -236,7 +248,13 @@
         fn: async () => {
           const aplicaciones = [...document.querySelectorAll('#tp-docs input[data-doc]:checked')].map((chk) => {
             const ap = { docTipo: chk.dataset.tipo, docId: chk.dataset.doc, valor: num(document.querySelector(`#tp-docs input[data-valor="${chk.dataset.doc}"]`).value) };
-            if (!porPagar) for (const [k] of RETENCIONES) ap[k] = num(retInput(chk.dataset.doc, k).value);
+            if (!porPagar) {
+              for (const [k] of RETENCIONES) ap[k] = num(retInput(chk.dataset.doc, k).value);
+              ap.otros = [...document.querySelectorAll(`#tp-docs .tp-otro[data-doc-otro="${chk.dataset.doc}"]`)].map((f) => ({
+                concepto: f.querySelector('[data-otro="concepto"]').value, cuentaId: f.querySelector('[data-otro="cuenta"]').value || null,
+                valor: num(f.querySelector('[data-otro="valor"]').value),
+              }));
+            }
             return ap;
           });
           const banco = v('tp-medio') === 'banco';
@@ -279,7 +297,10 @@
           <td>${esc(d.numero)}<br><span class="texto-suave">${esc(d.etiqueta)}</span></td><td>${esc(fecha(d.fechaVencimiento))}${d.vencida ? ` <span class="badge rechazado">${d.diasVencido} d</span>` : ''}</td>
           <td class="num">${dinero(d.saldo)}</td>
           <td class="num"><input type="number" min="0" step="0.01" data-valor="${esc(d.docId)}" value="${marcado ? d.saldo : ''}" ${marcado ? '' : 'disabled'} aria-label="Valor a aplicar a ${esc(d.numero)}"></td>
-          ${porPagar ? '' : RETENCIONES.map(([k, t]) => `<td class="num"><input type="number" class="tp-ret" min="0" step="0.01" data-ret="${k}" data-doc-ret="${esc(d.docId)}" placeholder="0" ${marcado ? '' : 'disabled'} aria-label="${t} de ${esc(d.numero)}"></td>`).join('')}</tr>`;
+          ${porPagar ? '' : RETENCIONES.map(([k, t]) => `<td class="num"><input type="number" class="tp-ret" min="0" step="0.01" data-ret="${k}" data-doc-ret="${esc(d.docId)}" placeholder="0" ${marcado ? '' : 'disabled'} aria-label="${t} de ${esc(d.numero)}"></td>`).join('')}</tr>
+          ${porPagar ? '' : `<tr class="tp-otros-fila" data-otros-de="${esc(d.docId)}"${marcado ? '' : ' hidden'}><td></td><td colspan="${3 + RETENCIONES.length + 1}">
+            <div class="tp-otros-lista" data-lista-de="${esc(d.docId)}"></div>
+            ${boton('+ Estampilla, tasa o contribución', 'otro-agregar', { doc: d.docId })}</td></tr>`}`;
         }).join('')}
       </tbody></table></div>`;
       // Si viene de un movimiento del banco y un solo documento tiene justo ese saldo, se deja marcado.
@@ -293,6 +314,8 @@
           inp.disabled = false;
           inp.value = igual[0].saldo;
           document.querySelectorAll(`#tp-docs input[data-doc-ret="${igual[0].docId}"]`).forEach((r) => { r.disabled = false; });
+          const filaOtros = document.querySelector(`#tp-docs tr[data-otros-de="${igual[0].docId}"]`);
+          if (filaOtros) filaOtros.hidden = false;
         }
       }
       totalizar();
@@ -301,23 +324,31 @@
     function totalizar() {
       let bruto = 0;
       let retenido = 0;
+      let otrosDesc = 0;
       let n = 0;
       document.querySelectorAll('#tp-docs input[data-doc]:checked').forEach((chk) => {
         bruto += num(document.querySelector(`#tp-docs input[data-valor="${chk.dataset.doc}"]`).value);
-        if (!porPagar) for (const [k] of RETENCIONES) retenido += num(retInput(chk.dataset.doc, k).value);
+        if (!porPagar) {
+          for (const [k] of RETENCIONES) retenido += num(retInput(chk.dataset.doc, k).value);
+          document.querySelectorAll(`#tp-docs .tp-otro[data-doc-otro="${chk.dataset.doc}"] [data-otro="valor"]`).forEach((i) => { otrosDesc += num(i.value); });
+        }
         n += 1;
       });
       bruto = redondear(bruto);
       retenido = redondear(retenido);
-      const total = redondear(bruto - retenido); // lo que realmente entra o sale del banco o la caja
+      otrosDesc = redondear(otrosDesc);
+      const descuentos = redondear(retenido + otrosDesc);
+      const total = redondear(bruto - descuentos); // lo que realmente entra o sale del banco o la caja
       let html = n ? `Total ${porPagar ? 'a pagar' : 'a cobrar'}: <strong>${dinero(bruto)}</strong> en ${n} documento${n === 1 ? '' : 's'}.` : 'Marca los documentos y el valor de cada uno (puede ser un abono).';
-      if (n && retenido > 0) html += ` Retenciones: <strong>${dinero(retenido)}</strong> · Dinero que recibes: <strong>${dinero(total)}</strong>.`;
-      if (n && retenido >= bruto && retenido > 0) html += ' <strong>Las retenciones deben ser menores que el valor cobrado.</strong>';
+      if (n && descuentos > 0) {
+        html += ` ${retenido > 0 ? `Retenciones: <strong>${dinero(retenido)}</strong> · ` : ''}${otrosDesc > 0 ? `Estampillas, tasas y contribuciones: <strong>${dinero(otrosDesc)}</strong> · ` : ''}Dinero que recibes: <strong>${dinero(total)}</strong>.`;
+      }
+      if (n && descuentos >= bruto && descuentos > 0) html += ' <strong>Las retenciones y descuentos deben ser menores que el valor cobrado.</strong>';
       const m = v('tp-medio') === 'banco' ? movimientoElegido() : null;
       if (m && n) {
         html += redondear(m.valor) === total
           ? ' <strong>Coincide con el movimiento del banco.</strong>'
-          : ` <strong>El movimiento del banco es de ${dinero(m.valor)}: ${retenido > 0 ? 'el dinero que recibes' : 'el total'} debe sumar lo mismo.</strong>`;
+          : ` <strong>El movimiento del banco es de ${dinero(m.valor)}: ${descuentos > 0 ? 'el dinero que recibes' : 'el total'} debe sumar lo mismo.</strong>`;
       }
       $('tp-total').innerHTML = html;
     }
@@ -340,11 +371,32 @@
         const inp = document.querySelector(`#tp-docs input[data-valor="${e.target.dataset.doc}"]`);
         inp.disabled = !e.target.checked;
         inp.value = e.target.checked ? e.target.dataset.saldo : '';
+        const filaOtros = document.querySelector(`#tp-docs tr[data-otros-de="${e.target.dataset.doc}"]`);
+        if (filaOtros) {
+          filaOtros.hidden = !e.target.checked;
+          if (!e.target.checked) filaOtros.querySelector('.tp-otros-lista').innerHTML = '';
+        }
         document.querySelectorAll(`#tp-docs input[data-doc-ret="${e.target.dataset.doc}"]`).forEach((r) => { r.disabled = !e.target.checked; r.value = ''; });
         totalizar();
       }
     };
-    cuerpoEl.oninput = (e) => { if (e.target.dataset && (e.target.dataset.valor || e.target.dataset.ret)) totalizar(); };
+    cuerpoEl.onclick = (e) => {
+      const b = e.target.closest('[data-tes="otro-agregar"], [data-tes="otro-quitar"]');
+      if (!b) return;
+      if (b.dataset.tes === 'otro-quitar') {
+        b.closest('.tp-otro').remove();
+        return totalizar();
+      }
+      const lista = document.querySelector(`#tp-docs .tp-otros-lista[data-lista-de="${b.dataset.doc}"]`);
+      if (lista.children.length >= 10) return;
+      lista.insertAdjacentHTML('beforeend', `<div class="tp-otro" data-doc-otro="${esc(b.dataset.doc)}">
+        <input type="text" data-otro="concepto" maxlength="120" placeholder="Concepto (ej. Estampilla pro-cultura 1,5 %)" aria-label="Concepto del descuento">
+        <select data-otro="cuenta" aria-label="Cuenta de gasto o costo">${opcionesOtros}</select>
+        <input type="number" min="0" step="0.01" data-otro="valor" placeholder="Valor" aria-label="Valor del descuento">
+        ${boton('Quitar', 'otro-quitar', {}, 'btn-accion destructivo')}</div>`);
+      lista.lastElementChild.querySelector('[data-otro="concepto"]').focus();
+    };
+    cuerpoEl.oninput = (e) => { if (e.target.dataset && (e.target.dataset.valor || e.target.dataset.ret || e.target.dataset.otro === 'valor')) totalizar(); };
   }
 
   // ===================================================================================
@@ -362,41 +414,62 @@
     let html = `<div class="inv-barra">
       ${campo('Desde', `<input type="date" id="tes-r-desde" value="${esc(T.ret.desde)}">`)}
       ${campo('Hasta', `<input type="date" id="tes-r-hasta" value="${esc(T.ret.hasta)}">`)}
-      ${r.filas.length ? boton('Descargar CSV', 'csv-retenciones', {}, 'btn-primario') : ''}
+      ${r.filas.length ? boton('Descargar CSV de retenciones', 'csv-retenciones', {}, 'btn-primario') : ''}
+      ${r.otros.filas.length ? boton('Descargar CSV de estampillas y tasas', 'csv-otros', {}, 'btn-accion') : ''}
     </div>
     <div class="inv-tarjetas">
       <div class="inv-tarjeta destacada"><span>Total retenido</span><strong>${dinero(t.total)}</strong></div>
       <div class="inv-tarjeta"><span>ReteFuente</span><strong>${dinero(t.retefuente)}</strong></div>
       <div class="inv-tarjeta"><span>ReteIVA</span><strong>${dinero(t.reteiva)}</strong></div>
-      <div class="inv-tarjeta"><span>ReteICA</span><strong>${dinero(t.reteica)}</strong></div></div>
+      <div class="inv-tarjeta"><span>ReteICA</span><strong>${dinero(t.reteica)}</strong></div>
+      <div class="inv-tarjeta"><span>Estampillas, tasas y contribuciones</span><strong>${dinero(r.otros.total)}</strong></div></div>
     <p class="nota-panel">Retenciones que los clientes practicaron al pagar las facturas (cuentas 135515, 135517 y 135518). Son un anticipo: se descuentan en las declaraciones de renta, IVA e ICA. Compáralas con los certificados de retención que te entrega cada cliente. Los recaudos anulados no cuentan.</p>`;
-    if (!r.filas.length) {
-      html += '<p class="vacio">No hay retenciones registradas en este rango. Se anotan al registrar un recaudo en «Por cobrar».</p>';
-    } else {
+    if (!r.filas.length && !r.otros.filas.length) {
+      html += '<p class="vacio">No hay retenciones ni descuentos registrados en este rango. Se anotan al registrar un recaudo en «Por cobrar».</p>';
+    } else if (r.filas.length) {
       html += `<div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th class="num">Valor cobrado</th><th class="num">ReteFuente</th><th class="num">ReteIVA</th><th class="num">ReteICA</th><th class="num">Total</th></tr></thead><tbody>
       ${r.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td>
         <td class="num">${dinero(f.baseCobrada)}</td><td class="num">${dinero(f.retefuente)}</td><td class="num">${dinero(f.reteiva)}</td><td class="num">${dinero(f.reteica)}</td><td class="num"><strong>${dinero(f.total)}</strong></td></tr>`).join('')}
       </tbody><tfoot><tr><th colspan="4">Totales</th><th class="num">${dinero(t.retefuente)}</th><th class="num">${dinero(t.reteiva)}</th><th class="num">${dinero(t.reteica)}</th><th class="num">${dinero(t.total)}</th></tr></tfoot></table></div>`;
     }
+    if (r.otros.filas.length) {
+      html += `<h4 class="inv-sec-titulo">Estampillas, tasas y contribuciones descontadas por las entidades</h4>
+      <p class="nota-panel">No son anticipo de impuestos: no se descuentan en ninguna declaración. Se registran como gasto o costo en la cuenta elegida al cobrar.</p>
+      <div class="tabla-envoltorio"><table><thead><tr><th>Fecha</th><th>Cliente</th><th>Factura</th><th>Concepto</th><th>Cuenta</th><th class="num">Valor</th></tr></thead><tbody>
+      ${r.otros.filas.map((f) => `<tr><td>${esc(fecha(f.fecha))}</td><td>${esc(f.terceroNombre)}<br><span class="texto-suave">${esc(f.terceroIdentificacion)}</span></td><td>${esc(f.factura)}</td>
+        <td>${esc(f.concepto)}</td><td>${esc(f.cuentaCodigo)} · ${esc(f.cuentaNombre)}</td><td class="num">${dinero(f.valor)}</td></tr>`).join('')}
+      </tbody><tfoot><tr><th colspan="5">Total</th><th class="num">${dinero(r.otros.total)}</th></tr></tfoot></table></div>`;
+    }
     contenido().innerHTML = html;
+  }
+
+  function descargarCsv(nombre, filas) {
+    const celda = (x) => {
+      let t = String(x == null ? '' : x);
+      if (typeof x === 'string' && /^[=+\-@]/.test(t)) t = "'" + t; // evita que Excel lo tome como fórmula
+      return /[";\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
+    };
+    const csv = '\ufeff' + filas.map((f) => f.map(celda).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    a.download = `${nombre}${T.ret.desde ? '-desde-' + T.ret.desde : ''}${T.ret.hasta ? '-hasta-' + T.ret.hasta : ''}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
   function descargarCsvRetenciones() {
     const r = T.ret.datos;
     if (!r || !r.filas.length) return;
-    const celda = (x) => {
-      const t = String(x == null ? '' : x);
-      return /[";\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
-    };
-    const filas = [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Valor cobrado', 'ReteFuente', 'ReteIVA', 'ReteICA', 'Total retenido']]
-      .concat(r.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.baseCobrada, f.retefuente, f.reteiva, f.reteica, f.total]));
-    const csv = '\ufeff' + filas.map((f) => f.map(celda).join(';')).join('\r\n');
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    a.download = `retenciones-sufridas${T.ret.desde ? '-desde-' + T.ret.desde : ''}${T.ret.hasta ? '-hasta-' + T.ret.hasta : ''}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+    descargarCsv('retenciones-sufridas', [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Valor cobrado', 'ReteFuente', 'ReteIVA', 'ReteICA', 'Total retenido']]
+      .concat(r.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.baseCobrada, f.retefuente, f.reteiva, f.reteica, f.total])));
+  }
+
+  function descargarCsvOtros() {
+    const r = T.ret.datos;
+    if (!r || !r.otros.filas.length) return;
+    descargarCsv('estampillas-y-tasas', [['Fecha', 'Cliente', 'Identificación', 'Factura', 'Concepto', 'Cuenta', 'Valor']]
+      .concat(r.otros.filas.map((f) => [f.fecha, f.terceroNombre, f.terceroIdentificacion, f.factura, f.concepto, `${f.cuentaCodigo} ${f.cuentaNombre}`, f.valor])));
   }
 
   // ===================================================================================
@@ -524,6 +597,7 @@
         case 'ver-pagos-doc': return await dialogoPagosDoc(b.dataset.tipo, b.dataset.id);
         case 'anular-pago': return dialogoAnular(b.dataset.id);
         case 'csv-retenciones': return descargarCsvRetenciones();
+        case 'csv-otros': return descargarCsvOtros();
       }
     } catch (err) {
       mostrarError(err);

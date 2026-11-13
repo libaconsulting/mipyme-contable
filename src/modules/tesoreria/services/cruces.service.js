@@ -74,6 +74,36 @@ function monto(valor, nombre) {
   return c;
 }
 
+// Estampillas, tasas y contribuciones que una entidad (normalmente pública) descuenta al pagar, según el estatuto de
+// rentas local. A diferencia de las retenciones NO se recuperan en ninguna declaración: son gasto o costo del contrato,
+// se reconocen al cobrar y cada una lleva su concepto (texto libre) y la cuenta de gasto/costo donde se registra.
+const MAX_OTROS_POR_DOCUMENTO = 10;
+const CUENTA_OTROS_DEFECTO = '5195';
+
+async function leerOtrosDescuentos(lista, rotulo, empresaId, transaction) {
+  if (lista === undefined || lista === null || lista === '') return [];
+  if (!Array.isArray(lista)) throw new Error(`${rotulo}: los otros descuentos no tienen el formato esperado.`);
+  if (lista.length > MAX_OTROS_POR_DOCUMENTO) throw new Error(`${rotulo}: máximo ${MAX_OTROS_POR_DOCUMENTO} otros descuentos por factura.`);
+  const resultado = [];
+  for (const o of lista) {
+    const concepto = texto(o && o.concepto, 120, 'El concepto del descuento');
+    if (!concepto || concepto.length < 3) throw new Error(`${rotulo}: escribe el concepto de cada descuento (por ejemplo "Estampilla pro-cultura").`);
+    const valor = monto(o.valor, `El valor de "${concepto}"`);
+    let cuenta;
+    if (o.cuentaId) {
+      cuenta = await PlanCuentas.findOne({ where: { id: o.cuentaId, empresaId }, transaction });
+      if (!cuenta || !cuenta.activa) throw new Error(`${rotulo}: la cuenta elegida para "${concepto}" no existe o está inactiva.`);
+      if (!['gasto', 'costo'].includes(cuenta.elementoNiif) || cuenta.naturaleza !== 'debito') {
+        throw new Error(`${rotulo}: "${concepto}" se registra en una cuenta de gasto o de costo (${cuenta.codigo} no lo es).`);
+      }
+    } else {
+      cuenta = (await cuentasPorCodigo(empresaId, [CUENTA_OTROS_DEFECTO], transaction))[CUENTA_OTROS_DEFECTO];
+    }
+    resultado.push({ concepto, cuentaId: cuenta.id, cuentaCodigo: cuenta.codigo, cuentaNombre: cuenta.nombre, centavos: valor });
+  }
+  return resultado;
+}
+
 // Valor opcional (vacío = 0), nunca negativo.
 function montoOpcional(valor, nombre) {
   if (valor === undefined || valor === null || valor === '') return 0;
@@ -300,6 +330,8 @@ async function registrarPago(datos, usuario) {
     const aplicado = [];
     let totalCent = 0; // lo que se aplica a los documentos (con retenciones)
     let retTotal = 0;
+    let otrosTotal = 0;
+    const otrosPorCuenta = {};
     const retPorCuenta = {};
     const porCuenta = {};
     const nombres = [];
@@ -323,17 +355,26 @@ async function registrarPago(datos, usuario) {
       if (retDoc > 0 && tipo !== 'recaudo') {
         throw new Error('Las retenciones se registran al cobrar a un cliente; al proveedor se le practican al causar la factura.');
       }
-      if (retDoc >= v) throw new Error(`${numeroDelDocumento(ap.docTipo, d)}: las retenciones (${dePesos(retDoc)}) deben ser menores que el valor cobrado (${dePesos(v)}).`);
+      const otros = await leerOtrosDescuentos(ap.otros, numeroDelDocumento(ap.docTipo, d), empresaId, transaction);
+      if (otros.length && tipo !== 'recaudo') {
+        throw new Error('Las estampillas, tasas y contribuciones se descuentan al cobrar a un cliente; en un pago a proveedor no aplican.');
+      }
+      const otrosDoc = otros.reduce((t, o) => t + o.centavos, 0);
+      if (retDoc + otrosDoc >= v) {
+        throw new Error(`${numeroDelDocumento(ap.docTipo, d)}: las retenciones y descuentos (${dePesos(retDoc + otrosDoc)}) deben ser menores que el valor cobrado (${dePesos(v)}).`);
+      }
       for (const r of RETENCIONES) if (ret[r.campo]) retPorCuenta[r.cuenta] = (retPorCuenta[r.cuenta] || 0) + ret[r.campo];
+      for (const o of otros) otrosPorCuenta[o.cuentaCodigo] = (otrosPorCuenta[o.cuentaCodigo] || 0) + o.centavos;
       retTotal += retDoc;
-      aplicado.push({ ap, d, v, ret });
+      otrosTotal += otrosDoc;
+      aplicado.push({ ap, d, v, ret, otros });
       totalCent += v;
       porCuenta[DOCS[ap.docTipo].cuenta] = (porCuenta[DOCS[ap.docTipo].cuenta] || 0) + v;
       nombres.push(numeroDelDocumento(ap.docTipo, d));
     }
-    // Lo que realmente entra o sale de la caja o el banco: lo aplicado menos lo que el cliente retuvo.
-    const efectivoCent = totalCent - retTotal;
-    const textoRet = retTotal ? ` (${dePesos(totalCent)} aplicados menos ${dePesos(retTotal)} de retenciones)` : '';
+    // Lo que realmente entra o sale de la caja o el banco: lo aplicado menos lo que el cliente retuvo o descontó.
+    const efectivoCent = totalCent - retTotal - otrosTotal;
+    const textoRet = (retTotal || otrosTotal) ? ` (${dePesos(totalCent)} aplicados menos ${dePesos(retTotal + otrosTotal)} de retenciones y descuentos)` : '';
     if (movimientoExistente && aCentavos(movimientoExistente.valor) !== efectivoCent) {
       throw new Error(`El movimiento del banco es de ${movimientoExistente.valor} y lo que se recibe suma ${dePesos(efectivoCent)}${textoRet}: deben ser iguales.`);
     }
@@ -351,6 +392,7 @@ async function registrarPago(datos, usuario) {
     } else {
       lineas.push({ cuentaCodigo: codigoBanco, debito: dePesos(efectivoCent), credito: 0, terceroId: (cuenta && cuenta.terceroId) || tercero.id });
       for (const [codigo, v] of Object.entries(retPorCuenta)) lineas.push({ cuentaCodigo: codigo, debito: dePesos(v), credito: 0, terceroId: tercero.id });
+      for (const [codigo, v] of Object.entries(otrosPorCuenta)) lineas.push({ cuentaCodigo: codigo, debito: dePesos(v), credito: 0, terceroId: tercero.id });
       for (const [codigo, v] of Object.entries(porCuenta)) lineas.push({ cuentaCodigo: codigo, debito: 0, credito: dePesos(v), terceroId: tercero.id });
     }
 
@@ -381,7 +423,7 @@ async function registrarPago(datos, usuario) {
     }
 
     const pago = await PagoTesoreria.create({
-      id: pagoId, empresaId, tipo, fecha, terceroId: tercero.id, valor: dePesos(efectivoCent), retenciones: dePesos(retTotal), medio,
+      id: pagoId, empresaId, tipo, fecha, terceroId: tercero.id, valor: dePesos(efectivoCent), retenciones: dePesos(retTotal), otrosDescuentos: dePesos(otrosTotal), medio,
       cuentaBancariaId: cuenta ? cuenta.id : null, movimientoBancarioId: movimientoId, movimientoCreado,
       asientoId: r.asiento.id, referencia, observaciones, estado: 'activo', usuarioId: usuario.id,
     }, { transaction });
@@ -389,6 +431,7 @@ async function registrarPago(datos, usuario) {
       await PagoAplicacion.create({
         id: uuidv4(), empresaId, pagoId, docTipo: a.ap.docTipo, docId: a.d.id, valor: dePesos(a.v), estado: 'activa',
         retefuente: dePesos(a.ret.retefuente), reteiva: dePesos(a.ret.reteiva), reteica: dePesos(a.ret.reteica),
+        otrosDescuentos: a.otros.map((o) => ({ concepto: o.concepto, cuentaId: o.cuentaId, cuentaCodigo: o.cuentaCodigo, cuentaNombre: o.cuentaNombre, valor: dePesos(o.centavos) })),
       }, { transaction });
     }
     return pago;
@@ -509,7 +552,7 @@ async function enriquecer(pagos, empresaId) {
     const t = terceroPorId[p.terceroId];
     const c = p.cuentaBancariaId ? cuentaPorId[p.cuentaBancariaId] : null;
     return {
-      id: p.id, tipo: p.tipo, fecha: p.fecha, valor: Number(p.valor), retenciones: Number(p.retenciones || 0), medio: p.medio, estado: p.estado,
+      id: p.id, tipo: p.tipo, fecha: p.fecha, valor: Number(p.valor), retenciones: Number(p.retenciones || 0), otrosDescuentos: Number(p.otrosDescuentos || 0), medio: p.medio, estado: p.estado,
       terceroId: p.terceroId, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '',
       cuentaBancariaId: p.cuentaBancariaId, cuentaTexto: c ? nombreAuxiliar(c) : (p.medio === 'caja' ? 'Efectivo (caja)' : ''),
       movimientoBancarioId: p.movimientoBancarioId, asientoId: p.asientoId,
@@ -520,6 +563,7 @@ async function enriquecer(pagos, empresaId) {
           id: a.id, docTipo: a.docTipo, docId: a.docId, etiqueta: DOCS[a.docTipo].etiqueta,
           numero: d ? numeroDelDocumento(a.docTipo, d) : '(documento no disponible)', valor: Number(a.valor),
           retefuente: Number(a.retefuente || 0), reteiva: Number(a.reteiva || 0), reteica: Number(a.reteica || 0),
+          otrosDescuentos: Array.isArray(a.otrosDescuentos) ? a.otrosDescuentos : [],
           estado: a.estado, fuenteTipo: a.fuenteTipo, fuenteId: a.fuenteId,
         };
       }),
@@ -566,12 +610,22 @@ async function retencionesSufridas(datos, usuario) {
   const facturaPorId = Object.fromEntries(facturas.map((f) => [f.id, f]));
   const pagoPorId = Object.fromEntries(pagos.map((p) => [p.id, p]));
   const filas = [];
+  const otros = [];
   const totales = { retefuente: 0, reteiva: 0, reteica: 0, total: 0 };
+  let otrosTotal = 0;
   for (const a of aps) {
-    const rf = aCentavos(a.retefuente); const ri = aCentavos(a.reteiva); const rc = aCentavos(a.reteica);
-    if (!rf && !ri && !rc) continue;
     const p = pagoPorId[a.pagoId];
     const t = terceroPorId[p.terceroId];
+    const numeroFactura = facturaPorId[a.docId] ? numeroDelDocumento('factura_venta', facturaPorId[a.docId]) : '';
+    for (const o of (Array.isArray(a.otrosDescuentos) ? a.otrosDescuentos : [])) {
+      otros.push({
+        fecha: p.fecha, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '', factura: numeroFactura,
+        concepto: o.concepto, cuentaCodigo: o.cuentaCodigo, cuentaNombre: o.cuentaNombre, valor: Number(o.valor),
+      });
+      otrosTotal += aCentavos(o.valor);
+    }
+    const rf = aCentavos(a.retefuente); const ri = aCentavos(a.reteiva); const rc = aCentavos(a.reteica);
+    if (!rf && !ri && !rc) continue;
     filas.push({
       fecha: p.fecha, terceroNombre: t ? t.nombre : '', terceroIdentificacion: t ? t.identificacion : '',
       factura: facturaPorId[a.docId] ? numeroDelDocumento('factura_venta', facturaPorId[a.docId]) : '', referencia: p.referencia || '',
@@ -579,9 +633,12 @@ async function retencionesSufridas(datos, usuario) {
     });
     totales.retefuente += rf; totales.reteiva += ri; totales.reteica += rc; totales.total += rf + ri + rc;
   }
-  filas.sort((x, y) => (x.fecha < y.fecha ? -1 : x.fecha > y.fecha ? 1 : 0));
+  const porFecha = (x, y) => (x.fecha < y.fecha ? -1 : x.fecha > y.fecha ? 1 : 0);
+  filas.sort(porFecha);
+  otros.sort(porFecha);
   for (const k of Object.keys(totales)) totales[k] = dePesos(totales[k]);
-  return { desde, hasta, filas, totales };
+  // `otros`: estampillas, tasas y contribuciones descontadas (no son anticipo de impuestos: son gasto o costo).
+  return { desde, hasta, filas, totales, otros: { filas: otros, total: dePesos(otrosTotal) } };
 }
 
 // Movimientos del banco sin ligar a ninguna operación, que se pueden cruzar con un documento.

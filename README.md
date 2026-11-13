@@ -207,6 +207,15 @@ venta que cancela. Pestaña **Tesorería › Cruce de pagos** (`public/contable/
   **Retenciones sufridas**: reporte por rango de fechas con totales y descarga CSV (`GET /api/tesoreria/retenciones-sufridas?desde&hasta`),
   sin contar recaudos anulados. SQL: `sql-retenciones-sufridas.sql` (columnas `retenciones` en `tesoreria_pagos` y
   `retefuente`/`reteiva`/`reteica` en `tesoreria_pago_aplicaciones`).
+- **Estampillas, tasas y contribuciones de entidades públicas:** al cobrar a una entidad que descuenta
+  estampillas (pro-cultura, pro-adulto mayor…), tasas o la contribución del 5 % de obra pública (según el estatuto de
+  rentas local), cada factura admite «+ Estampilla, tasa o contribución»: concepto libre, valor y la cuenta de **gasto o
+  costo** donde se registra (por defecto 5195; para la contribución de obra suele ser una cuenta de costo del contrato).
+  **No son anticipo de impuestos** (no se descuentan en ninguna declaración), por eso no van a 1355: se reconocen al
+  cobrar con `Db gasto/costo (con el cliente)` junto al resto del asiento del recaudo. Se guardan en
+  `tesoreria_pago_aplicaciones.otros_descuentos` (JSON) y `tesoreria_pagos.otros_descuentos` (total); la pestaña
+  **Retenciones sufridas** los muestra en tabla aparte con su propio CSV (`otros` en la respuesta del reporte). Solo en recaudos,
+  máximo 10 por factura. Retenciones + descuentos deben ser menores que el valor cobrado.
 - **Descuento de aportes de contratistas:** lo que el contratista asume de salud, pensión y ARL ya se causó contra
   2335/2205 al contabilizar el mes (Nómina › Contratistas); «Descuento de aportes» lo aplica al documento del
   contratista sin mover dinero ni crear otro asiento. Un mes con descuento aplicado no se puede reabrir hasta anularlo.
