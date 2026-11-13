@@ -14,6 +14,7 @@ const nominaRoutes = require('../modules/nomina/routes/nomina.routes');
 const inventariosRoutes = require('../modules/inventarios/routes/inventarios.routes');
 const activosFijosRoutes = require('../modules/activosFijos/routes/activosFijos.routes');
 const tesoreriaRoutes = require('../modules/tesoreria/routes/tesoreria.routes');
+const notasRoutes = require('../modules/notas/routes/notas.routes');
 const { authenticate } = require('../middleware/auth');
 
 router.use('/auth', authRoutes); // login y registro-empresa públicos (con código); registro de usuarios exige sesión
@@ -30,5 +31,6 @@ router.use('/nomina', authenticate, nominaRoutes); // requiere sesión
 router.use('/inventarios', authenticate, inventariosRoutes); // requiere sesión
 router.use('/activos-fijos', authenticate, activosFijosRoutes); // requiere sesión
 router.use('/tesoreria', authenticate, tesoreriaRoutes); // requiere sesión
+router.use('/notas', authenticate, notasRoutes); // notas crédito y débito desde XML; requiere sesión
 
 module.exports = router;

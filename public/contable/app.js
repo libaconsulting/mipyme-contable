@@ -389,6 +389,7 @@ function irATab(tab) {
   if (tab === 'nomina' && window.nominaAlMostrar) window.nominaAlMostrar();
   if (tab === 'inventarios' && window.inventariosAlMostrar) window.inventariosAlMostrar();
   if (tab === 'tesoreria' && window.tesoreriaAlMostrar) window.tesoreriaAlMostrar();
+  if (tab === 'notas' && window.notasAlMostrar) window.notasAlMostrar();
 }
 
 document.querySelectorAll('.nav-item').forEach((btn) => {
@@ -2665,6 +2666,7 @@ async function abrirDetalleFactura(id, avisos, mensajeOk) {
 
     if (typeof dialogoDetalle.showModal === 'function') dialogoDetalle.showModal();
     else dialogoDetalle.setAttribute('open', '');
+    if (window.notasEnDetalle) window.notasEnDetalle('factura_compra', id);
   } catch (err) {
     alert(err.message);
   }
@@ -3238,6 +3240,7 @@ async function abrirDetalleFacturaVenta(id, avisos, mensajeOk) {
 
     if (typeof dialogoDetalle.showModal === 'function') dialogoDetalle.showModal();
     else dialogoDetalle.setAttribute('open', '');
+    if (window.notasEnDetalle) window.notasEnDetalle('factura_venta', id);
   } catch (err) {
     alert(err.message);
   }

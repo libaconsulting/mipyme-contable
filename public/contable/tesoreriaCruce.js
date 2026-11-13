@@ -157,7 +157,7 @@
         if (d.pagado > 0) acc.push(boton('Ver pagos', 'ver-pagos-doc', { tipo: d.docTipo, id: d.docId }));
         return `<tr><td><strong>${esc(d.numero)}</strong><br><span class="texto-suave">${esc(d.etiqueta)}</span></td>
           <td>${esc(d.terceroNombre)}<br><span class="texto-suave">${esc(d.terceroIdentificacion)}</span></td>
-          <td>${esc(fecha(d.fecha))}</td><td>${vence}</td><td class="num">${dinero(d.neto)}${d.retenido > 0 ? `<br><span class="texto-suave">ya descontados ${dinero(d.retenido)} de retenciones</span>` : ''}</td><td class="num">${dinero(d.pagado)}</td>
+          <td>${esc(fecha(d.fecha))}</td><td>${vence}</td><td class="num">${dinero(d.neto)}${d.retenido > 0 ? `<br><span class="texto-suave">ya descontados ${dinero(d.retenido)} de retenciones</span>` : ''}${d.notas ? `<br><span class="texto-suave">${d.notas < 0 ? 'notas crédito' : 'notas débito'} ${d.notas < 0 ? '−' : '+'} ${dinero(Math.abs(d.notas))}</span>` : ''}</td><td class="num">${dinero(d.pagado)}</td>
           <td class="num"><strong>${dinero(d.saldo)}</strong></td><td class="acciones">${acc.join(' ')}</td></tr>`;
       }).join('')}
     </tbody></table></div>`;

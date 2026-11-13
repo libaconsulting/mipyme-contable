@@ -914,3 +914,14 @@ td.num, th.num {
 #dialogo-venta-xml .vx-otro input[type="text"], #dialogo-venta-xml .vx-otro select { flex: 2 1 220px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); }
 #dialogo-venta-xml .vx-otro input[type="number"] { flex: 0 0 130px; width: 130px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
 #vx-ret-bloque .fila-campos input[type="number"] { width: 100%; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
+
+/* Notas crédito y débito */
+.nx-filtros { margin-bottom: 12px; }
+.nx-filtros .campo-etiquetado { flex: 0 1 220px; }
+.nx-filtros select { padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); width: 100%; box-sizing: border-box; }
+#dialogo-nota-xml .fx-bloque select { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); }
+#nx-rev-bloque .fila-campos input[type="number"] { width: 100%; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
+#dialogo-nota-xml .nx-otro { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; justify-content: space-between; margin-top: 6px; font-size: 13px; }
+#dialogo-nota-xml .nx-otro input[type="number"] { flex: 0 0 130px; width: 130px; padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; text-align: right; background: var(--paper); }
+#nd-cuerpo .nx-anular { flex: 1 1 320px; }
+#nd-cuerpo .nx-anular input { padding: 6px 8px; border: 1px solid var(--rule-strong); font: inherit; background: var(--paper); width: 100%; box-sizing: border-box; }

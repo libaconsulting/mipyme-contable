@@ -189,6 +189,37 @@ function construirFactura(opciones = {}) {
   return { xml, base, iva, inc, total, sumaLineas };
 }
 
+// Nota crédito o débito de PRUEBA: el mismo XML de la factura con la raíz, las líneas y los totales que usa cada nota.
+//   tipo: 'credito' | 'debito'   referencia: { numero, cufe, fecha } de la factura que modifica (o null)
+//   discrepancia: { codigo, descripcion } (opcional)
+function construirNota(opciones = {}) {
+  const { tipo = 'credito', referencia = null, discrepancia = null, ...resto } = opciones;
+  const base = construirFactura({ numero: 'NC0001', cufe: 'c'.repeat(96), ...resto });
+  const credito = tipo === 'credito';
+  const raiz = credito ? 'CreditNote' : 'DebitNote';
+  const lineaTag = credito ? 'CreditNoteLine' : 'DebitNoteLine';
+  const cantTag = credito ? 'CreditedQuantity' : 'DebitedQuantity';
+  const refXml = referencia
+    ? `<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>${referencia.numero}</cbc:ID>${referencia.cufe ? `<cbc:UUID schemeName="CUFE-SHA384">${referencia.cufe}</cbc:UUID>` : ''}<cbc:IssueDate>${referencia.fecha || '2026-10-01'}</cbc:IssueDate></cac:InvoiceDocumentReference></cac:BillingReference>`
+    : '';
+  const discXml = discrepancia
+    ? `<cac:DiscrepancyResponse><cbc:ReferenceID>${referencia ? referencia.numero : ''}</cbc:ReferenceID><cbc:ResponseCode>${discrepancia.codigo}</cbc:ResponseCode><cbc:Description>${discrepancia.descripcion || ''}</cbc:Description></cac:DiscrepancyResponse>`
+    : '';
+  let xml = base.xml
+    .replace('urn:oasis:names:specification:ubl:schema:xsd:Invoice-2', `urn:oasis:names:specification:ubl:schema:xsd:${raiz}-2`)
+    .replace(/<Invoice /, `<${raiz} `)
+    .replace('</Invoice>', `</${raiz}>`)
+    .replace(/InvoiceLine>/g, `${lineaTag}>`)
+    .replace(/<cac:InvoiceLine>/g, `<cac:${lineaTag}>`)
+    .replace(/InvoicedQuantity/g, cantTag)
+    .replace('<cbc:CustomizationID>10</cbc:CustomizationID>', `<cbc:CustomizationID>${referencia ? (credito ? '20' : '30') : credito ? '22' : '32'}</cbc:CustomizationID>`)
+    .replace(/<cbc:InvoiceTypeCode>\d+<\/cbc:InvoiceTypeCode>/, `<cbc:${credito ? 'CreditNoteTypeCode>91</cbc:CreditNoteTypeCode' : 'DebitNoteTypeCode>92</cbc:DebitNoteTypeCode'}>`)
+    .replace(/<cbc:LineCountNumeric>/, `<cbc:LineCountNumeric>`)
+    .replace('<cac:AccountingSupplierParty>', `${discXml}${refXml}\n  <cac:AccountingSupplierParty>`);
+  if (!credito) xml = xml.replace(/LegalMonetaryTotal>/g, 'RequestedMonetaryTotal>').replace(/<cbc:PayableAmount/, '<cbc:PayableAmount');
+  return { ...base, xml };
+}
+
 // Sobre "AttachedDocument" como lo envían los proveedores tecnológicos:
 // la factura va como texto (CDATA) y viene la respuesta de la DIAN.
 function envolverAttachedDocument(xmlFactura, { validada = true } = {}) {
@@ -269,4 +300,4 @@ function crearZip(archivos) {
   return Buffer.concat([...partes, centralBuf, fin]);
 }
 
-module.exports = { construirFactura, envolverAttachedDocument, crearZip, EMISOR, COMPRADOR, CUFE_EJEMPLO };
+module.exports = { construirFactura, construirNota, envolverAttachedDocument, crearZip, EMISOR, COMPRADOR, CUFE_EJEMPLO };

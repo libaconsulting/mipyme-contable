@@ -43,6 +43,7 @@ const CuentaBancaria = require('../../modules/tesoreria/models/CuentaBancaria');
 const MovimientoBancario = require('../../modules/tesoreria/models/MovimientoBancario');
 const PagoTesoreria = require('../../modules/tesoreria/models/PagoTesoreria');
 const PagoAplicacion = require('../../modules/tesoreria/models/PagoAplicacion');
+const NotaElectronica = require('../../modules/notas/models/NotaElectronica');
 
 module.exports = {
   Empresa,
@@ -82,4 +83,5 @@ module.exports = {
   MovimientoBancario,
   PagoTesoreria,
   PagoAplicacion,
+  NotaElectronica,
 };

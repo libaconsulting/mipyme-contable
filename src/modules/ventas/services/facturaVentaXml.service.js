@@ -149,9 +149,9 @@ async function analizar(datos, usuario) {
   if (!factura.esFactura) {
     const motivo =
       factura.elementoRaiz === 'CreditNote'
-        ? 'Es una nota crédito: todavía no se pueden cargar notas crédito desde XML.'
+        ? 'Es una nota crédito: cárgala en «Notas crédito y débito», para que se vincule con su factura y ajuste su saldo.'
         : factura.elementoRaiz === 'DebitNote'
-        ? 'Es una nota débito: todavía no se pueden cargar notas débito desde XML.'
+        ? 'Es una nota débito: cárgala en «Notas crédito y débito», para que se vincule con su factura y ajuste su saldo.'
         : `Es un documento de tipo "${factura.tipoNombre}", que no se carga como factura de venta.`;
     advertencias.push({ nivel: 'bloqueo', texto: motivo });
   }

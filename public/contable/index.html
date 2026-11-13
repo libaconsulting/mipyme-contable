@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/contable/style.css?v=20261113-4">
+<link rel="stylesheet" href="/contable/style.css?v=20261113-5">
 </head>
 <body>
 
@@ -123,6 +123,7 @@
       <button class="nav-item" data-tab="facturas-venta">Facturas de venta</button>
       <button class="nav-item" data-tab="ordenes">Órdenes de adquisición</button>
       <button class="nav-item" data-tab="facturas-compra">Facturas de compra</button>
+      <button class="nav-item" data-tab="notas">Notas crédito/débito</button>
       <button class="nav-item" data-tab="documentos-soporte">Documentos soporte</button>
       <button class="nav-item" data-tab="nomina">Nómina</button>
       <button class="nav-item" data-tab="inventarios">Inventarios</button>
@@ -471,6 +472,25 @@
       <p class="nota-panel">Carga el XML que te envía el proveedor (o el .zip completo): se lee, se revisa y recién ahí se contabiliza. También se generan al convertir una orden aprobada o llegan por webhook del proveedor tecnológico.</p>
       <div class="tabla-envoltorio">
         <table id="tabla-facturas-compra"><thead></thead><tbody></tbody></table>
+      </div>
+    </section>
+
+    <section id="panel-notas" class="panel" hidden>
+      <header class="panel-header">
+        <h2>Notas crédito y débito</h2>
+        <button class="btn-primario" id="btn-cargar-nota-xml">+ Cargar nota (XML)</button>
+      </header>
+      <p class="nota-panel">Carga el XML de una nota crédito o débito: la que te envía un proveedor (modifica una factura de compra) o la que expediste en Siigo (modifica una factura de venta). Se detecta sola de qué lado es, se vincula con su factura, se contabiliza y ajusta el saldo en Tesorería. Para notas de varios documentos, cárgalas una por una.</p>
+      <div class="fila-campos nx-filtros">
+        <label class="campo-etiquetado"><span>Lado</span>
+          <select id="nx-filtro-lado"><option value="">Todas</option><option value="compra">De compra (del proveedor)</option><option value="venta">De venta (a clientes)</option></select></label>
+        <label class="campo-etiquetado"><span>Tipo</span>
+          <select id="nx-filtro-tipo"><option value="">Crédito y débito</option><option value="credito">Crédito</option><option value="debito">Débito</option></select></label>
+        <label class="campo-etiquetado"><span>Estado</span>
+          <select id="nx-filtro-estado"><option value="">Todas</option><option value="activa">Vigentes</option><option value="anulada">Anuladas</option></select></label>
+      </div>
+      <div class="tabla-envoltorio">
+        <table id="tabla-notas"><thead></thead><tbody></tbody></table>
       </div>
     </section>
 
@@ -931,6 +951,117 @@
     </div>
   </dialog>
 
+  <!-- Nota crédito o débito desde el XML (compra: la expide el proveedor; venta: la expediste tú) -->
+  <dialog id="dialogo-nota-xml" class="dialogo-factura" aria-labelledby="titulo-nota-xml">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-nota-xml">Cargar nota crédito o débito (XML)</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-nota-xml" aria-label="Cerrar">×</button>
+    </div>
+
+    <div class="dialogo-cuerpo">
+      <div id="nx-paso-archivo">
+        <label class="zona-archivo" id="nx-zona-archivo">
+          <input type="file" id="nx-archivo" accept=".xml,.zip,application/xml,text/xml,application/zip">
+          <strong>Elige el XML de la nota</strong>
+          <span>o arrástralo hasta aquí. También sirve el .zip que trae el XML y el PDF.</span>
+        </label>
+        <p class="nota-aiu" id="nx-estado-lectura"></p>
+      </div>
+
+      <div id="nx-revision" hidden>
+        <div id="nx-advertencias"></div>
+
+        <div id="nx-resumen" class="fx-resumen"></div>
+
+        <div class="fx-rejilla">
+          <div class="fx-bloque">
+            <h4 id="nx-tercero-titulo">Tercero</h4>
+            <p id="nx-tercero" class="fx-texto"></p>
+            <label id="nx-crear-tercero-fila" class="fx-check" hidden>
+              <input type="checkbox" id="nx-crear-tercero" checked>
+              <span>Crear este tercero en Terceros con los datos del XML</span>
+            </label>
+          </div>
+          <div class="fx-bloque">
+            <h4>Factura que modifica</h4>
+            <select id="nx-documento"></select>
+            <p class="nota-aiu" id="nx-documento-nota"></p>
+          </div>
+          <div class="fx-bloque">
+            <h4>Proyecto / centro de costo</h4>
+            <select id="nx-proyecto"></select>
+          </div>
+        </div>
+
+        <div class="fx-bloque fx-ancho">
+          <div class="fx-titulo-con-accion">
+            <h4 id="nx-detalle-titulo">Detalle y cuenta</h4>
+            <label class="fx-todas">
+              <span>Llevar todo a:</span>
+              <select id="nx-cuenta-todas"></select>
+            </label>
+          </div>
+          <div class="tabla-envoltorio">
+            <table class="tabla-items-detalle" id="nx-tabla-lineas">
+              <thead>
+                <tr><th>#</th><th>Descripción</th><th class="num">Cant.</th><th class="num">Valor</th><th class="num">IVA</th><th id="nx-th-cuenta">Cuenta</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="fx-bloque fx-ancho" id="nx-rev-bloque" hidden>
+          <h4>Retenciones que se reversan</h4>
+          <p class="nota-aiu" id="nx-rev-nota"></p>
+          <div class="fila-campos">
+            <label class="campo-etiquetado"><span id="nx-rev-fuente-etiqueta">ReteFuente</span><input type="number" id="nx-rev-retefuente" min="0" step="0.01" placeholder="0"></label>
+            <label class="campo-etiquetado"><span>ReteIVA</span><input type="number" id="nx-rev-reteiva" min="0" step="0.01" placeholder="0"></label>
+            <label class="campo-etiquetado" id="nx-rev-reteica-fila"><span>ReteICA</span><input type="number" id="nx-rev-reteica" min="0" step="0.01" placeholder="0"></label>
+          </div>
+          <div id="nx-rev-otros"></div>
+        </div>
+
+        <div class="fx-bloque fx-ancho">
+          <h4>Asiento que se va a contabilizar</h4>
+          <div class="tabla-envoltorio">
+            <table class="tabla-items-detalle" id="nx-tabla-asiento">
+              <thead><tr><th>Cuenta</th><th class="num">Débito</th><th class="num">Crédito</th></tr></thead>
+              <tbody></tbody>
+              <tfoot></tfoot>
+            </table>
+          </div>
+          <div class="resumen-totales" id="nx-totales"></div>
+        </div>
+
+        <label id="nx-aceptar-fila" class="fx-check fx-aceptar" hidden>
+          <input type="checkbox" id="nx-aceptar">
+          <span>Revisé las advertencias de arriba y quiero registrar la nota de todos modos</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="dialogo-pie">
+      <p class="fx-error" id="nx-error" hidden></p>
+      <span class="fx-ayuda" id="nx-ayuda"></span>
+      <button type="button" class="btn-secundario" id="btn-cancelar-nota-xml">Cancelar</button>
+      <button type="button" class="btn-primario" id="btn-registrar-nota-xml" disabled>Registrar y contabilizar</button>
+    </div>
+  </dialog>
+
+  <!-- Detalle de una nota ya registrada -->
+  <dialog id="dialogo-nota-detalle" class="dialogo-factura" aria-labelledby="titulo-nota-detalle">
+    <div class="dialogo-cabecera">
+      <h3 id="titulo-nota-detalle">Nota</h3>
+      <button type="button" class="btn-cerrar-dialogo" id="btn-cerrar-nota-detalle" aria-label="Cerrar">×</button>
+    </div>
+    <div class="dialogo-cuerpo" id="nd-cuerpo"></div>
+    <div class="dialogo-pie">
+      <button type="button" class="btn-secundario" id="btn-xml-nota-detalle">Descargar XML</button>
+      <button type="button" class="btn-primario" id="btn-cerrar-nota-detalle-pie">Cerrar</button>
+    </div>
+  </dialog>
+
   <!-- Registro de un documento soporte expedido en Siigo (solo PDF) -->
   <dialog id="dialogo-ds" class="dialogo-factura" aria-labelledby="titulo-ds">
     <div class="dialogo-cabecera">
@@ -1157,26 +1288,28 @@
 </div>
 
 <!-- ?v=... evita que el navegador o el CDN sirvan una copia vieja de estos archivos: subir el valor cada vez que cambie alguno (ver README, "Caché de archivos estáticos") -->
-<script src="/contable/retencionesCatalogo.js?v=20261113-4"></script>
-<script src="/contable/calculoOrden.js?v=20261113-4"></script>
-<script src="/contable/asientoCompra.js?v=20261113-4"></script>
-<script src="/contable/asientoVenta.js?v=20261113-4"></script>
-<script src="/contable/planCuentas.js?v=20261113-4"></script>
-<script src="/contable/parametrosLaborales.js?v=20261113-4"></script>
-<script src="/contable/liquidacionNomina.js?v=20261113-4"></script>
-<script src="/contable/costeoInventario.js?v=20261113-4"></script>
-<script src="/contable/asientoInventario.js?v=20261113-4"></script>
-<script src="/contable/app.js?v=20261113-4"></script>
-<script src="/contable/divipola.js?v=20261113-4"></script>
-<script src="/contable/selectorLugar.js?v=20261113-4"></script>
-<script src="/contable/nomina.js?v=20261113-4"></script>
-<script src="/contable/nominaPrestaciones.js?v=20261113-4"></script>
-<script src="/contable/asientoNomina.js?v=20261113-4"></script>
-<script src="/contable/aportesContratistas.js?v=20261113-4"></script>
-<script src="/contable/nominaContratistas.js?v=20261113-4"></script>
-<script src="/contable/nominaAsopagos.js?v=20261113-4"></script>
-<script src="/contable/inventarios.js?v=20261113-4"></script>
-<script src="/contable/tesoreriaCruce.js?v=20261113-4"></script>
-<script src="/contable/usuarios.js?v=20261113-4"></script>
+<script src="/contable/retencionesCatalogo.js?v=20261113-5"></script>
+<script src="/contable/calculoOrden.js?v=20261113-5"></script>
+<script src="/contable/asientoCompra.js?v=20261113-5"></script>
+<script src="/contable/asientoVenta.js?v=20261113-5"></script>
+<script src="/contable/asientoNota.js?v=20261113-5"></script>
+<script src="/contable/planCuentas.js?v=20261113-5"></script>
+<script src="/contable/parametrosLaborales.js?v=20261113-5"></script>
+<script src="/contable/liquidacionNomina.js?v=20261113-5"></script>
+<script src="/contable/costeoInventario.js?v=20261113-5"></script>
+<script src="/contable/asientoInventario.js?v=20261113-5"></script>
+<script src="/contable/app.js?v=20261113-5"></script>
+<script src="/contable/divipola.js?v=20261113-5"></script>
+<script src="/contable/selectorLugar.js?v=20261113-5"></script>
+<script src="/contable/nomina.js?v=20261113-5"></script>
+<script src="/contable/nominaPrestaciones.js?v=20261113-5"></script>
+<script src="/contable/asientoNomina.js?v=20261113-5"></script>
+<script src="/contable/aportesContratistas.js?v=20261113-5"></script>
+<script src="/contable/nominaContratistas.js?v=20261113-5"></script>
+<script src="/contable/nominaAsopagos.js?v=20261113-5"></script>
+<script src="/contable/inventarios.js?v=20261113-5"></script>
+<script src="/contable/tesoreriaCruce.js?v=20261113-5"></script>
+<script src="/contable/notasElectronicas.js?v=20261113-5"></script>
+<script src="/contable/usuarios.js?v=20261113-5"></script>
 </body>
 </html>

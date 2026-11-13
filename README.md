@@ -226,8 +226,8 @@ venta que cancela. Pestaña **Tesorería › Cruce de pagos** (`public/contable/
   `origen_id` (nómina, prestaciones, PILA y planilla Y los llenan; nulo = digitado a mano). SQL: `sql-cruce-pagos-tesoreria.sql`.
 - API (`/api/tesoreria`): `GET cartera?tipo=pagar|cobrar&todos=1`, `GET movimientos-libres`, `GET/POST pagos`,
   `POST pagos/:id/anular`, `GET documentos/:tipo/:id/pagos`, `GET descuentos-aportes?terceroId=`, `POST descuentos`.
-- **Aún no:** anticipos a proveedores y de clientes, notas crédito y
-  débito, pago de nómina/prestaciones desde aquí (siguen en su módulo), diferencias en cambio.
+- **Notas crédito/débito:** el saldo de cada factura ya las incluye (`saldo = neto + notas − aplicado`); ver «Notas crédito y débito desde el XML».
+- **Aún no:** anticipos a proveedores y de clientes, pago de nómina/prestaciones desde aquí (siguen en su módulo), diferencias en cambio.
 
 ## Logo de empresa
 
@@ -347,7 +347,8 @@ profundidad, limita el tamaño descomprimido de un ZIP, y el navegador escapa to
 mostrarlo. Pruebas: `node --test tests/facturaElectronica.test.js` (lector y datos), `tests/asientoCompra.test.js`
 (asiento). Los archivos de ejemplo se generan con `tests/helpers/facturaDian.js` (datos ficticios).
 
-Lo que **no** hace todavía: notas crédito/débito, facturas en moneda extranjera, cruce de anticipos, ni los
+Las notas crédito y débito del proveedor se cargan en su propia pestaña (ver «Notas crédito y débito desde el XML»).
+Lo que **no** hace todavía: facturas en moneda extranjera, cruce de anticipos, ni los
 eventos RADIAN (acuse de recibo, recibo del bien, aceptación expresa) — ver pendientes.
 
 ### Facturas con AIU (Administración, Imprevistos, Utilidad)
@@ -380,7 +381,7 @@ Facturas de venta → **+ Cargar factura emitida (XML)**: sirve el `.xml` o el `
   queda `facturada`. Si el total difiere hay que confirmar.
 - **Se bloquea** (con mensaje claro): que el emisor no sea la propia empresa (si es una factura de compra se
   indica que va en Facturas de compra; y al revés, Facturas de compra rechaza facturas propias), CUFE o número
-  ya cargados, notas crédito/débito, e impuesto al consumo/otros impuestos distintos de IVA. Pide confirmar si
+  ya cargados, notas crédito/débito (van en «Notas crédito/débito»), e impuesto al consumo/otros impuestos distintos de IVA. Pide confirmar si
   la factura trae IVA y la empresa figura como no responsable de IVA.
 - Empresa nueva sin plan de cuentas: se aprovisiona la contabilidad base igual que en compras.
 - **Retenciones y descuentos del cliente en la propia factura:** bloque «Retenciones y descuentos del cliente (opcional)»
@@ -393,8 +394,50 @@ Facturas de venta → **+ Cargar factura emitida (XML)**: sirve el `.xml` o el `
   debe anotarse en los dos sitios. El reporte «Retenciones sufridas» muestra de dónde viene cada valor (en la factura / al cobrar).
 - Pruebas: `node --test tests/asientoVenta.test.js`.
 
-Lo que **no** hace todavía: notas crédito/débito, impoconsumo en ventas, ni el
+Lo que **no** hace todavía: impoconsumo en ventas, ni el
 **documento soporte** (Siigo no entrega XML: se registra a mano, ver la sección siguiente).
+
+## Notas crédito y débito desde el XML
+Pestaña **Notas crédito/débito**. Igual que con las facturas, por ahora se carga el XML (o el ZIP/`AttachedDocument` que entrega
+el proveedor o Siigo) y la aplicación lo contabiliza; cuando haya proveedor tecnológico se emitirán directo desde aquí.
+
+- **Qué lee** (`src/integrations/dian/facturaElectronica.js`): `CreditNote` (código 91) y `DebitNote` (92), con
+  `BillingReference` (factura que modifica: número, CUFE, fecha) y `DiscrepancyResponse` (concepto DIAN y descripción, que se usa como
+  motivo). Operaciones con y sin referencia a factura.
+- **De qué lado es:** si el emisor es la empresa → nota de **venta** (se la expidió a un cliente, modifica una factura de venta);
+  si el receptor es la empresa → nota de **compra** (la expidió un proveedor). Si ninguno coincide pero cita una factura de compra
+  registrada, se trata como compra pidiendo confirmar; si no, se bloquea.
+- **Vínculo con la factura:** por CUFE y, si no, por número (y tercero) entre las facturas contabilizadas; también se puede escoger a mano
+  o cargar **sin vincular** (pide confirmar). La nota cambia el saldo de la factura en Tesorería:
+  `saldo = neto + notas (crédito −, débito +) − pagado`. Una nota anulada deja de contar.
+- **Asiento (espejo de la factura):**
+  ```
+  Nota débito   = el mismo asiento de la factura (compra: Db gasto/costo/inventario + Db 1355 / Cr 2205;
+                  venta: Db 1305 / Cr ingreso + Cr 2408)
+  Nota crédito  = el asiento de la factura con débitos y créditos invertidos
+                  (compra: Db 2205 / Cr gasto/costo/inventario + Cr 1355;  venta: Db ingreso + Db 2408 / Cr 1305)
+  ```
+  La cuenta de cada línea se sugiere a partir de la factura original (por descripción, luego por posición y, si no, la más usada); se puede
+  cambiar línea por línea o con «Llevar todo a». Las reglas `nota_credito_compra`, `nota_debito_compra`, `nota_credito_venta` y
+  `nota_debito_venta` se crean solas (automáticas) en la primera nota.
+- **Retenciones que se reversan (solo nota crédito):** si la factura tenía retenciones, la nota las devuelve en proporción a lo que
+  rebaja (se sugiere el valor y se puede corregir, con tope en lo que la factura aún tiene retenido). Compra: `Db 2365 / 2367`; venta:
+  `Cr 135515 / 135517 / 135518` y `Cr` gasto por estampillas y tasas. El efecto en lo que se debe o se cobra es `total − retenciones que se reversan`.
+  Las notas débito no reversan ni generan retención.
+- **Bloqueos:** CUDE ya registrado, mismo número del mismo tercero, notas de venta con impuesto al consumo, notas crédito que sumadas superan
+  el total de la factura (tolerancia de 1 peso por redondeos), retenciones a reversar inválidas. **Por confirmar:** nota que dejaría saldo a
+  favor, fecha anterior a la factura, productos de inventario (no mueve kardex) y nota sin factura vinculada.
+- **Anular:** `POST /api/notas/:id/anular` (contador/dueño, motivo de mínimo 10 letras): anula el asiento y devuelve el saldo a la factura;
+  exige periodo abierto o en cierre.
+- **Tabla:** `notas_electronicas` (SQL en `sql-notas-credito-debito.sql`). El XML original se guarda y se descarga desde el detalle. El
+  detalle de cada factura (compra y venta) muestra sus notas.
+- **API (`/api/notas`):** `GET /` (lado/tipo/estado), `POST /xml/previsualizar`, `POST /xml`, `GET /documento/:docTipo/:docId`,
+  `GET /:id`, `GET /:id/xml`, `POST /:id/anular`.
+- El asiento lo arma `public/contable/asientoNota.js` (el mismo archivo para la vista previa y para el guardado).
+- Pruebas: `node --test tests/notasElectronicas.test.js`; los XML de ejemplo salen de `construirNota` en `tests/helpers/facturaDian.js`.
+
+Lo que **no** hace todavía: mover el kardex, retención en notas débito, saldo a favor visible en la cartera, notas de ajuste del documento
+soporte, impuesto al consumo en notas de venta, ni una nota que modifique varias facturas a la vez.
 
 ## Documento soporte (compras a no obligados a facturar), expedido en Siigo
 
@@ -594,7 +637,7 @@ Pruebas: `node --test tests/costeoInventario.test.js tests/asientoInventario.tes
 - Cuentas por defecto: inventario 1435, costo 6135; faltantes/consumos/bajas a 5195 y sobrantes a 4295 (se pueden cambiar en cada movimiento). Cuentas alternativas ofrecidas: 1405, 1410, 1430, 1455, 1460, 1465 y 6120, 6140.
 - Una línea de compra a 14xx debe ir a la misma cuenta (primeros 4 dígitos) que el producto, para que el kardex cuadre con la contabilidad.
 
-**Lo que no hace todavía:** notas crédito/débito de compra y venta (devoluciones por factura), anulación de movimientos de factura, lotes y vencimientos,
+**Lo que no hace todavía:** que las notas crédito/débito muevan el kardex (una devolución de mercancía hoy solo ajusta la contabilidad; el movimiento de inventario se registra a mano), anulación de movimientos de factura, lotes y vencimientos,
 varias bodegas y traslados, costeo PEPS, producción (materias primas → producto terminado), IVA/inventario del documento soporte,
 importación masiva de productos desde Excel y el recálculo del promedio por fecha.
 
@@ -706,13 +749,14 @@ qué contabilizar.
 - [ ] `cotizacion-imprimir.html` y `orden-imprimir.html` usan `<script>` y `<style>` en línea, y `server.js` define una CSP `script-src 'self'` / `style-src 'self'`. Un navegador que respete esa CSP los bloquea (probado en un entorno local sin proxy). Si en algún momento las páginas de impresión dejan de cargar, mover ese JS/CSS a archivos externos
 
 - [ ] Plan de cuentas: no hay pantalla para editar las **reglas de contabilización** (qué cuenta usa cada evento); solo se ven en el bloqueo al desactivar. Tampoco hay importación masiva del plan desde Excel ni cuentas de orden (clases 8 y 9). La cuenta 1355 se usa como "IVA descontable" (en el PUC el IVA descontable es una subcuenta de 2408): validar con el contador si se prefiere la estructura del PUC
-- [ ] Facturas de venta desde XML (Siigo): retenciones practicadas por el cliente al pago, notas crédito/débito, impoconsumo. Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
-- [ ] Facturas de compra desde XML: notas crédito/débito de proveedores (descuentos y devoluciones posteriores), documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
+- [ ] Facturas de venta desde XML (Siigo): impoconsumo. Mientras tanto la factura de venta interna (`convertirCotizacionEnFactura`) sigue en el código pero sin botón en pantalla
+- [ ] Notas crédito/débito: movimiento de inventario (devoluciones en compras y ventas), retención en notas débito, saldo a favor (nota mayor que el saldo: hoy solo advierte y no se ve en la cartera), notas de ajuste del documento soporte, impoconsumo en notas de venta, una nota que modifica varias facturas (se carga una por factura) y, cuando haya proveedor tecnológico, emitirlas desde la aplicación
+- [ ] Facturas de compra desde XML: documento soporte recibido, facturas en moneda extranjera y cruce de anticipos
 - [ ] RADIAN: enviar los eventos del comprador (acuse de recibo, recibo del bien o servicio, aceptación expresa) a la DIAN a través del proveedor tecnológico; hoy solo se lee el XML. Tampoco se consulta a la DIAN para comprobar el CUFE (hay un enlace para hacerlo a mano)
 - [ ] Facturas de compra: el control de duplicados (CUFE) es una consulta previa, no un índice único; dos cargas simultáneas idénticas podrían pasar. Considerar índice único `(empresa_id, cufe)` al migrar a `sequelize-cli`
 - [ ] Facturas de compra: aprobar/anular un asiento en `borrador` y anular una factura registrada por error (hoy no hay forma de revertirla desde la pantalla)
 - [ ] **Migraciones de Sequelize (`sequelize-cli`)** en vez de `sync({ alter: true })` — ya tenemos evidencia concreta de por qué importa: con cada redeploy que tocó el modelo, Sequelize fue acumulando una restricción única duplicada sobre `consecutivo` en vez de reconocer que ya existía una (llegaron a existir 23 restricciones idénticas en `ordenes_compra`, ver corrección en Supabase del 30/sep/2026). `alter: true` es cómodo para esta etapa pero no es confiable para cambios de índices/restricciones a largo plazo
-- [ ] Tesorería (cruce de pagos): anticipos (de clientes y a proveedores), notas crédito/débito y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
+- [ ] Tesorería (cruce de pagos): anticipos (de clientes y a proveedores) y cruce de pagos de órdenes de compra; «conciliar» un movimiento digitado a mano sin cruzarlo sigue sin generar asiento
 - [ ] Bancos: conciliación por cuenta contra el extracto (importar el extracto y quitar la conciliación de un movimiento); los pagos, recaudos y la nómina ya van al auxiliar de la cuenta; cuentas en moneda extranjera (111010); cerrar/inactivar una cuenta bancaria; reclasificar movimientos antiguos de 1110 a su auxiliar
 - [ ] Múltiples líneas por evento en `motorAsientos`: ya existe `contabilizarAsientoCompuesto` (lo usa la factura de compra desde XML), pero `contabilizarEvento` sigue siendo de un débito y un crédito — las ventas no discriminan IVA por pagar en un renglón aparte, ni los activos fijos (la nómina ya usa `contabilizarAsientoCompuesto`)
 - [ ] Implementar el mapeo real en `facturacionAdapter.js` y `documentoSoporteAdapter.js` contra el proveedor contratado

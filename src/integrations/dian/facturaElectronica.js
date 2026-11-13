@@ -46,6 +46,24 @@ const NOMBRES_TIPO = {
   '92': 'Nota débito',
 };
 
+// Motivos (DiscrepancyResponse/ResponseCode) que define la DIAN para cada nota.
+const CONCEPTOS_NOTA = {
+  credito: {
+    1: 'Devolución parcial de los bienes y/o no aceptación parcial del servicio',
+    2: 'Anulación de la factura electrónica',
+    3: 'Rebaja o descuento parcial o total',
+    4: 'Ajuste de precio',
+    5: 'Descuento comercial por pronto pago',
+    6: 'Descuento comercial por volumen de ventas',
+  },
+  debito: {
+    1: 'Intereses',
+    2: 'Gastos por cobrar',
+    3: 'Cambio del valor',
+    4: 'Otros',
+  },
+};
+
 function dinero(valor) {
   const n = Number(String(valor).replace(',', '.'));
   return Number.isFinite(n) ? Math.round((n + Number.EPSILON) * 100) / 100 : 0;
@@ -267,7 +285,10 @@ function leerFacturaElectronica(buffer) {
 
   const esNotaCredito = raiz.nombre === 'CreditNote';
   const esNotaDebito = raiz.nombre === 'DebitNote';
-  const codigoTipo = xml.texto(raiz, 'InvoiceTypeCode') || (esNotaCredito ? '91' : esNotaDebito ? '92' : '');
+  const codigoTipo =
+    xml.texto(raiz, 'InvoiceTypeCode') ||
+    xml.texto(raiz, esNotaCredito ? 'CreditNoteTypeCode' : 'DebitNoteTypeCode') ||
+    (esNotaCredito ? '91' : esNotaDebito ? '92' : '');
   const lineaNombre = raiz.nombre === 'Invoice' ? 'InvoiceLine' : raiz.nombre === 'CreditNote' ? 'CreditNoteLine' : 'DebitNoteLine';
   const cantidadNombre = raiz.nombre === 'Invoice' ? 'InvoicedQuantity' : raiz.nombre === 'CreditNote' ? 'CreditedQuantity' : 'DebitedQuantity';
 
@@ -330,7 +351,7 @@ function leerFacturaElectronica(buffer) {
   const impoconsumo = dinero(impuestos.filter((s) => s.codigo !== '01' && s.codigo !== 'ZZ').reduce((s, x) => s + x.valor, 0));
 
   // --- Totales
-  const monetarios = xml.hijo(raiz, 'LegalMonetaryTotal');
+  const monetarios = xml.hijo(raiz, 'LegalMonetaryTotal') || xml.hijo(raiz, 'RequestedMonetaryTotal'); // la nota débito usa el segundo
   const totales = {
     lineas: dinero(xml.texto(monetarios, 'LineExtensionAmount')),
     base: dinero(xml.texto(monetarios, 'TaxExclusiveAmount')),
@@ -345,6 +366,19 @@ function leerFacturaElectronica(buffer) {
 
   const aiu = leerAiu(raiz, lineas, impuestos, totales);
 
+  // --- Notas crédito / débito: factura que modifican y motivo
+  // BillingReference/InvoiceDocumentReference trae número, CUFE y fecha de la factura original. El tipo de operación
+  // (CustomizationID) es 20/22 en la nota crédito y 30/32 en la débito; los pares 22 y 32 son "sin referencia a factura".
+  const refNodo = xml.ruta(raiz, 'BillingReference/InvoiceDocumentReference') || xml.ruta(raiz, 'BillingReference/CreditNoteDocumentReference') || xml.ruta(raiz, 'BillingReference/DebitNoteDocumentReference');
+  const refCufe = refNodo ? xml.texto(refNodo, 'UUID').toLowerCase() : '';
+  const referencia = refNodo
+    ? { numero: xml.texto(refNodo, 'ID'), cufe: refCufe, fecha: xml.texto(refNodo, 'IssueDate') || null }
+    : null;
+  const discrepanciaNodo = xml.hijo(raiz, 'DiscrepancyResponse');
+  const discrepancia = discrepanciaNodo
+    ? { codigo: xml.texto(discrepanciaNodo, 'ResponseCode'), descripcion: xml.texto(discrepanciaNodo, 'Description'), referencia: xml.texto(discrepanciaNodo, 'ReferenceID') }
+    : null;
+
   // --- Pago
   const medio = xml.hijo(raiz, 'PaymentMeans');
   const idPago = xml.texto(medio, 'ID'); // 1 = contado, 2 = crédito
@@ -354,6 +388,11 @@ function leerFacturaElectronica(buffer) {
     tipoCodigo: codigoTipo,
     tipoNombre: NOMBRES_TIPO[codigoTipo] || `Documento tipo ${codigoTipo || 'desconocido'}`,
     esFactura: raiz.nombre === 'Invoice' && TIPOS_FACTURA.includes(codigoTipo),
+    esNotaCredito,
+    esNotaDebito,
+    tipoOperacion: xml.texto(raiz, 'CustomizationID'),
+    referencia,
+    discrepancia,
     elementoRaiz: raiz.nombre,
     numero: xml.texto(raiz, 'ID'),
     cufe,
@@ -440,4 +479,4 @@ function validarCoherencia(d) {
   }
 }
 
-module.exports = { leerFacturaElectronica, IMPUESTOS, NOMBRES_TIPO, TIPOS_FACTURA };
+module.exports = { leerFacturaElectronica, IMPUESTOS, NOMBRES_TIPO, TIPOS_FACTURA, CONCEPTOS_NOTA };

@@ -23,6 +23,7 @@ const CuentaBancaria = require('../models/CuentaBancaria');
 const MovimientoBancario = require('../models/MovimientoBancario');
 const PagoTesoreria = require('../models/PagoTesoreria');
 const PagoAplicacion = require('../models/PagoAplicacion');
+const NotaElectronica = require('../../notas/models/NotaElectronica');
 const { contabilizarAsientoCompuesto, cuentasPorCodigo } = require('../../../core/services/motorAsientos');
 const { aprovisionarContabilidadBase } = require('../../../core/services/seedService');
 const { asegurarCuentaContable, nombreAuxiliar } = require('./contabilidadBancaria');
@@ -185,6 +186,15 @@ async function aplicadoPorDocumento(empresaId, docTipo, transaction) {
   return mapa;
 }
 
+// Efecto (en centavos) de las notas crédito y débito vigentes sobre cada documento: la crédito baja lo que se debe o se
+// cobra y la débito lo sube. Una nota anulada no cuenta.
+async function notasPorDocumento(empresaId, docTipo, transaction) {
+  const filas = await NotaElectronica.findAll({ where: { empresaId, docTipo, estado: 'activa' }, transaction });
+  const mapa = {};
+  for (const n of filas) mapa[n.docId] = (mapa[n.docId] || 0) + (n.tipo === 'credito' ? -aCentavos(n.neto) : aCentavos(n.neto));
+  return mapa;
+}
+
 async function documentoDe(empresaId, docTipo, docId, transaction) {
   const def = DOCS[docTipo];
   if (!def) throw new Error('Tipo de documento no válido (factura_compra, documento_soporte o factura_venta).');
@@ -206,8 +216,9 @@ async function estadoContable(d, transaction) {
 
 async function saldoDe(empresaId, docTipo, d, transaction) {
   const aplicado = (await aplicadoPorDocumento(empresaId, docTipo, transaction))[d.id] || 0;
+  const notas = (await notasPorDocumento(empresaId, docTipo, transaction))[d.id] || 0;
   const neto = netoDelDocumento(docTipo, d);
-  return { neto, aplicado, saldo: neto - aplicado };
+  return { neto, notas, aplicado, saldo: neto + notas - aplicado };
 }
 
 // --- Cartera --------------------------------------------------------------------
@@ -223,6 +234,7 @@ async function cartera(datos, usuario) {
     const docs = await DOCS[docTipo].modelo.findAll({ where: { empresaId }, order: [['fecha', 'ASC']] });
     if (!docs.length) continue;
     const aplicado = await aplicadoPorDocumento(empresaId, docTipo);
+    const notas = await notasPorDocumento(empresaId, docTipo);
     const asientos = await Asiento.findAll({ where: { id: docs.map((d) => d.asientoId).filter(Boolean) } });
     const asientoPorId = Object.fromEntries(asientos.map((a) => [a.id, a]));
     const terceros = await Tercero.findAll({ where: { id: [...new Set(docs.map((d) => d.terceroId))], empresaId } });
@@ -230,7 +242,8 @@ async function cartera(datos, usuario) {
     for (const d of docs) {
       const neto = netoDelDocumento(docTipo, d);
       const pagado = aplicado[d.id] || 0;
-      const saldo = neto - pagado;
+      const ajusteNotas = notas[d.id] || 0; // notas crédito (negativo) y débito (positivo) vigentes
+      const saldo = neto + ajusteNotas - pagado;
       if (!todos && saldo <= 0) continue;
       const a = d.asientoId ? asientoPorId[d.asientoId] : null;
       let motivoNoPagable = null;
@@ -251,6 +264,7 @@ async function cartera(datos, usuario) {
         fecha: d.fecha,
         fechaVencimiento: vence,
         neto: dePesos(neto),
+        notas: dePesos(ajusteNotas),
         retenido: dePesos(aCentavos(d.retencionesTotal || 0)),
         pagado: dePesos(pagado),
         saldo: dePesos(saldo),
@@ -590,7 +604,7 @@ async function pagosDeDocumento(docTipo, docId, usuario) {
   const pagos = aps.length ? await PagoTesoreria.findAll({ where: { id: [...new Set(aps.map((a) => a.pagoId))], empresaId }, order: [['fecha', 'ASC']] }) : [];
   const s = await saldoDe(empresaId, docTipo, d);
   return {
-    docTipo, docId: d.id, numero: numeroDelDocumento(docTipo, d), neto: dePesos(s.neto), pagado: dePesos(s.aplicado), saldo: dePesos(s.saldo),
+    docTipo, docId: d.id, numero: numeroDelDocumento(docTipo, d), neto: dePesos(s.neto), notas: dePesos(s.notas), pagado: dePesos(s.aplicado), saldo: dePesos(s.saldo),
     pagos: await enriquecer(pagos, empresaId),
   };
 }
@@ -709,5 +723,5 @@ async function anularPago(id, datos, usuario) {
 
 module.exports = {
   cartera, registrarPago, retencionesSufridas, RETENCIONES, montoOpcional, leerOtrosDescuentos, asegurarCuentasRetencion, aplicarDescuento, descuentosDisponibles, listarPagos, detallePago, pagosDeDocumento,
-  movimientosLibres, anularPago, netoDelDocumento, DOCS,
+  movimientosLibres, anularPago, netoDelDocumento, saldoDe, aplicadoPorDocumento, notasPorDocumento, asegurarReglasCruce, DOCS,
 };
